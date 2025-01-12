@@ -1,12 +1,12 @@
 {
-  "Author": "your name here",
-  "Name": "Sample Plugin",
-  "Punchline": "A short one-liner that shows up in /xlplugins.",
-  "Description": "A description that shows up in /xlplugins. List any major slash-command(s).",
-  "ApplicableVersion": "any",
-  "Tags": [
-    "sample",
-    "plugin",
-    "goats"
-  ]
+    "Author": "Sebby",
+    "Name": "Drag And Drop Texturing",
+    "Punchline": "Drag and drop textures directly into the game.",
+    "Description": "Drag and drop textures directly into the game.",
+    "ApplicableVersion": "any",
+    "Tags": [
+        "penumbra",
+        "glamourer",
+        "drag and drop"
+    ]
 }
