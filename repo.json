@@ -1,0 +1,25 @@
+[
+  {
+    "Author": "Sebastina",
+    "Name": "Drag And Drop Texturing",
+    "Description": "Drag and and drop textured directly onto what you see!",
+    "Tags": [
+      "Drag And Drop",
+      "Texturing"
+    ],
+    "InternalName": "DragAndDropTexturing",
+    "AssemblyVersion": "0.0.0.1",
+    "TestingAssemblyVersion": "0.0.0.1",
+    "RepoUrl": "https://github.com/Sebane1/DragAndDropTexturing",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 11,
+    "IsHide": "False",
+    "IsTestingExclusive": "False",
+    "DownloadCount": 0,
+    "LastUpdate": 0,
+    "DownloadLinkInstall": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.1/AQuestReborn.zip",
+    "DownloadLinkTesting": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.1/AQuestReborn.zip",
+    "DownloadLinkUpdate": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.1/AQuestReborn.zip",
+    "IconUrl": ""
+  }
+]
