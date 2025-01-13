@@ -41,7 +41,7 @@ using PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer;
 
 namespace RoleplayingVoice
 {
-    internal class DragAndDropTextureWindow : Window
+    internal class DragAndDropTextureWindow : Window, IDisposable
     {
         IDalamudTextureWrap textureWrap;
         private IDalamudPluginInterface _pluginInterface;
@@ -134,9 +134,9 @@ namespace RoleplayingVoice
         public override void Draw()
         {
             var size = ImGui.GetIO().DisplaySize;
-            var cursorPosition = ImGui.GetCursorPos();
             Size = new Vector2(size.X, size.Y);
             SizeCondition = ImGuiCond.None;
+            var cursorPosition = ImGui.GetIO().MousePos;
             if (IsOpen)
             {
                 if (!_lockDuplicateGeneration)
@@ -168,8 +168,6 @@ namespace RoleplayingVoice
                             float aboveNoseYPosFinal = 0;
                             float aboveNeckYPosFinal = 0;
                             float aboveEyesYPosFinal = 0;
-                            var cursorPoint = _cursorPosition;
-                            Vector2 cursorPosition = new Vector2(cursorPoint.X, cursorPoint.Y);
                             foreach (var item in _objects)
                             {
                                 unsafe
@@ -277,10 +275,12 @@ namespace RoleplayingVoice
                                     if (selectedPlayerCollection != mainPlayerCollection ||
                                         selectedPlayer.Value == Plugin.ClientState.LocalPlayer)
                                     {
+                                        ImGui.SetWindowFontScale(1.5f);
                                         ImGui.TextUnformatted($"Dragging texture onto {selectedPlayer.Key.Split(' ')[0]}'s {bodyDragPart.ToString()}:\n\t{string.Join("\n\t", m.Files.Select(Path.GetFileName))} " + debugInfo);
                                     }
                                     else
                                     {
+                                        ImGui.SetWindowFontScale(1.5f);
                                         ImGui.TextUnformatted(selectedPlayer.Key.Split(' ')[0] + " has the same collection as your main character.\r\nPlease give them a unique collection in Penumbra, or drag onto your main character. " + debugInfo);
                                     }
                                 }
@@ -745,6 +745,11 @@ namespace RoleplayingVoice
             }
             return true;
         }
+
+        public void Dispose()
+        {
+        }
+
         private static readonly string[] ValidTextureExtensions = new[]
         {
           ".png",

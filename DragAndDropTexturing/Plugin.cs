@@ -23,7 +23,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
 
     private const string CommandName = "/ddt";
-    private IClientState _clientState;
+    private PenumbraAndGlamourerIpcWrapper _penumbraAndGlamourerIpcWrapper;
     private IChatGui _chat;
     private IObjectTable _objectTable;
     private int _playerCount;
@@ -37,6 +37,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin(IClientState clientState, IChatGui chatGui, IObjectTable objectTable)
     {
+        _penumbraAndGlamourerIpcWrapper = new PenumbraAndGlamourerIpcWrapper(PluginInterface);
         _chat = chatGui;
         _objectTable = objectTable;
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -57,7 +58,6 @@ public sealed class Plugin : IDalamudPlugin
         // Use /xllog to open the log window in-game
         // Example Output: 00:57:54.959 | INF | [SamplePlugin] ===A cool log message from Sample Plugin===
         Log.Information($"===A cool log message from {PluginInterface.Manifest.Name}===");
-
         if (DragAndDropTextures is not null)
         {
             WindowSystem.AddWindow(DragAndDropTextures);
@@ -71,8 +71,8 @@ public sealed class Plugin : IDalamudPlugin
         List<Dalamud.Game.ClientState.Objects.Types.IGameObject> gameObjects = new List<Dalamud.Game.ClientState.Objects.Types.IGameObject>();
         foreach (var item in _objectTable)
         {
-            if (Vector3.Distance(_clientState.LocalPlayer.Position, item.Position) < 3f
-                && item.GameObjectId != _clientState.LocalPlayer.GameObjectId)
+            if (Vector3.Distance(ClientState.LocalPlayer.Position, item.Position) < 3f
+                && item.GameObjectId != ClientState.LocalPlayer.GameObjectId)
             {
                 if (item.IsValid())
                 {
@@ -91,8 +91,8 @@ public sealed class Plugin : IDalamudPlugin
     {
         WindowSystem.RemoveAllWindows();
 
-        MainWindow.Dispose();
-
+        DragAndDropTextures?.Dispose();
+        MainWindow?.Dispose();
         CommandManager.RemoveHandler(CommandName);
     }
 
