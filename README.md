@@ -8,7 +8,7 @@ Install the Drag And Drop Texturing dalamud plugin. It provides many features fo
 
 Repo link
 ```
-https://raw.githubusercontent.com/Sebane1/DragAndDropTexturing/refs/heads/master/repo.json
+https://raw.githubusercontent.com/Sebane1/DragAndDropTexturing/master/repo.json
 ```
 
 Step 2:
