@@ -4,7 +4,7 @@ Video Preview:
 https://www.youtube.com/watch?v=rRbJVhibT9I
 
 Step 1:
-Install the Drag And Drop Texturing dalamud plugin. It provides many features for getting more immersed into the game, all of which are configurable and toggleable.
+Install the Drag And Drop Texturing dalamud plugin.
 
 Repo link
 ```
