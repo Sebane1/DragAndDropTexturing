@@ -285,6 +285,7 @@ namespace RoleplayingVoice
                                         ImGui.SetWindowFontScale(1.5f);
                                         ImGui.TextUnformatted(selectedPlayer.Key.Split(' ')[0] + " has the same collection as your main character.\r\nPlease give them a unique collection in Penumbra, or drag onto your main character. " + debugInfo);
                                     }
+                                    ImGui.SetWindowFontScale(1f);
                                 }
                                 else
                                 {
