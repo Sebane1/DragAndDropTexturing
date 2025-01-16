@@ -38,6 +38,7 @@ using static FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation;
 using LooseTextureCompilerCore.Racial;
 using DragAndDropTexturing;
 using PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer;
+using Lumina.Data.Parsing;
 
 namespace RoleplayingVoice
 {
@@ -517,7 +518,7 @@ namespace RoleplayingVoice
                                         }
                                     }
                                 }
-                                string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
+                                wwstring fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
                                 if (textureSets.Count > 0)
                                 {
                                     Task.Run(() => Export(true, textureSets, fullModPath, modName, selectedPlayer));
@@ -557,7 +558,38 @@ namespace RoleplayingVoice
         }
         private void SortUVTexture(TextureSet textureSet, string file)
         {
-            switch (ImageManipulation.UVMapTypeClassifier(file))
+            bool foundStringIdentifier = false;
+            UVMapType uVMapType = UVMapType.Base;
+            if (file.ToLower().Contains("base"))
+            {
+                uVMapType = UVMapType.Base;
+                foundStringIdentifier = true;
+            }
+
+            if (file.ToLower().Contains("norm"))
+            {
+                uVMapType = UVMapType.Normal;
+                foundStringIdentifier = true;
+            }
+
+            if (file.ToLower().Contains("mask"))
+            {
+                uVMapType = UVMapType.Mask;
+                foundStringIdentifier = true;
+            }
+
+            if (file.ToLower().Contains("glow"))
+            {
+                uVMapType = UVMapType.Glow;
+                foundStringIdentifier = true;
+            }
+
+
+            if (!foundStringIdentifier)
+            {
+                uVMapType = ImageManipulation.UVMapTypeClassifier(file);
+            }
+            switch (uVMapType)
             {
                 case UVMapType.Base:
                     textureSet.Base = file;
