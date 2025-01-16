@@ -8,8 +8,8 @@
       "Texturing"
     ],
     "InternalName": "DragAndDropTexturing",
-    "AssemblyVersion": "0.0.0.2",
-    "TestingAssemblyVersion": "0.0.0.2",
+    "AssemblyVersion": "0.0.0.3",
+    "TestingAssemblyVersion": "0.0.0.3",
     "RepoUrl": "https://github.com/Sebane1/DragAndDropTexturing",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 11,
