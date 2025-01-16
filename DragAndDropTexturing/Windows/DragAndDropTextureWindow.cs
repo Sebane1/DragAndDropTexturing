@@ -518,7 +518,7 @@ namespace RoleplayingVoice
                                         }
                                     }
                                 }
-                                wwstring fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
+                                string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
                                 if (textureSets.Count > 0)
                                 {
                                     Task.Run(() => Export(true, textureSets, fullModPath, modName, selectedPlayer));
@@ -583,6 +583,7 @@ namespace RoleplayingVoice
                 uVMapType = UVMapType.Glow;
                 foundStringIdentifier = true;
             }
+
 
 
             if (!foundStringIdentifier)
