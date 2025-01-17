@@ -1,25 +1,17 @@
 using Dalamud.Interface.DragDrop;
-using Dalamud.Interface.Internal;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
-using FFXIVClientStructs.FFXIV.Common.Math;
 using ImGuiNET;
-using ImGuiScene;
-using FFXIVClientStructs.Havok;
 using System;
-using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Windows.Forms;
 using Vector2 = System.Numerics.Vector2;
 using FFXIVLooseTextureCompiler;
 using FFXIVLooseTextureCompiler.PathOrganization;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Penumbra.Api;
-using FFXIVLooseTextureCompiler.Export;
 using FFXIVLooseTextureCompiler.Racial;
 using PenumbraAndGlamourerHelpers;
 using System.Threading;
@@ -27,19 +19,13 @@ using Ktisis.Structs;
 using Ktisis.Structs.Actor;
 using Bone = Ktisis.Structs.Bones.Bone;
 using FFXIVLooseTextureCompiler.ImageProcessing;
-using Dalamud.Game.ClientState.Objects.Types;
-using Dalamud.Game.ClientState.Objects.Enums;
-using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using ICharacter = Dalamud.Game.ClientState.Objects.Types.ICharacter;
-using LooseTextureCompilerCore;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Plugin.Services;
 using static FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation;
-using LooseTextureCompilerCore.Racial;
 using DragAndDropTexturing;
+using LooseTextureCompilerCore.ProjectCreation;
 using PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer;
-using Lumina.Data.Parsing;
-
 namespace RoleplayingVoice
 {
     internal class DragAndDropTextureWindow : Window, IDisposable
@@ -112,13 +98,7 @@ namespace RoleplayingVoice
             _textureProcessor = new TextureProcessor(underlayTexturePath);
             _textureProcessor.OnStartedProcessing += TextureProcessor_OnStartedProcessing;
             _textureProcessor.OnLaunchedXnormal += TextureProcessor_OnLaunchedXnormal;
-            _choiceTypes = new string[] { "Detailed", "Simple", "Dropdown", "Group Is Checkbox" };
-            _bodyNames = new string[] { "Vanilla and Gen2", "BIBO+", "Gen3", "TBSE and HRBODY", "TAIL", "Otopop" };
-            _bodyNamesSimplified = new string[] { "BIBO+", "Gen3", "TBSE and HRBODY", "Otopop" };
-            _genders = new string[] { "Masculine", "Feminine" };
-            _faceTypes = new string[] { "Face 1", "Face 2", "Face 3", "Face 4", "Face 5", "Face 6", "Face 7", "Face 8", "Face 9" };
-            _faceParts = new string[] { "Face", "Eyebrows", "Eyes", "Ears", "Face Paint", "Hair", "Face B", "Etc B" };
-            _faceScales = new string[] { "Vanilla Scales", "Scaleless Vanilla", "Scaleless Varied" };
+
             _textureProvider = textureProvider;
         }
 
@@ -359,47 +339,47 @@ namespace RoleplayingVoice
                                         if (fileName.Contains("mata") || fileName.Contains("amat")
                                             || fileName.Contains("materiala") || fileName.Contains("gen2"))
                                         {
-                                            var item = AddBody(_currentCustomization.Customize.Gender.Value, 0,
+                                            var item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
                                             RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                             _currentCustomization.Customize.TailShape.Value - 1, false);
-                                            SortUVTexture(item, file);
+                                            modName += " " + ProjectHelper.SortUVTexture(item, file).ToString();
                                             textureSets.Add(item);
                                             modName = modName.Replace("Mod", "Body");
                                             item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                                         }
                                         else if (fileName.Contains("bibo") || fileName.Contains("b+"))
                                         {
-                                            var item = AddBody(_currentCustomization.Customize.Gender.Value, 1,
+                                            var item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
                                             RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                             _currentCustomization.Customize.TailShape.Value - 1, false);
-                                            SortUVTexture(item, file);
+                                            modName += " " + ProjectHelper.SortUVTexture(item, file);
                                             textureSets.Add(item);
                                             modName = modName.Replace("Mod", "Body");
                                             item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                                         }
                                         else if (fileName.Contains("gen3"))
                                         {
-                                            var item = AddBody(_currentCustomization.Customize.Gender.Value, 2,
+                                            var item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
                                             RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                             _currentCustomization.Customize.TailShape.Value - 1, false);
-                                            SortUVTexture(item, file);
+                                            modName += " " + ProjectHelper.SortUVTexture(item, file);
                                             textureSets.Add(item);
                                             modName = modName.Replace("Mod", "Body");
                                             item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                                         }
                                         else if (fileName.Contains("tbse"))
                                         {
-                                            var item = AddBody(_currentCustomization.Customize.Gender.Value, 3,
+                                            var item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
                                             RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                             _currentCustomization.Customize.TailShape.Value - 1, false);
-                                            SortUVTexture(item, file);
+                                            modName += " " + ProjectHelper.SortUVTexture(item, file);
                                             textureSets.Add(item);
                                             modName = modName.Replace("Mod", "Body");
                                             item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                                         }
                                         else if (fileName.Contains("eyebrow") || fileName.Contains("lash"))
                                         {
-                                            var item = AddFace(_currentCustomization.Customize.Face.Value - 1, 1, 0,
+                                            var item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 1, 0,
                                              _currentCustomization.Customize.Gender.Value,
                                              RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                              _currentCustomization.Customize.Clan.Value - 1, 0, false);
@@ -409,7 +389,7 @@ namespace RoleplayingVoice
                                         }
                                         else if (fileName.Contains("eye"))
                                         {
-                                            var item = AddFace(_currentCustomization.Customize.Face.Value - 1, 2, 0,
+                                            var item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 2, 0,
                                             _currentCustomization.Customize.Gender.Value,
                                             RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                             _currentCustomization.Customize.Clan.Value - 1, 0, false);
@@ -419,11 +399,11 @@ namespace RoleplayingVoice
                                         }
                                         else if (fileName.Contains("face") || fileName.Contains("makeup"))
                                         {
-                                            var item = AddFace(_currentCustomization.Customize.Face.Value - 1, 0, 0,
+                                            var item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 0, 0,
                                             _currentCustomization.Customize.Gender.Value,
                                             RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                             _currentCustomization.Customize.Clan.Value - 1, 0, false);
-                                            SortUVTexture(item, file);
+                                            ProjectHelper.SortUVTexture(item, file);
                                             textureSets.Add(item);
                                             modName = modName.Replace("Mod", "Face");
                                         }
@@ -435,20 +415,20 @@ namespace RoleplayingVoice
                                                 case BodyDragPart.Body:
                                                     if (_currentCustomization.Customize.Race.Value - 1 == 2)
                                                     {
-                                                        item = AddBody(_currentCustomization.Customize.Gender.Value, 5,
+                                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 5,
                                                         RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                                         _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                        SortUVTexture(item, file);
+                                                        ProjectHelper.SortUVTexture(item, file);
                                                         textureSets.Add(item);
                                                         modName = modName.Replace("Mod", "Body");
                                                         item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                                                     }
                                                     else if (_currentCustomization.Customize.Gender.Value == 0)
                                                     {
-                                                        item = AddBody(_currentCustomization.Customize.Gender.Value, 3,
+                                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
                                                         RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                                         _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                        SortUVTexture(item, file);
+                                                        ProjectHelper.SortUVTexture(item, file);
                                                         textureSets.Add(item);
                                                         modName = modName.Replace("Mod", "Body");
                                                         item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
@@ -458,28 +438,28 @@ namespace RoleplayingVoice
                                                         switch (ImageManipulation.FemaleBodyUVClassifier(file))
                                                         {
                                                             case BodyUVType.Bibo:
-                                                                item = AddBody(_currentCustomization.Customize.Gender.Value, 1,
+                                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
                                                                 RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                                                 _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                                SortUVTexture(item, file);
+                                                                ProjectHelper.SortUVTexture(item, file);
                                                                 textureSets.Add(item);
                                                                 modName = modName.Replace("Mod", "Body");
                                                                 item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                                                                 break;
                                                             case BodyUVType.Gen3:
-                                                                item = AddBody(_currentCustomization.Customize.Gender.Value, 2,
+                                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
                                                                 RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                                                 _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                                SortUVTexture(item, file);
+                                                                ProjectHelper.SortUVTexture(item, file);
                                                                 textureSets.Add(item);
                                                                 modName = modName.Replace("Mod", "Body");
                                                                 item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                                                                 break;
                                                             case BodyUVType.Gen2:
-                                                                item = AddBody(_currentCustomization.Customize.Gender.Value, 0,
+                                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
                                                                 RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                                                 _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                                SortUVTexture(item, file);
+                                                                ProjectHelper.SortUVTexture(item, file);
                                                                 textureSets.Add(item);
                                                                 modName = modName.Replace("Mod", "Body");
                                                                 item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
@@ -488,16 +468,16 @@ namespace RoleplayingVoice
                                                     }
                                                     break;
                                                 case BodyDragPart.Face:
-                                                    item = AddFace(_currentCustomization.Customize.Face.Value - 1, 0, 0,
+                                                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 0, 0,
                                                     _currentCustomization.Customize.Gender.Value,
                                                     RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                                     _currentCustomization.Customize.Clan.Value - 1, 0, false);
-                                                    SortUVTexture(item, file);
+                                                    ProjectHelper.SortUVTexture(item, file);
                                                     textureSets.Add(item);
                                                     modName = modName.Replace("Mod", "Face");
                                                     break;
                                                 case BodyDragPart.Eyes:
-                                                    item = AddFace(_currentCustomization.Customize.Face.Value - 1, 2, 0,
+                                                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 2, 0,
                                                     _currentCustomization.Customize.Gender.Value,
                                                     RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                                     _currentCustomization.Customize.Clan.Value - 1, 0, false);
@@ -506,7 +486,7 @@ namespace RoleplayingVoice
                                                     modName = modName.Replace("Mod", "Eyes");
                                                     break;
                                                 case BodyDragPart.EyebrowsAndLashes:
-                                                    item = AddFace(_currentCustomization.Customize.Face.Value - 1, 1, 0,
+                                                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 1, 0,
                                                     _currentCustomization.Customize.Gender.Value,
                                                     RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                                     _currentCustomization.Customize.Clan.Value - 1, 0, false);
@@ -539,215 +519,6 @@ namespace RoleplayingVoice
                 }
             }
         }
-        private void ExportJson(string jsonFilePath)
-        {
-            string jsonText = @"{
-  ""Name"": """",
-  ""Priority"": 0,
-  ""Files"": { },
-  ""FileSwaps"": { },
-  ""Manipulations"": []
-}";
-            if (jsonFilePath != null)
-            {
-                using (StreamWriter writer = new StreamWriter(jsonFilePath))
-                {
-                    writer.WriteLine(jsonText);
-                }
-            }
-        }
-        private void SortUVTexture(TextureSet textureSet, string file)
-        {
-            bool foundStringIdentifier = false;
-            UVMapType uVMapType = UVMapType.Base;
-            if (file.ToLower().Contains("base"))
-            {
-                uVMapType = UVMapType.Base;
-                foundStringIdentifier = true;
-            }
-
-            if (file.ToLower().Contains("norm"))
-            {
-                uVMapType = UVMapType.Normal;
-                foundStringIdentifier = true;
-            }
-
-            if (file.ToLower().Contains("mask"))
-            {
-                uVMapType = UVMapType.Mask;
-                foundStringIdentifier = true;
-            }
-
-            if (file.ToLower().Contains("glow"))
-            {
-                uVMapType = UVMapType.Glow;
-                foundStringIdentifier = true;
-            }
-
-
-
-            if (!foundStringIdentifier)
-            {
-                uVMapType = ImageManipulation.UVMapTypeClassifier(file);
-            }
-            switch (uVMapType)
-            {
-                case UVMapType.Base:
-                    textureSet.Base = file;
-                    modName += " Base";
-                    break;
-                case UVMapType.Normal:
-                    textureSet.Normal = file;
-                    modName += " Normal";
-                    break;
-                case UVMapType.Mask:
-                    textureSet.Mask = file;
-                    modName += " Multi";
-                    break;
-                case UVMapType.Glow:
-                    textureSet.Glow = file;
-                    modName += " Glow";
-                    break;
-            }
-        }
-        private void ExportMeta(string metaFilePath, string name, string author = "Loose Texture Compiler",
-            string description = "Exported By Loose Texture Compiler", string modVersion = "0.0.0",
-            string modWebsite = @"https://github.com/Sebane1/FFXIVLooseTextureCompiler")
-        {
-            string metaText = @"{
-  ""FileVersion"": 3,
-  ""Name"": """ + (!string.IsNullOrEmpty(name) ? name : "") + @""",
-  ""Author"": """ + (!string.IsNullOrEmpty(author) ? author :
-        "FFXIV Loose Texture Compiler") + @""",
-  ""Description"": """ + (!string.IsNullOrEmpty(description) ? description :
-        "Exported by FFXIV Loose Texture Compiler") + @""",
-  ""Version"": """ + modVersion + @""",
-  ""Website"": """ + modWebsite + @""",
-  ""ModTags"": []
-}";
-            if (metaFilePath != null)
-            {
-                using (StreamWriter writer = new StreamWriter(metaFilePath))
-                {
-                    writer.WriteLine(metaText);
-                }
-            }
-        }
-
-        private TextureSet AddBody(int gender, int baseBody, int race, int tail, bool uniqueAuRa = false)
-        {
-            TextureSet textureSet = new TextureSet();
-            textureSet.TextureSetName = _bodyNames[baseBody] + (_bodyNames[baseBody].ToLower().Contains("tail") ? " " +
-                (tail + 1) : "") + ", " + (race == 5 ? "Unisex" : _genders[gender])
-                + ", " + RaceInfo.Races[race];
-            AddBodyPaths(textureSet, gender, baseBody, race, tail, uniqueAuRa);
-            return textureSet;
-        }
-
-        private TextureSet AddFace(int faceType, int facePart, int faceExtra, int gender, int race, int subRace, int auraScales, bool asym)
-        {
-            TextureSet textureSet = new TextureSet();
-            textureSet.TextureSetName = _faceParts[facePart] + (facePart == 4 ? " "
-                + (faceExtra + 1) : "") + ", " + (facePart != 4 ? _genders[gender] : "Unisex")
-                + ", " + (facePart != 4 ? RaceInfo.SubRaces[subRace] : "Multi Race") + ", "
-                + (facePart != 4 ? _faceTypes[faceType] : "Multi Face");
-            switch (facePart)
-            {
-                default:
-                    AddFacePaths(textureSet, subRace, facePart, faceType, gender, auraScales, asym);
-                    break;
-                case 2:
-                    AddEyePaths(textureSet, subRace, faceType, gender, auraScales, asym);
-                    break;
-                case 4:
-                    AddDecalPath(textureSet, faceExtra);
-                    break;
-                case 5:
-                    AddHairPaths(textureSet, gender, facePart, faceExtra, race, subRace);
-                    break;
-            }
-            textureSet.IgnoreMultiGeneration = true;
-            if (facePart == 0)
-            {
-                BackupTexturePaths.AddFaceBackupPaths(gender, subRace, faceExtra, textureSet);
-            }
-            return textureSet;
-        }
-        private void AddBodyPaths(TextureSet textureSet, int gender, int baseBody, int race, int tail, bool uniqueAuRa = false)
-        {
-            if (race != 3 || baseBody != 6)
-            {
-                textureSet.InternalBasePath = RacePaths.GetBodyTexturePath(0, gender,
-                  baseBody, race, tail, uniqueAuRa);
-            }
-            textureSet.InternalNormalPath = RacePaths.GetBodyTexturePath(1, gender,
-                  baseBody, race, tail, uniqueAuRa);
-
-            textureSet.InternalMultiPath = RacePaths.GetBodyTexturePath(2, gender,
-                  baseBody, race, tail, uniqueAuRa);
-            textureSet.InternalMaterialPath = RacePaths.GetBodyMaterialPath(gender, baseBody, race, tail);
-            BackupTexturePaths.AddBodyBackupPaths(gender, race, textureSet);
-        }
-
-        private void AddDecalPath(TextureSet textureSet, int faceExtra)
-        {
-            textureSet.InternalBasePath = RacePaths.GetFaceTexturePath(faceExtra);
-        }
-
-        private void AddHairPaths(TextureSet textureSet, int gender, int facePart, int faceExtra, int race, int subrace)
-        {
-            textureSet.TextureSetName = _faceParts[facePart] + " " + (faceExtra + 1)
-                + ", " + _genders[gender] + ", " + RaceInfo.Races[race];
-
-            textureSet.InternalNormalPath = RacePaths.GetHairTexturePath(1, faceExtra,
-                gender, race, subrace);
-
-            textureSet.InternalMultiPath = RacePaths.GetHairTexturePath(2, faceExtra,
-                gender, race, subrace);
-        }
-
-        private void AddEyePaths(TextureSet textureSet, int subrace, int faceType, int gender, int auraScales, bool asym)
-        {
-            RaceEyePaths.GetEyeTextureSet(subrace, faceType, gender == 1, textureSet);
-        }
-
-        private void AddFacePaths(TextureSet textureSet, int subrace, int facePart, int faceType, int gender, int auraScales, bool asym)
-        {
-            if (facePart != 1)
-            {
-                textureSet.InternalBasePath = RacePaths.GetFacePath(0, gender, subrace,
-                    facePart, faceType, auraScales, asym);
-            }
-
-            textureSet.InternalNormalPath = RacePaths.GetFacePath(1, gender, subrace,
-            facePart, faceType, auraScales, asym);
-
-            textureSet.InternalMaskPath = RacePaths.GetFacePath(2, gender, subrace,
-            facePart, faceType, auraScales, asym);
-
-            if (facePart == 0)
-            {
-                if (subrace == 10 || subrace == 11)
-                {
-                    if (auraScales > 0)
-                    {
-                        if (faceType < 4)
-                        {
-                            if (asym)
-                            {
-                                textureSet.NormalCorrection = Path.Combine(_textureProcessor.BasePath,
-                                      @"res\textures\s" + (gender == 0 ? "m" : "f") + faceType + "a.png");
-                            }
-                            else
-                            {
-                                textureSet.NormalCorrection = Path.Combine(_textureProcessor.BasePath,
-                                    @"res\textures\s" + (gender == 0 ? "m" : "f") + faceType + ".png");
-                            }
-                        }
-                    }
-                }
-            }
-        }
         public async Task<bool> Export(bool finalize, List<TextureSet> exportTextureSets, string path,
             string name, KeyValuePair<string, ICharacter> character)
         {
@@ -758,22 +529,7 @@ namespace RoleplayingVoice
                 _textureProcessor.BasePath = modPath + @"\LooseTextureCompilerDLC";
                 _exportStatus = "Initializing";
                 _lockDuplicateGeneration = true;
-                List<TextureSet> textureSets = new List<TextureSet>();
-                string jsonFilepath = Path.Combine(path, "default_mod.json");
-                string metaFilePath = Path.Combine(path, "meta.json");
-                foreach (TextureSet item in exportTextureSets)
-                {
-                    if (item.OmniExportMode)
-                    {
-                        UniversalTextureSetCreator.ConfigureTextureSet(item);
-                    }
-                    textureSets.Add(item);
-                }
-                Directory.CreateDirectory(path);
-                _textureProcessor.CleanGeneratedAssets(path);
-                _textureProcessor.Export(textureSets, new Dictionary<string, int>(), path, 3, false, false, File.Exists(_xNormalPath) && finalize, _xNormalPath);
-                ExportJson(jsonFilepath);
-                ExportMeta(metaFilePath, name);
+                ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath);
                 Thread.Sleep(100);
                 PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
                 PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
