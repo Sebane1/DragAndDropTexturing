@@ -166,47 +166,50 @@ namespace RoleplayingVoice
                                     float maxDistance = 0;
                                     Actor* characterActor = (Actor*)item.Value.Address;
                                     var model = characterActor->Model;
-                                    for (int i = 0; i < model->Skeleton->PartialSkeletonCount; i++)
+                                    if (model != null)
                                     {
-                                        var partialSkeleton = model->Skeleton->PartialSkeletons[i];
-                                        var pos = partialSkeleton.GetHavokPose(0);
-                                        if (pos != null)
+                                        for (int i = 0; i < model->Skeleton->PartialSkeletonCount; i++)
                                         {
-                                            var skeleton = pos->Skeleton;
-                                            for (var i2 = 1; i2 < skeleton->Bones.Length; i2++)
+                                            var partialSkeleton = model->Skeleton->PartialSkeletons[i];
+                                            var pos = partialSkeleton.GetHavokPose(0);
+                                            if (pos != null)
                                             {
-                                                var bone = model->Skeleton->GetBone(i, i2);
-                                                var worldPos = bone.GetWorldPos(characterActor, model);
-                                                Vector2 screenPosition = new Vector2();
-                                                Plugin.GameGui.WorldToScreen(worldPos, out screenPosition);
-                                                float distance = Vector2.Distance(screenPosition, cursorPosition);
-                                                _cursorPosition = cursorPosition;
-                                                if (distance < closestDistance)
+                                                var skeleton = pos->Skeleton;
+                                                for (var i2 = 1; i2 < skeleton->Bones.Length; i2++)
                                                 {
-                                                    closestDistance = distance;
-                                                    closestBone = bone;
-                                                }
-                                                if (bone.UniqueId.Contains("1_41"))
-                                                {
-                                                    aboveEyesYPos = screenPosition.Y;
-                                                    xPos = screenPosition.X;
-                                                }
-                                                if (bone.UniqueId.Contains("0_46") || bone.UniqueId.Contains("1_40"))
-                                                {
-                                                    aboveNoseYPos = screenPosition.Y;
-                                                    xPos = screenPosition.X;
-                                                }
-                                                if (bone.UniqueId.Contains("0_33"))
-                                                {
-                                                    aboveNeckYPos = screenPosition.Y;
-                                                }
-                                                if (screenPosition.X > maxWidth)
-                                                {
-                                                    maxWidth = screenPosition.X;
-                                                }
-                                                if (screenPosition.X < minWidth)
-                                                {
-                                                    minWidth = screenPosition.X;
+                                                    var bone = model->Skeleton->GetBone(i, i2);
+                                                    var worldPos = bone.GetWorldPos(characterActor, model);
+                                                    Vector2 screenPosition = new Vector2();
+                                                    Plugin.GameGui.WorldToScreen(worldPos, out screenPosition);
+                                                    float distance = Vector2.Distance(screenPosition, cursorPosition);
+                                                    _cursorPosition = cursorPosition;
+                                                    if (distance < closestDistance)
+                                                    {
+                                                        closestDistance = distance;
+                                                        closestBone = bone;
+                                                    }
+                                                    if (bone.UniqueId.Contains("1_41"))
+                                                    {
+                                                        aboveEyesYPos = screenPosition.Y;
+                                                        xPos = screenPosition.X;
+                                                    }
+                                                    if (bone.UniqueId.Contains("0_46") || bone.UniqueId.Contains("1_40"))
+                                                    {
+                                                        aboveNoseYPos = screenPosition.Y;
+                                                        xPos = screenPosition.X;
+                                                    }
+                                                    if (bone.UniqueId.Contains("0_33"))
+                                                    {
+                                                        aboveNeckYPos = screenPosition.Y;
+                                                    }
+                                                    if (screenPosition.X > maxWidth)
+                                                    {
+                                                        maxWidth = screenPosition.X;
+                                                    }
+                                                    if (screenPosition.X < minWidth)
+                                                    {
+                                                        minWidth = screenPosition.X;
+                                                    }
                                                 }
                                             }
                                         }
@@ -281,8 +284,8 @@ namespace RoleplayingVoice
                         }
                         catch (Exception e)
                         {
-                            ImGui.TextUnformatted($"Penumbra is not installed.");
                             plugin.PluginLog.Warning(e, e.Message);
+                            ImGui.TextUnformatted($"Penumbra is not installed. Or error occured.");
                         }
                         return true;
                     });
