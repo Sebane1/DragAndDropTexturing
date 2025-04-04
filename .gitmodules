@@ -7,3 +7,6 @@
 [submodule "DragAndDropTexturing/IPC/PenumbraAndGlamourerHelpers"]
 	path = DragAndDropTexturing/IPC/PenumbraAndGlamourerHelpers
 	url = https://github.com/Sebane1/PenumbraAndGlamourerHelpers.git
+[submodule "DragAndDropTexturing/ThreadSafeDalamudObjectTable"]
+	path = DragAndDropTexturing/ThreadSafeDalamudObjectTable
+	url = https://github.com/Sebane1/ThreadSafeDalamudObjectTable

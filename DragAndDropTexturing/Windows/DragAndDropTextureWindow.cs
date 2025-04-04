@@ -132,9 +132,9 @@ namespace RoleplayingVoice
                     {
                         try
                         {
-                            mainPlayerCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(Plugin.ClientState.LocalPlayer.ObjectIndex).Item3.Id;
+                            mainPlayerCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(Plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex).Item3.Id;
                             List<KeyValuePair<string, ICharacter>> _objects = new List<KeyValuePair<string, ICharacter>>();
-                            _objects.Add(new KeyValuePair<string, ICharacter>(Plugin.ClientState.LocalPlayer.Name.TextValue, Plugin.ClientState.LocalPlayer as ICharacter));
+                            _objects.Add(new KeyValuePair<string, ICharacter>(Plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue, Plugin.SafeGameObjectManager.LocalPlayer as ICharacter));
                             bool oneMinionOnly = false;
                             foreach (var item in Plugin.GetNearestObjects())
                             {
@@ -256,7 +256,7 @@ namespace RoleplayingVoice
                                 if (selectedPlayer.Value != null)
                                 {
                                     if (selectedPlayerCollection != mainPlayerCollection ||
-                                        selectedPlayer.Value == Plugin.ClientState.LocalPlayer)
+                                        selectedPlayer.Value == Plugin.SafeGameObjectManager.LocalPlayer)
                                     {
                                         ImGui.SetWindowFontScale(1.5f);
                                         ImGui.TextUnformatted($"Dragging texture onto {selectedPlayer.Key.Split(' ')[0]}'s {bodyDragPart.ToString()}:\n\t{string.Join("\n\t", m.Files.Select(Path.GetFileName))} " + debugInfo);
@@ -279,9 +279,10 @@ namespace RoleplayingVoice
                             }
                             AllowClickthrough = false;
                         }
-                        catch
+                        catch (Exception e)
                         {
                             ImGui.TextUnformatted($"Penumbra is not installed.");
+                            plugin.PluginLog.Warning(e, e.Message);
                         }
                         return true;
                     });
@@ -324,7 +325,7 @@ namespace RoleplayingVoice
                         _textureProcessor.BasePath = modPath + @"\LooseTextureCompilerDLC";
                         List<TextureSet> textureSets = new List<TextureSet>();
                         if (selectedPlayer.Value != null && selectedPlayerCollection != mainPlayerCollection ||
-                            selectedPlayer.Value == Plugin.ClientState.LocalPlayer)
+                            selectedPlayer.Value == Plugin.SafeGameObjectManager.LocalPlayer)
                         {
                             modName = selectedPlayer.Key.Split(' ')[0] + " Texture Mod";
                             _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(selectedPlayer.Value);

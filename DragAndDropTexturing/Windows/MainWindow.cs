@@ -67,7 +67,7 @@ public class MainWindow : Window, IDisposable
                 // Example for other services that Dalamud provides.
                 // ClientState provides a wrapper filled with information about the local player object and client.
 
-                var localPlayer = Plugin.ClientState.LocalPlayer;
+                var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
                 if (localPlayer == null)
                 {
                     ImGui.TextUnformatted("Our local player is currently not loaded.");

@@ -9,6 +9,7 @@ using RoleplayingVoice;
 using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Game.ClientState.Objects.Enums;
+using DragAndDropTexturing.ThreadSafeDalamudObjectTable;
 
 namespace DragAndDropTexturing;
 
@@ -25,8 +26,9 @@ public sealed class Plugin : IDalamudPlugin
     private const string CommandName = "/ddt";
     private PenumbraAndGlamourerIpcWrapper _penumbraAndGlamourerIpcWrapper;
     private IChatGui _chat;
-    private IObjectTable _objectTable;
     private int _playerCount;
+    private ThreadSafeGameObjectManager _safeGameObjectManager;
+    private IPluginLog _pluginLog;
 
     public Configuration Configuration { get; init; }
 
@@ -34,12 +36,13 @@ public sealed class Plugin : IDalamudPlugin
     private MainWindow MainWindow { get; init; }
     internal DragAndDropTextureWindow? DragAndDropTextures { get; private set; }
     public IChatGui Chat { get => _chat; set => _chat = value; }
+    public ThreadSafeGameObjectManager SafeGameObjectManager { get => _safeGameObjectManager; set => _safeGameObjectManager = value; }
+    public IPluginLog PluginLog { get => _pluginLog; set => _pluginLog = value; }
 
-    public Plugin(IClientState clientState, IChatGui chatGui, IObjectTable objectTable)
+    public Plugin(IClientState clientState, IChatGui chatGui, IObjectTable objectTable, IFramework framework, IPluginLog pluginLog)
     {
         _penumbraAndGlamourerIpcWrapper = new PenumbraAndGlamourerIpcWrapper(PluginInterface);
         _chat = chatGui;
-        _objectTable = objectTable;
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         DragAndDropTextures = PluginInterface.Create<DragAndDropTextureWindow>();
 
@@ -64,15 +67,17 @@ public sealed class Plugin : IDalamudPlugin
             DragAndDropTextures.Plugin = this;
             DragAndDropTextures.IsOpen = true;
         }
+        _safeGameObjectManager = new ThreadSafeGameObjectManager(clientState, objectTable, framework, pluginLog);
+        _pluginLog = pluginLog;
     }
     public Dalamud.Game.ClientState.Objects.Types.IGameObject[] GetNearestObjects()
     {
         _playerCount = 0;
         List<Dalamud.Game.ClientState.Objects.Types.IGameObject> gameObjects = new List<Dalamud.Game.ClientState.Objects.Types.IGameObject>();
-        foreach (var item in _objectTable)
+        foreach (var item in ThreadSafeGameObjectManager.SafeGameObjectTable.Values)
         {
-            if (Vector3.Distance(ClientState.LocalPlayer.Position, item.Position) < 3f
-                && item.GameObjectId != ClientState.LocalPlayer.GameObjectId)
+            if (Vector3.Distance(SafeGameObjectManager.LocalPlayer.Position, item.Position) < 3f
+                && item.GameObjectId != SafeGameObjectManager.LocalPlayer.GameObjectId)
             {
                 if (item.IsValid())
                 {
