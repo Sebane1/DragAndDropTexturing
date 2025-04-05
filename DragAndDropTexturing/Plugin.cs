@@ -74,7 +74,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         _playerCount = 0;
         List<Dalamud.Game.ClientState.Objects.Types.IGameObject> gameObjects = new List<Dalamud.Game.ClientState.Objects.Types.IGameObject>();
-        foreach (var item in ThreadSafeGameObjectManager.SafeGameObjectTable.Values)
+        foreach (var item in _safeGameObjectManager)
         {
             if (Vector3.Distance(SafeGameObjectManager.LocalPlayer.Position, item.Position) < 3f
                 && item.GameObjectId != SafeGameObjectManager.LocalPlayer.GameObjectId)
