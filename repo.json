@@ -8,18 +8,18 @@
       "Texturing"
     ],
     "InternalName": "DragAndDropTexturing",
-    "AssemblyVersion": "0.0.0.5",
-    "TestingAssemblyVersion": "0.0.0.5",
+    "AssemblyVersion": "0.0.0.6",
+    "TestingAssemblyVersion": "0.0.0.6",
     "RepoUrl": "https://github.com/Sebane1/DragAndDropTexturing",
     "ApplicableVersion": "any",
-    "DalamudApiLevel": 11,
+    "DalamudApiLevel": 12,
     "IsHide": "False",
     "IsTestingExclusive": "False",
     "DownloadCount": 0,
     "LastUpdate": 0,
-    "DownloadLinkInstall": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.5/DragAndDropTexturing.zip",
-    "DownloadLinkTesting": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.5/DragAndDropTexturing.zip",
-    "DownloadLinkUpdate": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.5/DragAndDropTexturing.zip",
+    "DownloadLinkInstall": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.6/DragAndDropTexturing.zip",
+    "DownloadLinkTesting": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.6/DragAndDropTexturing.zip",
+    "DownloadLinkUpdate": "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.0.6/DragAndDropTexturing.zip",
     "IconUrl": ""
   }
 ]
