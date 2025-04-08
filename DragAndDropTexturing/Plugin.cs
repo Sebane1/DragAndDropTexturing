@@ -9,7 +9,7 @@ using RoleplayingVoice;
 using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Game.ClientState.Objects.Enums;
-using DragAndDropTexturing.ThreadSafeDalamudObjectTable;
+using GameObjectHelper.ThreadSafeDalamudObjectTable;
 
 namespace DragAndDropTexturing;
 
