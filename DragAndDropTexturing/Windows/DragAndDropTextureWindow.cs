@@ -1,7 +1,7 @@
 using Dalamud.Interface.DragDrop;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
-using ImGuiNET;
+using Dalamud.Bindings.ImGui;
 using System;
 using System.Drawing.Imaging;
 using System.Drawing;
@@ -310,7 +310,7 @@ namespace RoleplayingVoice
                         try
                         {
                             textureWrap = _frameToLoad.CreateWrapSharingLowLevelResource();
-                            ImGui.Image(textureWrap.ImGuiHandle, new Vector2(ImGui.GetMainViewport().Size.X, ImGui.GetMainViewport().Size.Y));
+                            ImGui.Image(textureWrap.Handle, new Vector2(ImGui.GetMainViewport().Size.X, ImGui.GetMainViewport().Size.Y));
                         }
                         catch
                         {
