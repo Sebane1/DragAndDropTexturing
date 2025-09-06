@@ -79,10 +79,10 @@ public sealed class Plugin : IDalamudPlugin
             if (Vector3.Distance(SafeGameObjectManager.LocalPlayer.Position, item.Position) < 3f
                 && item.GameObjectId != SafeGameObjectManager.LocalPlayer.GameObjectId)
             {
-                if (item.IsValid())
-                {
+                //if (item.IsValid())
+                //{
                     gameObjects.Add((item as Dalamud.Game.ClientState.Objects.Types.IGameObject));
-                }
+                //}
             }
             if (item.ObjectKind == ObjectKind.Player)
             {
