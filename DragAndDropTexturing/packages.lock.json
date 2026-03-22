@@ -1,12 +1,12 @@
 {
   "version": 1,
   "dependencies": {
-    "net9.0-windows7.0": {
+    "net10.0-windows7.0": {
       "DalamudPackager": {
         "type": "Direct",
-        "requested": "[13.1.0, )",
-        "resolved": "13.1.0",
-        "contentHash": "XdoNhJGyFby5M/sdcRhnc5xTop9PHy+H50PTWpzLhJugjB19EDBiHD/AsiDF66RETM+0qKUdJBZrNuebn7qswQ=="
+        "requested": "[14.0.2, )",
+        "resolved": "14.0.2",
+        "contentHash": "dQJeq+8eyHzra4Cg5eZ/3LAeS3/UpvvLriYJGSncMK9LqJ7Q4B6jwcOsxo3PfxVd15xj+IzVFxkPqIBmPQu8/w=="
       },
       "DotNet.ReproducibleBuilds": {
         "type": "Direct",
@@ -16,9 +16,9 @@
       },
       "Glamourer.Api": {
         "type": "Direct",
-        "requested": "[2.6.0, )",
-        "resolved": "2.6.0",
-        "contentHash": "zysCZgNBRm3k3qvibyw/31MmEckX0Uh0ZsT+Sax3ZHnYIRELr9Qhbz3cjJz7u0RHGIrNJiRpktu/LxgHEqDItw=="
+        "requested": "[2.8.0, )",
+        "resolved": "2.8.0",
+        "contentHash": "dCxycU+lA0qraE70ZoRvM4GQAPq/K+qL/bg6t/kxKPox5GWaiunKOTXNOG2hOvgEda5WtFy6e3c9OuIM6L3faQ=="
       },
       "Newtonsoft.Json": {
         "type": "Direct",
@@ -28,9 +28,9 @@
       },
       "Penumbra.Api": {
         "type": "Direct",
-        "requested": "[5.12.0, )",
-        "resolved": "5.12.0",
-        "contentHash": "XGWviAZgokj2djpH50FWgM24jOTpKUuDHvd0HwrzBRY6BEMmpb3HfGIl8+BDE/DqbpH63u6aO2TvzUV6BmXT5w=="
+        "requested": "[5.13.1, )",
+        "resolved": "5.13.1",
+        "contentHash": "kmpqhcbnnF+Ib0F9g7+1W17IbZ8Q8G2zn3MJURd/rmQiB3D7cm8YS2JRmvhDzrN5w9OMlfq7MFxVtwG419YkIA=="
       },
       "CoenM.ImageSharp.ImageHash": {
         "type": "Transitive",

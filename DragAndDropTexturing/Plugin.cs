@@ -52,15 +52,7 @@ public sealed class Plugin : IDalamudPlugin
         });
 
         PluginInterface.UiBuilder.Draw += DrawUI;
-
-
-        // Adds another button that is doing the same but for the main ui of the plugin
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUI;
-
-        // Add a simple message to the log with level set to information
-        // Use /xllog to open the log window in-game
-        // Example Output: 00:57:54.959 | INF | [SamplePlugin] ===A cool log message from Sample Plugin===
-        Log.Information($"===A cool log message from {PluginInterface.Manifest.Name}===");
         if (DragAndDropTextures is not null)
         {
             WindowSystem.AddWindow(DragAndDropTextures);
@@ -79,10 +71,7 @@ public sealed class Plugin : IDalamudPlugin
             if (Vector3.Distance(SafeGameObjectManager.LocalPlayer.Position, item.Position) < 3f
                 && item.GameObjectId != SafeGameObjectManager.LocalPlayer.GameObjectId)
             {
-                //if (item.IsValid())
-                //{
                     gameObjects.Add((item as Dalamud.Game.ClientState.Objects.Types.IGameObject));
-                //}
             }
             if (item.ObjectKind == ObjectKind.Player)
             {
