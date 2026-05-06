@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Sdk="Dalamud.NET.SDK/14.0.0">
+<Project Sdk="Dalamud.NET.SDK/15.0.0">
   <PropertyGroup>
     <Version>0.0.0.1</Version>
     <Description>Drag and drop texturing.</Description>
@@ -25,9 +25,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Glamourer.Api" Version="2.6.0" />
+    <PackageReference Include="Glamourer.Api" Version="2.8.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="Penumbra.Api" Version="5.12.0" />
+    <PackageReference Include="Penumbra.Api" Version="5.13.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,6 +37,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Update="DalamudPackager" Version="14.0.2" />
+    <PackageReference Update="DalamudPackager" Version="15.0.0" />
   </ItemGroup>
 </Project>

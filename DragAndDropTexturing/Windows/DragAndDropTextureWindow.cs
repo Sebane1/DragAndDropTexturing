@@ -60,6 +60,41 @@ namespace RoleplayingVoice
 
         List<string> _alreadyAddedBoneList = new List<string>();
         List<Tuple<string, float>> boneSorting = new List<Tuple<string, float>>();
+        private Dictionary<string, List<string>> _textureHistory = new Dictionary<string, List<string>>();
+        public Dictionary<string, List<string>> TextureHistory { get => _textureHistory; set => _textureHistory = value; }
+
+        private void AddToTextureSet(TextureSet item, string file, string overrideType = "")
+        {
+            UVMapType uvType = UVMapType.Base;
+            if (overrideType == "Normal") uvType = UVMapType.Normal;
+            else if (overrideType == "Base") uvType = UVMapType.Base;
+            else
+            {
+                TextureSet temp = new TextureSet();
+                uvType = ProjectHelper.SortUVTexture(temp, file);
+            }
+
+            if (uvType == UVMapType.Base)
+            {
+                if (string.IsNullOrEmpty(item.Base)) item.Base = file;
+                else if (!item.BaseOverlays.Contains(file)) item.BaseOverlays.Add(file);
+            }
+            else if (uvType == UVMapType.Normal)
+            {
+                if (string.IsNullOrEmpty(item.Normal)) item.Normal = file;
+                else if (!item.NormalOverlays.Contains(file)) item.NormalOverlays.Add(file);
+            }
+            else if (uvType == UVMapType.Mask)
+            {
+                if (string.IsNullOrEmpty(item.Mask)) item.Mask = file;
+                else if (!item.MaskOverlays.Contains(file)) item.MaskOverlays.Add(file);
+            }
+            else if (uvType == UVMapType.Glow)
+            {
+                item.Glow = file;
+            }
+        }
+
         private string modName;
 
         public Plugin Plugin { get => plugin; set => plugin = value; }
@@ -334,174 +369,194 @@ namespace RoleplayingVoice
                             _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(selectedPlayer.Value);
                             Task.Run(() =>
                             {
+                                HashSet<string> droppedCategories = new HashSet<string>();
                                 foreach (var file in files)
                                 {
-                                    if (ValidTextureExtensions.Contains(Path.GetExtension(file)))
+                                    if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
+                                    string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
+                                    string categoryKey = selectedPlayer.Key + "_";
+                                    if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2")) categoryKey += "gen2";
+                                    else if (fileName.Contains("bibo") || fileName.Contains("b+")) categoryKey += "bibo";
+                                    else if (fileName.Contains("gen3")) categoryKey += "gen3";
+                                    else if (fileName.Contains("tbse")) categoryKey += "tbse";
+                                    else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
+                                    else if (fileName.Contains("eye")) categoryKey += "eyes";
+                                    else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                                    else categoryKey += "fallback_" + bodyDragPart.ToString();
+                                    
+                                    droppedCategories.Add(categoryKey);
+                                }
+
+                                if (!plugin.Configuration.EnableTextureStacking)
+                                {
+                                    foreach (var cat in droppedCategories)
                                     {
-                                        string filePath = file;
-                                        string fileName = Path.GetFileNameWithoutExtension(filePath).ToLower();
-                                        if (fileName.Contains("mata") || fileName.Contains("amat")
-                                            || fileName.Contains("materiala") || fileName.Contains("gen2"))
-                                        {
-                                            var item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
-                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                            _currentCustomization.Customize.TailShape.Value - 1, false);
-                                            modName += " " + ProjectHelper.SortUVTexture(item, file).ToString();
-                                            textureSets.Add(item);
-                                            modName = modName.Replace("Mod", "Body");
-                                            item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                        }
-                                        else if (fileName.Contains("bibo") || fileName.Contains("b+"))
-                                        {
-                                            var item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
-                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                            _currentCustomization.Customize.TailShape.Value - 1, false);
-                                            modName += " " + ProjectHelper.SortUVTexture(item, file);
-                                            textureSets.Add(item);
-                                            modName = modName.Replace("Mod", "Body");
-                                            item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                        }
-                                        else if (fileName.Contains("gen3"))
-                                        {
-                                            var item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
-                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                            _currentCustomization.Customize.TailShape.Value - 1, false);
-                                            modName += " " + ProjectHelper.SortUVTexture(item, file);
-                                            textureSets.Add(item);
-                                            modName = modName.Replace("Mod", "Body");
-                                            item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                        }
-                                        else if (fileName.Contains("tbse"))
-                                        {
-                                            var item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
-                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                            _currentCustomization.Customize.TailShape.Value - 1, false);
-                                            modName += " " + ProjectHelper.SortUVTexture(item, file);
-                                            textureSets.Add(item);
-                                            modName = modName.Replace("Mod", "Body");
-                                            item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                        }
-                                        else if (fileName.Contains("eyebrow") || fileName.Contains("lash"))
-                                        {
-                                            var item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 1, 0,
-                                             _currentCustomization.Customize.Gender.Value,
-                                             RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                             _currentCustomization.Customize.Clan.Value - 1, 0, false);
-                                            item.Normal = file;
-                                            textureSets.Add(item);
-                                            modName = modName.Replace("Mod", "Eyebrows");
-                                        }
-                                        else if (fileName.Contains("eye"))
-                                        {
-                                            var item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 2, 0,
-                                            _currentCustomization.Customize.Gender.Value,
-                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                            _currentCustomization.Customize.Clan.Value - 1, 0, false);
-                                            item.Base = file;
-                                            textureSets.Add(item);
-                                            modName = modName.Replace("Mod", "Eyes");
-                                        }
-                                        else if (fileName.Contains("face") || fileName.Contains("makeup"))
-                                        {
-                                            var item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 0, 0,
-                                            _currentCustomization.Customize.Gender.Value,
-                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                            _currentCustomization.Customize.Clan.Value - 1, 0, false);
-                                            ProjectHelper.SortUVTexture(item, file);
-                                            textureSets.Add(item);
-                                            modName = modName.Replace("Mod", "Face");
-                                        }
-                                        else
-                                        {
-                                            TextureSet item = null;
-                                            switch (bodyDragPart)
-                                            {
-                                                case BodyDragPart.Body:
-                                                    if (_currentCustomization.Customize.Race.Value - 1 == 2)
-                                                    {
-                                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 5,
-                                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                        _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                        ProjectHelper.SortUVTexture(item, file);
-                                                        textureSets.Add(item);
-                                                        modName = modName.Replace("Mod", "Body");
-                                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                                    }
-                                                    else if (_currentCustomization.Customize.Gender.Value == 0)
-                                                    {
-                                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
-                                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                        _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                        ProjectHelper.SortUVTexture(item, file);
-                                                        textureSets.Add(item);
-                                                        modName = modName.Replace("Mod", "Body");
-                                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                                    }
-                                                    else
-                                                    {
-                                                        switch (ImageManipulation.FemaleBodyUVClassifier(file))
-                                                        {
-                                                            case BodyUVType.Bibo:
-                                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
-                                                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                                _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                                ProjectHelper.SortUVTexture(item, file);
-                                                                textureSets.Add(item);
-                                                                modName = modName.Replace("Mod", "Body");
-                                                                item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                                                break;
-                                                            case BodyUVType.Gen3:
-                                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
-                                                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                                _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                                ProjectHelper.SortUVTexture(item, file);
-                                                                textureSets.Add(item);
-                                                                modName = modName.Replace("Mod", "Body");
-                                                                item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                                                break;
-                                                            case BodyUVType.Gen2:
-                                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
-                                                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                                _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                                ProjectHelper.SortUVTexture(item, file);
-                                                                textureSets.Add(item);
-                                                                modName = modName.Replace("Mod", "Body");
-                                                                item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                                                break;
-                                                        }
-                                                    }
-                                                    break;
-                                                case BodyDragPart.Face:
-                                                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 0, 0,
-                                                    _currentCustomization.Customize.Gender.Value,
-                                                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                    _currentCustomization.Customize.Clan.Value - 1, 0, false);
-                                                    ProjectHelper.SortUVTexture(item, file);
-                                                    textureSets.Add(item);
-                                                    modName = modName.Replace("Mod", "Face");
-                                                    break;
-                                                case BodyDragPart.Eyes:
-                                                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 2, 0,
-                                                    _currentCustomization.Customize.Gender.Value,
-                                                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                    _currentCustomization.Customize.Clan.Value - 1, 0, false);
-                                                    item.Normal = file;
-                                                    textureSets.Add(item);
-                                                    modName = modName.Replace("Mod", "Eyes");
-                                                    break;
-                                                case BodyDragPart.EyebrowsAndLashes:
-                                                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 1, 0,
-                                                    _currentCustomization.Customize.Gender.Value,
-                                                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                    _currentCustomization.Customize.Clan.Value - 1, 0, false);
-                                                    item.Normal = file;
-                                                    textureSets.Add(item);
-                                                    modName = modName.Replace("Mod", "Eyebrows");
-                                                    break;
-                                            }
-                                        }
+                                        _textureHistory[cat] = new List<string>();
                                     }
                                 }
+
+                                foreach (var file in files)
+                                {
+                                    if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
+                                    string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
+                                    string categoryKey = selectedPlayer.Key + "_";
+                                    if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2")) categoryKey += "gen2";
+                                    else if (fileName.Contains("bibo") || fileName.Contains("b+")) categoryKey += "bibo";
+                                    else if (fileName.Contains("gen3")) categoryKey += "gen3";
+                                    else if (fileName.Contains("tbse")) categoryKey += "tbse";
+                                    else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
+                                    else if (fileName.Contains("eye")) categoryKey += "eyes";
+                                    else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                                    else categoryKey += "fallback_" + bodyDragPart.ToString();
+                                    
+                                    if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
+                                    _textureHistory[categoryKey].Add(file);
+                                }
+
+                                foreach (var categoryKey in droppedCategories)
+                                {
+                                    if (!_textureHistory.ContainsKey(categoryKey) || _textureHistory[categoryKey].Count == 0) continue;
+                                    string lastFile = _textureHistory[categoryKey].Last();
+                                    TextureSet item = null;
+                                    string categoryModName = "";
+                                    string overrideType = "";
+
+                                    if (categoryKey.EndsWith("_gen2"))
+                                    {
+                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
+                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                                        categoryModName = "Body";
+                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                                    }
+                                    else if (categoryKey.EndsWith("_bibo"))
+                                    {
+                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
+                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                                        categoryModName = "Body";
+                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                                    }
+                                    else if (categoryKey.EndsWith("_gen3"))
+                                    {
+                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
+                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                                        categoryModName = "Body";
+                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                                    }
+                                    else if (categoryKey.EndsWith("_tbse"))
+                                    {
+                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
+                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                                        categoryModName = "Body";
+                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                                    }
+                                    else if (categoryKey.EndsWith("_eyebrows"))
+                                    {
+                                        item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 1, 0,
+                                         _currentCustomization.Customize.Gender.Value,
+                                         RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                         _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                                        categoryModName = "Eyebrows";
+                                        overrideType = "Normal";
+                                    }
+                                    else if (categoryKey.EndsWith("_eyes"))
+                                    {
+                                        item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 2, 0,
+                                        _currentCustomization.Customize.Gender.Value,
+                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                        _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                                        categoryModName = "Eyes";
+                                        overrideType = "Base";
+                                    }
+                                    else if (categoryKey.EndsWith("_face"))
+                                    {
+                                        item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 0, 0,
+                                        _currentCustomization.Customize.Gender.Value,
+                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                        _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                                        categoryModName = "Face";
+                                    }
+                                    else
+                                    {
+                                        switch (bodyDragPart)
+                                        {
+                                            case BodyDragPart.Body:
+                                                if (_currentCustomization.Customize.Race.Value - 1 == 2)
+                                                {
+                                                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 5,
+                                                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                    _currentCustomization.Customize.TailShape.Value - 1, false);
+                                                }
+                                                else if (_currentCustomization.Customize.Gender.Value == 0)
+                                                {
+                                                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
+                                                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                    _currentCustomization.Customize.TailShape.Value - 1, false);
+                                                }
+                                                else
+                                                {
+                                                    switch (ImageManipulation.FemaleBodyUVClassifier(lastFile))
+                                                    {
+                                                        case BodyUVType.Bibo:
+                                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
+                                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                            _currentCustomization.Customize.TailShape.Value - 1, false);
+                                                            break;
+                                                        case BodyUVType.Gen3:
+                                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
+                                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                            _currentCustomization.Customize.TailShape.Value - 1, false);
+                                                            break;
+                                                        case BodyUVType.Gen2:
+                                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
+                                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                            _currentCustomization.Customize.TailShape.Value - 1, false);
+                                                            break;
+                                                    }
+                                                }
+                                                categoryModName = "Body";
+                                                if (item != null) item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                                                break;
+                                            case BodyDragPart.Face:
+                                                item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 0, 0,
+                                                _currentCustomization.Customize.Gender.Value,
+                                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                                                categoryModName = "Face";
+                                                break;
+                                            case BodyDragPart.Eyes:
+                                                item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 2, 0,
+                                                _currentCustomization.Customize.Gender.Value,
+                                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                                                categoryModName = "Eyes";
+                                                overrideType = "Normal";
+                                                break;
+                                            case BodyDragPart.EyebrowsAndLashes:
+                                                item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 1, 0,
+                                                _currentCustomization.Customize.Gender.Value,
+                                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                                                categoryModName = "Eyebrows";
+                                                overrideType = "Normal";
+                                                break;
+                                        }
+                                    }
+
+                                    if (item != null)
+                                    {
+                                        foreach (string f in _textureHistory[categoryKey])
+                                        {
+                                            AddToTextureSet(item, f, overrideType);
+                                        }
+                                        textureSets.Add(item);
+                                        modName = modName.Replace("Mod", categoryModName);
+                                    }
+                                }
+
                                 string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
                                 if (textureSets.Count > 0)
                                 {
@@ -566,6 +621,180 @@ namespace RoleplayingVoice
           ".bmp",
           ".tex",
         };
+                public void RebuildCategory(string categoryKey) {
+            if (!_textureHistory.ContainsKey(categoryKey)) return;
+            
+            string charName = categoryKey.Split('_')[0];
+            ICharacter character = null;
+            if (Plugin.SafeGameObjectManager.LocalPlayer != null && Plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue.Split(' ')[0] == charName) {
+                character = Plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+            } else {
+                foreach (var item in Plugin.GetNearestObjects()) {
+                    ICharacter c = item as ICharacter;
+                    if (c != null && c.Name.TextValue.Split(' ')[0] == charName) {
+                        character = c;
+                        break;
+                    }
+                }
+            }
+            
+            if (character == null) {
+                Plugin.Chat.PrintError("[Drag And Drop Texturing] Character " + charName + " not found nearby. Cannot re-export.");
+                return;
+            }
+            
+            _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+            bool holdingModifier = false;
+            
+            Task.Run(async () => {
+                List<TextureSet> textureSets = new List<TextureSet>();
+                modName = charName + " Texture Mod";
+                
+                string lastFile = _textureHistory[categoryKey].LastOrDefault();
+                if (string.IsNullOrEmpty(lastFile)) return;
+                
+                TextureSet item = null;
+                string categoryModName = "";
+                string overrideType = "";
+
+                if (categoryKey.EndsWith("_gen2"))
+                {
+                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.TailShape.Value - 1, false);
+                    categoryModName = "Body";
+                    item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                }
+                else if (categoryKey.EndsWith("_bibo"))
+                {
+                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.TailShape.Value - 1, false);
+                    categoryModName = "Body";
+                    item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                }
+                else if (categoryKey.EndsWith("_gen3"))
+                {
+                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.TailShape.Value - 1, false);
+                    categoryModName = "Body";
+                    item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                }
+                else if (categoryKey.EndsWith("_tbse"))
+                {
+                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.TailShape.Value - 1, false);
+                    categoryModName = "Body";
+                    item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                }
+                else if (categoryKey.EndsWith("_eyebrows"))
+                {
+                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 1, 0,
+                     _currentCustomization.Customize.Gender.Value,
+                     RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                     _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                    categoryModName = "Eyebrows";
+                    overrideType = "Normal";
+                }
+                else if (categoryKey.EndsWith("_eyes"))
+                {
+                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 2, 0,
+                    _currentCustomization.Customize.Gender.Value,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                    categoryModName = "Eyes";
+                    overrideType = "Base";
+                }
+                else if (categoryKey.EndsWith("_face"))
+                {
+                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 0, 0,
+                    _currentCustomization.Customize.Gender.Value,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                    categoryModName = "Face";
+                }
+                else if (categoryKey.Contains("fallback_Body"))
+                {
+                    if (_currentCustomization.Customize.Race.Value - 1 == 2)
+                    {
+                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 5,
+                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                    }
+                    else if (_currentCustomization.Customize.Gender.Value == 0)
+                    {
+                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
+                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                    }
+                    else
+                    {
+                        switch (ImageManipulation.FemaleBodyUVClassifier(lastFile))
+                        {
+                            case BodyUVType.Bibo:
+                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
+                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                _currentCustomization.Customize.TailShape.Value - 1, false);
+                                break;
+                            case BodyUVType.Gen3:
+                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
+                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                _currentCustomization.Customize.TailShape.Value - 1, false);
+                                break;
+                            case BodyUVType.Gen2:
+                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
+                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                _currentCustomization.Customize.TailShape.Value - 1, false);
+                                break;
+                        }
+                    }
+                    categoryModName = "Body";
+                    if (item != null) item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                }
+                else if (categoryKey.Contains("fallback_Face"))
+                {
+                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 0, 0,
+                    _currentCustomization.Customize.Gender.Value,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                    categoryModName = "Face";
+                }
+                else if (categoryKey.Contains("fallback_Eyes"))
+                {
+                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 2, 0,
+                    _currentCustomization.Customize.Gender.Value,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                    categoryModName = "Eyes";
+                    overrideType = "Normal";
+                }
+                else if (categoryKey.Contains("fallback_EyebrowsAndLashes"))
+                {
+                    item = ProjectHelper.CreateFaceTextureSet(_currentCustomization.Customize.Face.Value - 1, 1, 0,
+                    _currentCustomization.Customize.Gender.Value,
+                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                    _currentCustomization.Customize.Clan.Value - 1, 0, false);
+                    categoryModName = "Eyebrows";
+                    overrideType = "Normal";
+                }
+
+                if (item != null)
+                {
+                    foreach (string f in _textureHistory[categoryKey])
+                    {
+                        AddToTextureSet(item, f, overrideType);
+                    }
+                    textureSets.Add(item);
+                    modName = modName.Replace("Mod", categoryModName);
+                    
+                    string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
+                    await Export(true, textureSets, fullModPath, modName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character));
+                }
+            });
+        }
+
         private readonly string _xNormalPath;
     }
 }

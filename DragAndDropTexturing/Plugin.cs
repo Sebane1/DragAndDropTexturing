@@ -59,6 +59,8 @@ public sealed class Plugin : IDalamudPlugin
             DragAndDropTextures.Plugin = this;
             DragAndDropTextures.IsOpen = true;
         }
+        MainWindow = new MainWindow(this);
+        WindowSystem.AddWindow(MainWindow);
         _safeGameObjectManager = new ThreadSafeGameObjectManager(clientState, objectTable, framework, pluginLog);
         _pluginLog = pluginLog;
     }
@@ -73,7 +75,7 @@ public sealed class Plugin : IDalamudPlugin
             {
                     gameObjects.Add((item as Dalamud.Game.ClientState.Objects.Types.IGameObject));
             }
-            if (item.ObjectKind == ObjectKind.Player)
+            if (item.ObjectKind == ObjectKind.Pc)
             {
                 _playerCount++;
             }
