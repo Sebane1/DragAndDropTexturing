@@ -116,34 +116,16 @@ namespace RoleplayingVoice
                 string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
                 string fastUvPath = Path.Combine(dlcPath, "res", "fastuvtransfer");
                 if (!Directory.Exists(dlcPath) || !Directory.Exists(fastUvPath) || Directory.GetFiles(dlcPath, "*.*", SearchOption.AllDirectories).Length < 5) {
-                    plugin.Chat.Print("[Drag And Drop Texturing] Missing LooseTextureCompilerDLC. Auto-downloading it from Google Drive now... This may take a moment.");
+                    plugin.Chat.Print("[Drag And Drop Texturing] Missing LooseTextureCompilerDLC. Auto-downloading from GitHub now... This may take a moment.");
                     using (HttpClient client = new HttpClient()) {
-                        string downloadUrl = "https://drive.google.com/uc?export=download&id=1L_r33OkGJP49_qEMVn5mLvYT9F306Rhz";
+                        client.DefaultRequestHeaders.UserAgent.ParseAdd("DragAndDropTexturing/1.0");
+                        string downloadUrl = "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.1.3/LooseTextureCompilerDLC.pmp";
                         HttpResponseMessage response = await client.GetAsync(downloadUrl);
+                        response.EnsureSuccessStatusCode();
                         byte[] fileBytes = await response.Content.ReadAsByteArrayAsync();
                         
-                        if (fileBytes.Length < 100000 && fileBytes[0] != 0x50) {
-                            string html = System.Text.Encoding.UTF8.GetString(fileBytes);
-                            string confirmToken = "t";
-                            string uuid = "";
-                            if (html.Contains("name=\"confirm\" value=\"")) {
-                                int startIndex = html.IndexOf("name=\"confirm\" value=\"") + 22;
-                                int endIndex = html.IndexOf("\"", startIndex);
-                                confirmToken = html.Substring(startIndex, endIndex - startIndex);
-                            }
-                            if (html.Contains("name=\"uuid\" value=\"")) {
-                                int startIndex = html.IndexOf("name=\"uuid\" value=\"") + 19;
-                                int endIndex = html.IndexOf("\"", startIndex);
-                                uuid = html.Substring(startIndex, endIndex - startIndex);
-                            }
-                            
-                            string confirmUrl = $"https://drive.usercontent.google.com/download?id=1L_r33OkGJP49_qEMVn5mLvYT9F306Rhz&export=download&confirm={confirmToken}&uuid={uuid}";
-                            response = await client.GetAsync(confirmUrl);
-                            fileBytes = await response.Content.ReadAsByteArrayAsync();
-                        }
-                        
                         if (fileBytes.Length > 100 && fileBytes[0] == 0x50 && fileBytes[1] == 0x4B) {
-                            string tempZip = Path.Combine(Path.GetTempPath(), "LooseTextureCompilerDLC.zip");
+                            string tempZip = Path.Combine(Path.GetTempPath(), "LooseTextureCompilerDLC.pmp");
                             File.WriteAllBytes(tempZip, fileBytes);
                             
                             string extractPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
@@ -180,7 +162,7 @@ namespace RoleplayingVoice
                             
                             plugin.Chat.Print("[Drag And Drop Texturing] LooseTextureCompilerDLC downloaded and installed successfully!");
                         } else {
-                            plugin.Chat.PrintError("[Drag And Drop Texturing] Auto-download failed. Please download the DLC manually from the link and extract it to your Penumbra mods folder.");
+                            plugin.Chat.PrintError("[Drag And Drop Texturing] Auto-download failed. The downloaded file was not a valid archive.");
                         }
                     }
                 }
