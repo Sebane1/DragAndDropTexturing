@@ -12,6 +12,8 @@ using FFXIVLooseTextureCompiler;
 using FFXIVLooseTextureCompiler.PathOrganization;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.IO.Compression;
+using System.Net.Http;
 using FFXIVLooseTextureCompiler.Racial;
 using PenumbraAndGlamourerHelpers;
 using System.Threading;
@@ -103,8 +105,88 @@ namespace RoleplayingVoice
                 plugin = value;
                 if (plugin != null) {
                     _textureHistory = plugin.Configuration.TextureHistory;
+                    Task.Run(() => CheckAndDownloadDLC());
                 }
             } 
+        }
+
+        private async Task CheckAndDownloadDLC() {
+            try {
+                string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
+                string fastUvPath = Path.Combine(dlcPath, "res", "fastuvtransfer");
+                if (!Directory.Exists(dlcPath) || !Directory.Exists(fastUvPath) || Directory.GetFiles(dlcPath, "*.*", SearchOption.AllDirectories).Length < 5) {
+                    plugin.Chat.Print("[Drag And Drop Texturing] Missing LooseTextureCompilerDLC. Auto-downloading it from Google Drive now... This may take a moment.");
+                    using (HttpClient client = new HttpClient()) {
+                        string downloadUrl = "https://drive.google.com/uc?export=download&id=1L_r33OkGJP49_qEMVn5mLvYT9F306Rhz";
+                        HttpResponseMessage response = await client.GetAsync(downloadUrl);
+                        byte[] fileBytes = await response.Content.ReadAsByteArrayAsync();
+                        
+                        if (fileBytes.Length < 100000 && fileBytes[0] != 0x50) {
+                            string html = System.Text.Encoding.UTF8.GetString(fileBytes);
+                            string confirmToken = "t";
+                            string uuid = "";
+                            if (html.Contains("name=\"confirm\" value=\"")) {
+                                int startIndex = html.IndexOf("name=\"confirm\" value=\"") + 22;
+                                int endIndex = html.IndexOf("\"", startIndex);
+                                confirmToken = html.Substring(startIndex, endIndex - startIndex);
+                            }
+                            if (html.Contains("name=\"uuid\" value=\"")) {
+                                int startIndex = html.IndexOf("name=\"uuid\" value=\"") + 19;
+                                int endIndex = html.IndexOf("\"", startIndex);
+                                uuid = html.Substring(startIndex, endIndex - startIndex);
+                            }
+                            
+                            string confirmUrl = $"https://drive.usercontent.google.com/download?id=1L_r33OkGJP49_qEMVn5mLvYT9F306Rhz&export=download&confirm={confirmToken}&uuid={uuid}";
+                            response = await client.GetAsync(confirmUrl);
+                            fileBytes = await response.Content.ReadAsByteArrayAsync();
+                        }
+                        
+                        if (fileBytes.Length > 100 && fileBytes[0] == 0x50 && fileBytes[1] == 0x4B) {
+                            string tempZip = Path.Combine(Path.GetTempPath(), "LooseTextureCompilerDLC.zip");
+                            File.WriteAllBytes(tempZip, fileBytes);
+                            
+                            string extractPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
+                            if (!Directory.Exists(extractPath)) {
+                                Directory.CreateDirectory(extractPath);
+                            }
+                            
+                            string tempExtract = Path.Combine(Path.GetTempPath(), "LooseTextureCompilerDLC_Temp");
+                            if (Directory.Exists(tempExtract)) Directory.Delete(tempExtract, true);
+                            Directory.CreateDirectory(tempExtract);
+                            
+                            ZipFile.ExtractToDirectory(tempZip, tempExtract, true);
+                            
+                            string[] dirs = Directory.GetDirectories(tempExtract);
+                            string[] filesExtracted = Directory.GetFiles(tempExtract);
+                            if (dirs.Length == 1 && filesExtracted.Length == 0 && Path.GetFileName(dirs[0]) == "LooseTextureCompilerDLC") {
+                                foreach (string dirPath in Directory.GetDirectories(dirs[0], "*", SearchOption.AllDirectories)) {
+                                    Directory.CreateDirectory(dirPath.Replace(dirs[0], extractPath));
+                                }
+                                foreach (string newPath in Directory.GetFiles(dirs[0], "*.*", SearchOption.AllDirectories)) {
+                                    File.Copy(newPath, newPath.Replace(dirs[0], extractPath), true);
+                                }
+                            } else {
+                                foreach (string dirPath in Directory.GetDirectories(tempExtract, "*", SearchOption.AllDirectories)) {
+                                    Directory.CreateDirectory(dirPath.Replace(tempExtract, extractPath));
+                                }
+                                foreach (string newPath in Directory.GetFiles(tempExtract, "*.*", SearchOption.AllDirectories)) {
+                                    File.Copy(newPath, newPath.Replace(tempExtract, extractPath), true);
+                                }
+                            }
+                            
+                            Directory.Delete(tempExtract, true);
+                            File.Delete(tempZip);
+                            
+                            plugin.Chat.Print("[Drag And Drop Texturing] LooseTextureCompilerDLC downloaded and installed successfully!");
+                        } else {
+                            plugin.Chat.PrintError("[Drag And Drop Texturing] Auto-download failed. Please download the DLC manually from the link and extract it to your Penumbra mods folder.");
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                plugin.Chat.PrintError("[Drag And Drop Texturing] Failed to download DLC: " + ex.Message);
+            }
         }
 
         public DragAndDropTextureWindow(IDalamudPluginInterface pluginInterface, IDragDropManager dragDropManager, ITextureProvider textureProvider) :
@@ -370,11 +452,12 @@ namespace RoleplayingVoice
                     {
                         string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
                         _textureProcessor.BasePath = modPath + @"\LooseTextureCompilerDLC";
+                        LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = _textureProcessor.BasePath;
                         List<TextureSet> textureSets = new List<TextureSet>();
                         if (selectedPlayer.Value != null && selectedPlayerCollection != mainPlayerCollection ||
                             selectedPlayer.Value == Plugin.SafeGameObjectManager.LocalPlayer)
                         {
-                            modName = selectedPlayer.Key.Split(' ')[0] + " Texture Mod";
+                            modName = selectedPlayer.Key + " Texture Mod";
                             _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(selectedPlayer.Value);
                             Task.Run(() =>
                             {
@@ -596,6 +679,7 @@ namespace RoleplayingVoice
                 plugin.Chat.Print("[Drag And Drop Texturing] Processing textures, please wait.");
                 string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
                 _textureProcessor.BasePath = modPath + @"\LooseTextureCompilerDLC";
+                LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = _textureProcessor.BasePath;
                 _exportStatus = "Initializing";
                 _lockDuplicateGeneration = true;
                 ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath);
@@ -636,12 +720,12 @@ namespace RoleplayingVoice
             
             string charName = categoryKey.Split('_')[0];
             ICharacter character = null;
-            if (Plugin.SafeGameObjectManager.LocalPlayer != null && Plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue.Split(' ')[0] == charName) {
+            if (Plugin.SafeGameObjectManager.LocalPlayer != null && Plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue == charName) {
                 character = Plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
             } else {
                 foreach (var item in Plugin.GetNearestObjects()) {
                     ICharacter c = item as ICharacter;
-                    if (c != null && c.Name.TextValue.Split(' ')[0] == charName) {
+                    if (c != null && c.Name.TextValue == charName) {
                         character = c;
                         break;
                     }
