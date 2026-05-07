@@ -36,6 +36,15 @@ public class MainWindow : Window, IDisposable
         }
         ImGui.TextWrapped("When enabled, dragging multiple textures over time will stack them (layering). When disabled, dragging a new texture replaces the previous one.");
         
+        ImGui.Spacing();
+        bool autoConvert = Plugin.Configuration.AutoUniversalConvert;
+        if (ImGui.Checkbox("Auto Universal Convert", ref autoConvert))
+        {
+            Plugin.Configuration.AutoUniversalConvert = autoConvert;
+            Plugin.Configuration.Save();
+        }
+        ImGui.TextWrapped("When enabled, dropping a texture automatically applies universal conversion across all layers without holding the shift key. Warning: This can be slow.");
+        
         ImGui.Separator();
         ImGui.Text("Active Texture Layers");
         
@@ -58,18 +67,56 @@ public class MainWindow : Window, IDisposable
                     {
                         list.Clear();
                         ddt.RebuildCategory(key);
+                        Plugin.Configuration.Save();
                     }
                     
+                    bool changed = false;
                     for (int i = 0; i < list.Count; i++)
                     {
-                        ImGui.Text(System.IO.Path.GetFileName(list[i]));
+                        string path = list[i] ?? "";
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
+                        if (ImGui.InputText("##path_" + key + i, ref path, 1024))
+                        {
+                            list[i] = path;
+                        }
+                        if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
+                        
+                        if (ImGui.Button("Up##" + key + i) && i > 0)
+                        {
+                            var temp = list[i - 1];
+                            list[i - 1] = list[i];
+                            list[i] = temp;
+                            changed = true;
+                        }
+                        
+                        ImGui.SameLine();
+                        if (ImGui.Button("Down##" + key + i) && i < list.Count - 1)
+                        {
+                            var temp = list[i + 1];
+                            list[i + 1] = list[i];
+                            list[i] = temp;
+                            changed = true;
+                        }
+
                         ImGui.SameLine();
                         if (ImGui.Button("Remove##" + key + i))
                         {
                             list.RemoveAt(i);
-                            ddt.RebuildCategory(key);
                             i--; // Adjust index since we removed
+                            changed = true;
                         }
+                    }
+
+                    if (ImGui.Button("Add New Layer##" + key))
+                    {
+                        list.Add("");
+                        changed = true;
+                    }
+
+                    if (changed)
+                    {
+                        ddt.RebuildCategory(key);
+                        Plugin.Configuration.Save();
                     }
                     ImGui.TreePop();
                 }

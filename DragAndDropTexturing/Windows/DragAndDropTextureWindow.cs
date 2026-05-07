@@ -97,7 +97,15 @@ namespace RoleplayingVoice
 
         private string modName;
 
-        public Plugin Plugin { get => plugin; set => plugin = value; }
+        public Plugin Plugin { 
+            get => plugin; 
+            set {
+                plugin = value;
+                if (plugin != null) {
+                    _textureHistory = plugin.Configuration.TextureHistory;
+                }
+            } 
+        }
 
         public DragAndDropTextureWindow(IDalamudPluginInterface pluginInterface, IDragDropManager dragDropManager, ITextureProvider textureProvider) :
             base("DragAndDropTexture", ImGuiWindowFlags.NoFocusOnAppearing
@@ -162,7 +170,7 @@ namespace RoleplayingVoice
                     Guid mainPlayerCollection = Guid.Empty;
                     Guid selectedPlayerCollection = Guid.Empty;
                     KeyValuePair<string, ICharacter> selectedPlayer = new KeyValuePair<string, ICharacter>("", null);
-                    bool holdingModifier = ImGui.GetIO().KeyShift;
+                    bool holdingModifier = ImGui.GetIO().KeyShift || Plugin.Configuration.AutoUniversalConvert;
                     _dragDropManager.CreateImGuiSource("TextureDragDrop", m => m.Extensions.Any(e => ValidTextureExtensions.Contains(e.ToLowerInvariant())), m =>
                     {
                         try
@@ -412,6 +420,7 @@ namespace RoleplayingVoice
                                     
                                     if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
                                     _textureHistory[categoryKey].Add(file);
+                                    Plugin.Configuration.Save();
                                 }
 
                                 foreach (var categoryKey in droppedCategories)
