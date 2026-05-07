@@ -167,14 +167,15 @@ namespace RoleplayingVoice
                     {
                         try
                         {
+                            _closestBone = null;
                             mainPlayerCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(Plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex).Item3.Id;
                             List<KeyValuePair<string, ICharacter>> _objects = new List<KeyValuePair<string, ICharacter>>();
                             _objects.Add(new KeyValuePair<string, ICharacter>(Plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue, Plugin.SafeGameObjectManager.LocalPlayer as ICharacter));
                             bool oneMinionOnly = false;
                             foreach (var item in Plugin.GetNearestObjects())
                             {
-                                ICharacter character = item as ICharacter;
-                                if (character != null)
+                                Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter character = item as Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter;
+                                if (character != null && (int)item.ObjectKind == 1)
                                 {
                                     string name = character.Name.TextValue;
                                     if (!string.IsNullOrEmpty(character.Name.TextValue))
@@ -290,7 +291,7 @@ namespace RoleplayingVoice
                                 {
                                     selectedPlayerCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(selectedPlayer.Value.ObjectIndex).Item3.Id;
                                 }
-                                string debugInfo = (_closestBone != null ? "Closest Bone" + _closestBone.HkaBone.Name.String : "") + " " + (cursorPosition != null ? cursorPosition.X + " " + cursorPosition.Y : "");
+                                string debugInfo = (_closestBone != null ? "Closest Bone " + _closestBone.HkaBone.Name.String : "") + " " + (cursorPosition != null ? cursorPosition.X + " " + cursorPosition.Y : "");
                                 if (selectedPlayer.Value != null)
                                 {
                                     if (selectedPlayerCollection != mainPlayerCollection ||
