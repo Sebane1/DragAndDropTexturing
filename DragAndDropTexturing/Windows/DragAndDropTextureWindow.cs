@@ -175,7 +175,7 @@ namespace RoleplayingVoice
                             foreach (var item in Plugin.GetNearestObjects())
                             {
                                 Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter character = item as Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter;
-                                if (character != null && (int)item.ObjectKind == 1)
+                                if (character != null)
                                 {
                                     string name = character.Name.TextValue;
                                     if (!string.IsNullOrEmpty(character.Name.TextValue))
