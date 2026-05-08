@@ -12,7 +12,7 @@ https://raw.githubusercontent.com/Sebane1/DragAndDropTexturing/master/repo.json
 ```
 
 Step 2:
-Install the .pmp DLC pack into penumbra
+Wait for initial asset dependancies to install
 
 Step 3:
 Drag and drop your desired texture onto your characters eyebrows, eyes, face, or body.
