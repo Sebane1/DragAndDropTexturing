@@ -42,8 +42,27 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.Configuration.AutoUniversalConvert = autoConvert;
             Plugin.Configuration.Save();
+            
+            var ddtForRebuild = Plugin.DragAndDropTextures;
+            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            {
+                foreach (var key in ddtForRebuild.TextureHistory.Keys.ToList())
+                {
+                    ddtForRebuild.RebuildCategory(key);
+                }
+            }
         }
         ImGui.TextWrapped("When enabled, dropping a texture automatically applies universal conversion across all layers without holding the shift key. Warning: This can be slow.");
+        
+        ImGui.Spacing();
+        var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
+        int selectedIndex = Math.Max(0, Array.IndexOf(options, Plugin.Configuration.DefaultUnderlaySkinType));
+        if (ImGui.Combo("Default Underlay Skin Type", ref selectedIndex, options, options.Length))
+        {
+            Plugin.Configuration.DefaultUnderlaySkinType = options[selectedIndex];
+            Plugin.Configuration.Save();
+        }
+        ImGui.TextWrapped("Selects the base skin underlay type when a custom transparent tattoo is dropped. If the character's base body doesn't support the specific skin variant, it will fall back to its own default.");
         
         ImGui.Separator();
         ImGui.Text("Active Texture Layers");

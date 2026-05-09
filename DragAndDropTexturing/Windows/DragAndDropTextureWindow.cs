@@ -76,20 +76,37 @@ namespace RoleplayingVoice
                 uvType = ProjectHelper.SortUVTexture(temp, file);
             }
 
+            string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
+            string sourceUV = "";
+            if (fileName.Contains("bibo") || fileName.Contains("b+")) sourceUV = "bibo";
+            else if (fileName.Contains("gen3") || fileName.Contains("eve")) sourceUV = "gen3";
+            else if (fileName.Contains("tbse")) sourceUV = "tbse";
+            else if (fileName.Contains("gen2") || fileName.Contains("body") || fileName.Contains("mata")) sourceUV = "gen2";
+
+            if (string.IsNullOrEmpty(sourceUV))
+            {
+                switch (ImageManipulation.FemaleBodyUVClassifier(file))
+                {
+                    case BodyUVType.Bibo: sourceUV = "bibo"; break;
+                    case BodyUVType.Gen3: sourceUV = "gen3"; break;
+                    case BodyUVType.Gen2: sourceUV = "gen2"; break;
+                }
+            }
+
             if (uvType == UVMapType.Base)
             {
-                if (string.IsNullOrEmpty(item.Base)) item.Base = file;
-                else if (!item.BaseOverlays.Contains(file)) item.BaseOverlays.Add(file);
+                if (string.IsNullOrEmpty(item.Base)) { item.Base = file; item.BaseUV = sourceUV; }
+                else if (!item.BaseOverlays.Contains(file)) { item.BaseOverlays.Add(file); item.BaseOverlayUVs.Add(sourceUV); }
             }
             else if (uvType == UVMapType.Normal)
             {
-                if (string.IsNullOrEmpty(item.Normal)) item.Normal = file;
-                else if (!item.NormalOverlays.Contains(file)) item.NormalOverlays.Add(file);
+                if (string.IsNullOrEmpty(item.Normal)) { item.Normal = file; item.NormalUV = sourceUV; }
+                else if (!item.NormalOverlays.Contains(file)) { item.NormalOverlays.Add(file); item.NormalOverlayUVs.Add(sourceUV); }
             }
             else if (uvType == UVMapType.Mask)
             {
-                if (string.IsNullOrEmpty(item.Mask)) item.Mask = file;
-                else if (!item.MaskOverlays.Contains(file)) item.MaskOverlays.Add(file);
+                if (string.IsNullOrEmpty(item.Mask)) { item.Mask = file; item.MaskUV = sourceUV; }
+                else if (!item.MaskOverlays.Contains(file)) { item.MaskOverlays.Add(file); item.MaskOverlayUVs.Add(sourceUV); }
             }
             else if (uvType == UVMapType.Glow)
             {
@@ -105,6 +122,22 @@ namespace RoleplayingVoice
                 plugin = value;
                 if (plugin != null) {
                     _textureHistory = plugin.Configuration.TextureHistory;
+
+                    var oldKeys = _textureHistory.Keys.Where(k => k.EndsWith("_gen2") || k.EndsWith("_bibo") || k.EndsWith("_gen3") || k.EndsWith("_tbse") || k.EndsWith("_otopop") || k.EndsWith("fallback_Body")).ToList();
+                    bool migrated = false;
+                    foreach(var key in oldKeys) {
+                        string newKey = key.Substring(0, key.LastIndexOf('_')) + "_body";
+                        if (key.EndsWith("fallback_Body")) newKey = key.Replace("fallback_Body", "body");
+
+                        if (!_textureHistory.ContainsKey(newKey)) {
+                            _textureHistory[newKey] = new List<string>();
+                        }
+                        _textureHistory[newKey].AddRange(_textureHistory[key]);
+                        _textureHistory.Remove(key);
+                        migrated = true;
+                    }
+                    if (migrated) plugin.Configuration.Save();
+
                     Task.Run(() => CheckAndDownloadDLC());
                 }
             } 
@@ -205,8 +238,14 @@ namespace RoleplayingVoice
             _textureProcessor = new TextureProcessor(underlayTexturePath);
             _textureProcessor.OnStartedProcessing += TextureProcessor_OnStartedProcessing;
             _textureProcessor.OnLaunchedXnormal += TextureProcessor_OnLaunchedXnormal;
+            _textureProcessor.OnProgressReport += TextureProcessor_OnProgressReport;
 
             _textureProvider = textureProvider;
+        }
+
+        private void TextureProcessor_OnProgressReport(object? sender, string e)
+        {
+            _exportStatus = e;
         }
 
         private void TextureProcessor_OnLaunchedXnormal(object? sender, EventArgs e)
@@ -229,6 +268,21 @@ namespace RoleplayingVoice
             var cursorPosition = ImGui.GetIO().MousePos;
             if (IsOpen)
             {
+                if (_lockDuplicateGeneration)
+                {
+                    ImGui.SetCursorPos(new Vector2(size.X / 2 - 150, size.Y - 100));
+                    ImGui.BeginChild("LoadingBox", new Vector2(300, 40), true, ImGuiWindowFlags.NoScrollbar);
+                    if (_textureProcessor != null && _textureProcessor.ExportMax > 0)
+                    {
+                        ImGui.ProgressBar(_textureProcessor.ExportCompletion / (float)_textureProcessor.ExportMax, new Vector2(-1, 0), _exportStatus);
+                    }
+                    else
+                    {
+                        ImGui.ProgressBar(0f, new Vector2(-1, 0), _exportStatus);
+                    }
+                    ImGui.EndChild();
+                }
+
                 if (!_lockDuplicateGeneration)
                 {
                     Guid mainPlayerCollection = Guid.Empty;
@@ -449,14 +503,21 @@ namespace RoleplayingVoice
                                     if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
                                     string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
                                     string categoryKey = selectedPlayer.Key + "_";
-                                    if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2")) categoryKey += "gen2";
-                                    else if (fileName.Contains("bibo") || fileName.Contains("b+")) categoryKey += "bibo";
-                                    else if (fileName.Contains("gen3")) categoryKey += "gen3";
-                                    else if (fileName.Contains("tbse")) categoryKey += "tbse";
+                                    if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                                        fileName.Contains("bibo") || fileName.Contains("b+") ||
+                                        fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
                                     else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                                     else if (fileName.Contains("eye")) categoryKey += "eyes";
                                     else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
-                                    else categoryKey += "fallback_" + bodyDragPart.ToString();
+                                    else {
+                                        switch (bodyDragPart) {
+                                            case BodyDragPart.Body: categoryKey += "body"; break;
+                                            case BodyDragPart.Face: categoryKey += "face"; break;
+                                            case BodyDragPart.Eyes: categoryKey += "eyes"; break;
+                                            case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
+                                            default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
+                                        }
+                                    }
                                     
                                     droppedCategories.Add(categoryKey);
                                 }
@@ -474,14 +535,21 @@ namespace RoleplayingVoice
                                     if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
                                     string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
                                     string categoryKey = selectedPlayer.Key + "_";
-                                    if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2")) categoryKey += "gen2";
-                                    else if (fileName.Contains("bibo") || fileName.Contains("b+")) categoryKey += "bibo";
-                                    else if (fileName.Contains("gen3")) categoryKey += "gen3";
-                                    else if (fileName.Contains("tbse")) categoryKey += "tbse";
+                                    if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                                        fileName.Contains("bibo") || fileName.Contains("b+") ||
+                                        fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
                                     else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                                     else if (fileName.Contains("eye")) categoryKey += "eyes";
                                     else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
-                                    else categoryKey += "fallback_" + bodyDragPart.ToString();
+                                    else {
+                                        switch (bodyDragPart) {
+                                            case BodyDragPart.Body: categoryKey += "body"; break;
+                                            case BodyDragPart.Face: categoryKey += "face"; break;
+                                            case BodyDragPart.Eyes: categoryKey += "eyes"; break;
+                                            case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
+                                            default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
+                                        }
+                                    }
                                     
                                     if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
                                     _textureHistory[categoryKey].Add(file);
@@ -491,42 +559,33 @@ namespace RoleplayingVoice
                                 foreach (var categoryKey in droppedCategories)
                                 {
                                     if (!_textureHistory.ContainsKey(categoryKey) || _textureHistory[categoryKey].Count == 0) continue;
-                                    string lastFile = _textureHistory[categoryKey].Last();
+                                    string lastFile = _textureHistory[categoryKey].First();
                                     TextureSet item = null;
                                     string categoryModName = "";
                                     string overrideType = "";
 
-                                    if (categoryKey.EndsWith("_gen2"))
+                                    if (categoryKey.EndsWith("_body"))
                                     {
-                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
-                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                                        if (_currentCustomization.Customize.Race.Value - 1 == 2)
+                                        {
+                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 5,
+                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                            _currentCustomization.Customize.TailShape.Value - 1, false);
+                                        }
+                                        else if (_currentCustomization.Customize.Gender.Value == 0)
+                                        {
+                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
+                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                            _currentCustomization.Customize.TailShape.Value - 1, false);
+                                        }
+                                        else
+                                        {
+                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile),
+                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                            _currentCustomization.Customize.TailShape.Value - 1, false);
+                                        }
                                         categoryModName = "Body";
-                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                    }
-                                    else if (categoryKey.EndsWith("_bibo"))
-                                    {
-                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
-                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                        _currentCustomization.Customize.TailShape.Value - 1, false);
-                                        categoryModName = "Body";
-                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                    }
-                                    else if (categoryKey.EndsWith("_gen3"))
-                                    {
-                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
-                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                        _currentCustomization.Customize.TailShape.Value - 1, false);
-                                        categoryModName = "Body";
-                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                                    }
-                                    else if (categoryKey.EndsWith("_tbse"))
-                                    {
-                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
-                                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                        _currentCustomization.Customize.TailShape.Value - 1, false);
-                                        categoryModName = "Body";
-                                        item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                                        if (item != null) item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                                     }
                                     else if (categoryKey.EndsWith("_eyebrows"))
                                     {
@@ -623,6 +682,7 @@ namespace RoleplayingVoice
 
                                     if (item != null)
                                     {
+                                        ApplyDefaultSkinType(item);
                                         foreach (string f in _textureHistory[categoryKey])
                                         {
                                             AddToTextureSet(item, f, overrideType);
@@ -720,50 +780,41 @@ namespace RoleplayingVoice
             }
             
             _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
-            bool holdingModifier = false;
+            bool holdingModifier = Plugin.Configuration.AutoUniversalConvert;
             
             Task.Run(async () => {
                 List<TextureSet> textureSets = new List<TextureSet>();
                 modName = charName + " Texture Mod";
                 
-                string lastFile = _textureHistory[categoryKey].LastOrDefault();
+                string lastFile = _textureHistory[categoryKey].FirstOrDefault();
                 if (string.IsNullOrEmpty(lastFile)) return;
                 
                 TextureSet item = null;
                 string categoryModName = "";
                 string overrideType = "";
 
-                if (categoryKey.EndsWith("_gen2"))
+                if (categoryKey.EndsWith("_body"))
                 {
-                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
-                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                    _currentCustomization.Customize.TailShape.Value - 1, false);
+                    if (_currentCustomization.Customize.Race.Value - 1 == 2)
+                    {
+                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 5,
+                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                    }
+                    else if (_currentCustomization.Customize.Gender.Value == 0)
+                    {
+                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
+                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                    }
+                    else
+                    {
+                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile),
+                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                        _currentCustomization.Customize.TailShape.Value - 1, false);
+                    }
                     categoryModName = "Body";
-                    item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                }
-                else if (categoryKey.EndsWith("_bibo"))
-                {
-                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
-                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                    _currentCustomization.Customize.TailShape.Value - 1, false);
-                    categoryModName = "Body";
-                    item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                }
-                else if (categoryKey.EndsWith("_gen3"))
-                {
-                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
-                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                    _currentCustomization.Customize.TailShape.Value - 1, false);
-                    categoryModName = "Body";
-                    item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
-                }
-                else if (categoryKey.EndsWith("_tbse"))
-                {
-                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
-                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                    _currentCustomization.Customize.TailShape.Value - 1, false);
-                    categoryModName = "Body";
-                    item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                    if (item != null) item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                 }
                 else if (categoryKey.EndsWith("_eyebrows"))
                 {
@@ -807,24 +858,9 @@ namespace RoleplayingVoice
                     }
                     else
                     {
-                        switch (ImageManipulation.FemaleBodyUVClassifier(lastFile))
-                        {
-                            case BodyUVType.Bibo:
-                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
-                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                _currentCustomization.Customize.TailShape.Value - 1, false);
-                                break;
-                            case BodyUVType.Gen3:
-                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
-                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                _currentCustomization.Customize.TailShape.Value - 1, false);
-                                break;
-                            case BodyUVType.Gen2:
-                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
-                                RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                _currentCustomization.Customize.TailShape.Value - 1, false);
-                                break;
-                        }
+                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile),
+                        RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                        _currentCustomization.Customize.TailShape.Value - 1, false);
                     }
                     categoryModName = "Body";
                     if (item != null) item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
@@ -858,6 +894,7 @@ namespace RoleplayingVoice
 
                 if (item != null)
                 {
+                    ApplyDefaultSkinType(item);
                     foreach (string f in _textureHistory[categoryKey])
                     {
                         AddToTextureSet(item, f, overrideType);
@@ -869,6 +906,40 @@ namespace RoleplayingVoice
                     await Export(true, textureSets, fullModPath, modName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character));
                 }
             });
+        }
+
+        private void ApplyDefaultSkinType(TextureSet item)
+        {
+            var availableSkins = UniversalTextureSetCreator.GetSkinTypeNames(item);
+            if (availableSkins != null)
+            {
+                int index = availableSkins.IndexOf(plugin.Configuration.DefaultUnderlaySkinType);
+                if (index != -1)
+                {
+                    item.SkinType = index;
+                }
+                else
+                {
+                    item.SkinType = 0;
+                }
+            }
+        }
+
+        private int DetectBaseBodyType(string file)
+        {
+            string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
+            if (fileName.Contains("bibo") || fileName.Contains("b+")) return 1;
+            if (fileName.Contains("gen3") || fileName.Contains("eve")) return 2;
+            if (fileName.Contains("tbse")) return 3;
+            if (fileName.Contains("gen2") || fileName.Contains("body") || fileName.Contains("mata")) return 0;
+
+            switch (ImageManipulation.FemaleBodyUVClassifier(file))
+            {
+                case BodyUVType.Bibo: return 1;
+                case BodyUVType.Gen3: return 2;
+                case BodyUVType.Gen2: return 0;
+            }
+            return 0;
         }
 
         private readonly string _xNormalPath;
