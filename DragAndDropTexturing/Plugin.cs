@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Game.ClientState.Objects.Enums;
 using GameObjectHelper.ThreadSafeDalamudObjectTable;
+using FFXIVLooseTextureCompiler.Export;
 
 namespace DragAndDropTexturing;
 
@@ -63,6 +64,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(MainWindow);
         _safeGameObjectManager = new ThreadSafeGameObjectManager(clientState, objectTable, framework, pluginLog);
         _pluginLog = pluginLog;
+        BackupTexturePaths.OverrideMode = true;
     }
     public Dalamud.Game.ClientState.Objects.Types.IGameObject[] GetNearestObjects()
     {
