@@ -66,6 +66,15 @@ namespace RoleplayingVoice
         private Dictionary<string, List<string>> _textureHistory = new Dictionary<string, List<string>>();
         public Dictionary<string, List<string>> TextureHistory { get => _textureHistory; set => _textureHistory = value; }
 
+        // Auto-regeneration tracking
+        private int _lastKnownFace = -1;
+        private int _lastKnownRace = -1;
+        private int _lastKnownClan = -1;
+        private int _lastKnownGender = -1;
+        private System.Threading.Timer _regenerationDebounce;
+        private HashSet<string> _pendingRegenerationCategories = new HashSet<string>();
+        private readonly object _regenerationLock = new object();
+
         private void AddToTextureSet(TextureSet item, string file, string overrideType = "")
         {
             UVMapType uvType = UVMapType.Base;
@@ -145,6 +154,13 @@ namespace RoleplayingVoice
                     if (migrated) plugin.Configuration.Save();
 
                     Task.Run(() => CheckAndDownloadDLC());
+
+                    // Hook Glamourer state changes for auto-regeneration
+                    PenumbraAndGlamourerIpcWrapper.Instance.OnGlamourerStateChanged += OnGlamourerStateChanged;
+                    PenumbraAndGlamourerIpcWrapper.Instance.OnModSettingChanged += OnModSettingChanged;
+
+                    // Trigger initial rebuild if player is already logged in with existing texture history
+                    Task.Run(() => TryInitialRebuild());
                 }
             }
         }
@@ -848,6 +864,147 @@ namespace RoleplayingVoice
 
         public void Dispose()
         {
+            if (plugin != null)
+            {
+                PenumbraAndGlamourerIpcWrapper.Instance.OnGlamourerStateChanged -= OnGlamourerStateChanged;
+                PenumbraAndGlamourerIpcWrapper.Instance.OnModSettingChanged -= OnModSettingChanged;
+            }
+            _regenerationDebounce?.Dispose();
+        }
+
+        private void TryInitialRebuild()
+        {
+            try
+            {
+                // Wait for game state to stabilize after login
+                Thread.Sleep(3000);
+
+                if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
+                if (_textureHistory.Count == 0) return;
+
+                string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
+                var charKeys = _textureHistory.Keys.Where(k => k.StartsWith(charName + "_") && _textureHistory[k].Count > 0).ToList();
+                if (charKeys.Count == 0) return;
+
+                // Snapshot the current customization
+                var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                if (character == null) return;
+                var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                _lastKnownFace = customization.Customize.Face.Value;
+                _lastKnownRace = customization.Customize.Race.Value;
+                _lastKnownClan = customization.Customize.Clan.Value;
+                _lastKnownGender = customization.Customize.Gender.Value;
+
+                plugin.Chat.Print("[Drag And Drop Texturing] Rebuilding " + charKeys.Count + " texture categories for " + charName + "...");
+                foreach (var key in charKeys)
+                {
+                    RebuildCategory(key);
+                }
+            }
+            catch (Exception e)
+            {
+                plugin?.PluginLog?.Warning(e, "Failed initial texture rebuild");
+            }
+        }
+
+        private void OnGlamourerStateChanged(object sender, GlamourerStateChangedEventArgs e)
+        {
+            try
+            {
+                if (_lockDuplicateGeneration) return;
+                if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
+                if (e.GameObjectPtr != plugin.SafeGameObjectManager.LocalPlayer.Address) return;
+
+                var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                if (character == null) return;
+
+                var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                string charName = character.Name.TextValue;
+
+                bool faceChanged = _lastKnownFace != -1 && _lastKnownFace != customization.Customize.Face.Value;
+                bool raceChanged = _lastKnownRace != -1 && (_lastKnownRace != customization.Customize.Race.Value || _lastKnownClan != customization.Customize.Clan.Value);
+                bool genderChanged = _lastKnownGender != -1 && _lastKnownGender != customization.Customize.Gender.Value;
+
+                // Update tracked state
+                _lastKnownFace = customization.Customize.Face.Value;
+                _lastKnownRace = customization.Customize.Race.Value;
+                _lastKnownClan = customization.Customize.Clan.Value;
+                _lastKnownGender = customization.Customize.Gender.Value;
+
+                if (raceChanged || genderChanged)
+                {
+                    plugin.Chat.Print("[Drag And Drop Texturing] Race/Gender change detected. Rebuilding all texture sets...");
+                    ScheduleRegeneration(charName, new[] { "_body", "_face", "_eyes", "_eyebrows" });
+                }
+                else if (faceChanged)
+                {
+                    plugin.Chat.Print("[Drag And Drop Texturing] Face change detected. Rebuilding face and eye textures...");
+                    ScheduleRegeneration(charName, new[] { "_face", "_eyes", "_eyebrows" });
+                }
+            }
+            catch (Exception ex)
+            {
+                plugin?.PluginLog?.Warning(ex, "Error in Glamourer state change handler");
+            }
+        }
+
+        private void OnModSettingChanged(object sender, ModSettingChangedEventArgs e)
+        {
+            try
+            {
+                if (_lockDuplicateGeneration) return;
+                if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
+
+                string modDir = e.ModDirectory?.ToLower() ?? "";
+                // Skip our own generated mods
+                if (modDir.Contains("drag and drop") || modDir.Contains("do_not_edit") || modDir.Contains("texture body") || modDir.Contains("texture face") || modDir.Contains("texture eyes") || modDir.Contains("texture eyebrows") || modDir.Contains("texture mod")) return;
+
+                bool isSkinMod = modDir.Contains("bibo") || modDir.Contains("gen3") || modDir.Contains("tbse") ||
+                                 modDir.Contains("body") || modDir.Contains("skin") || modDir.Contains("yab") ||
+                                 modDir.Contains("eve ") || modDir.Contains("tight");
+
+                if (isSkinMod)
+                {
+                    string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
+                    plugin.Chat.Print("[Drag And Drop Texturing] Skin mod change detected (" + e.ModDirectory + "). Rebuilding body textures...");
+                    ScheduleRegeneration(charName, new[] { "_body" });
+                }
+            }
+            catch (Exception ex)
+            {
+                plugin?.PluginLog?.Warning(ex, "Error in mod setting change handler");
+            }
+        }
+
+        private void ScheduleRegeneration(string charName, string[] categorySuffixes)
+        {
+            lock (_regenerationLock)
+            {
+                foreach (var suffix in categorySuffixes)
+                {
+                    string key = charName + suffix;
+                    if (_textureHistory.ContainsKey(key) && _textureHistory[key].Count > 0)
+                    {
+                        _pendingRegenerationCategories.Add(key);
+                    }
+                }
+
+                _regenerationDebounce?.Dispose();
+                _regenerationDebounce = new System.Threading.Timer(_ =>
+                {
+                    HashSet<string> categories;
+                    lock (_regenerationLock)
+                    {
+                        categories = new HashSet<string>(_pendingRegenerationCategories);
+                        _pendingRegenerationCategories.Clear();
+                    }
+
+                    foreach (var key in categories)
+                    {
+                        RebuildCategory(key);
+                    }
+                }, null, 2000, System.Threading.Timeout.Infinite);
+            }
         }
 
         private static readonly string[] ValidTextureExtensions = new[]
@@ -1046,7 +1203,7 @@ namespace RoleplayingVoice
 
         private int DetectBaseBodyType(string file, Guid collection)
         {
-            int penumbraBase = PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collection, out string detectedModName);
+            int penumbraBase = PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collection, out string detectedModName, plugin);
             if (penumbraBase != -1)
             {
                 string bodyName = penumbraBase == 1 ? "Bibo" : penumbraBase == 2 ? "Gen3" : penumbraBase == 3 ? "TBSE" : "Unknown";
