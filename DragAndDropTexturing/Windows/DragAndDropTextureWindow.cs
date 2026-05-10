@@ -497,7 +497,9 @@ namespace RoleplayingVoice
                             _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(selectedPlayer.Value);
                             Task.Run(() =>
                             {
-                                HashSet<string> droppedCategories = new HashSet<string>();
+                                try
+                                {
+                                    HashSet<string> droppedCategories = new HashSet<string>();
                                 foreach (var file in files)
                                 {
                                     if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
@@ -580,7 +582,7 @@ namespace RoleplayingVoice
                                         }
                                         else
                                         {
-                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile),
+                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, selectedPlayerCollection),
                                             RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                                             _currentCustomization.Customize.TailShape.Value - 1, false);
                                         }
@@ -632,24 +634,9 @@ namespace RoleplayingVoice
                                                 }
                                                 else
                                                 {
-                                                    switch (ImageManipulation.FemaleBodyUVClassifier(lastFile))
-                                                    {
-                                                        case BodyUVType.Bibo:
-                                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 1,
-                                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                            _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                            break;
-                                                        case BodyUVType.Gen3:
-                                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 2,
-                                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                            _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                            break;
-                                                        case BodyUVType.Gen2:
-                                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 0,
-                                                            RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
-                                                            _currentCustomization.Customize.TailShape.Value - 1, false);
-                                                            break;
-                                                    }
+                                                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, selectedPlayerCollection),
+                                                    RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
+                                                    _currentCustomization.Customize.TailShape.Value - 1, false);
                                                 }
                                                 categoryModName = "Body";
                                                 if (item != null) item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
@@ -700,6 +687,12 @@ namespace RoleplayingVoice
                                 else
                                 {
                                     plugin.Chat.PrintError("[Drag And Drop Texturing] Unable to identify texture type! If its a transparent texture please include descriptors in the file name (IE: filename_bibo_base.png, filename_gen3_base.png, filename_gen2_base.png, etc)");
+                                }
+                                }
+                                catch (Exception e)
+                                {
+                                    plugin.Chat.PrintError($"[Drag And Drop Texturing] Crash during generation: {e.Message}");
+                                    plugin.PluginLog.Warning(e, e.Message);
                                 }
                             });
                         }
@@ -783,7 +776,10 @@ namespace RoleplayingVoice
             bool holdingModifier = Plugin.Configuration.AutoUniversalConvert;
             
             Task.Run(async () => {
-                List<TextureSet> textureSets = new List<TextureSet>();
+                try
+                {
+                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+                    List<TextureSet> textureSets = new List<TextureSet>();
                 modName = charName + " Texture Mod";
                 
                 string lastFile = _textureHistory[categoryKey].FirstOrDefault();
@@ -809,7 +805,7 @@ namespace RoleplayingVoice
                     }
                     else
                     {
-                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile),
+                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, collection),
                         RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                         _currentCustomization.Customize.TailShape.Value - 1, false);
                     }
@@ -858,7 +854,7 @@ namespace RoleplayingVoice
                     }
                     else
                     {
-                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile),
+                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, collection),
                         RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1),
                         _currentCustomization.Customize.TailShape.Value - 1, false);
                     }
@@ -905,6 +901,12 @@ namespace RoleplayingVoice
                     string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
                     await Export(true, textureSets, fullModPath, modName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character));
                 }
+                }
+                catch (Exception e)
+                {
+                    Plugin.Chat.PrintError($"[Drag And Drop Texturing] Crash during generation: {e.Message}");
+                    Plugin.PluginLog.Warning(e, e.Message);
+                }
             });
         }
 
@@ -925,8 +927,22 @@ namespace RoleplayingVoice
             }
         }
 
-        private int DetectBaseBodyType(string file)
+        private int DetectBaseBodyType(string file, Guid collection)
         {
+            int penumbraBase = PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collection, out string detectedModName);
+            if (penumbraBase != -1)
+            {
+                string bodyName = penumbraBase == 1 ? "Bibo" : penumbraBase == 2 ? "Gen3" : penumbraBase == 3 ? "TBSE" : "Unknown";
+                plugin.Chat.Print($"[Drag And Drop Texturing] Baseline Body Detected: {bodyName} (from Mod: '{detectedModName}')");
+                plugin.PluginLog.Information($"[Drag And Drop Texturing] Baseline Body Detected: {bodyName} (from Mod: '{detectedModName}')");
+                return penumbraBase;
+            }
+            else
+            {
+                plugin.Chat.Print($"[Drag And Drop Texturing] Penumbra detection found no body mod. Falling back to source texture detection.");
+                plugin.PluginLog.Information($"[Drag And Drop Texturing] Penumbra detection found no body mod. Falling back to source texture detection.");
+            }
+
             string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
             if (fileName.Contains("bibo") || fileName.Contains("b+")) return 1;
             if (fileName.Contains("gen3") || fileName.Contains("eve")) return 2;
@@ -939,7 +955,8 @@ namespace RoleplayingVoice
                 case BodyUVType.Gen3: return 2;
                 case BodyUVType.Gen2: return 0;
             }
-            return 0;
+
+            return 2; // Default to Gen3
         }
 
         private readonly string _xNormalPath;
