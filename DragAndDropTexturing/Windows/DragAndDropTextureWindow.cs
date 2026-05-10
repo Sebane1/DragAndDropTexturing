@@ -800,6 +800,26 @@ namespace RoleplayingVoice
                                 string baseTex, normTex, maskTex;
                                 PenumbraAndGlamourerHelperFunctions.ExtractActiveTextureFromPenumbra(collection, category, raceCode, subRaceName, out _, out baseTex, out normTex, out maskTex, plugin, i);
 
+                                // Lumina fallback: if no modded textures found, extract vanilla .tex from game data
+                                if (string.IsNullOrEmpty(baseTex) && !string.IsNullOrEmpty(i.InternalBasePath))
+                                {
+                                    baseTex = ExtractVanillaTexViaLumina(i.InternalBasePath, i);
+                                    if (!string.IsNullOrEmpty(baseTex))
+                                        plugin.Chat.Print($"[Drag And Drop Debug] Vanilla fallback base: {i.InternalBasePath}");
+                                }
+                                if (string.IsNullOrEmpty(normTex) && !string.IsNullOrEmpty(i.InternalNormalPath))
+                                {
+                                    normTex = ExtractVanillaTexViaLumina(i.InternalNormalPath, i);
+                                    if (!string.IsNullOrEmpty(normTex))
+                                        plugin.Chat.Print($"[Drag And Drop Debug] Vanilla fallback normal: {i.InternalNormalPath}");
+                                }
+                                if (string.IsNullOrEmpty(maskTex) && !string.IsNullOrEmpty(i.InternalMaskPath))
+                                {
+                                    maskTex = ExtractVanillaTexViaLumina(i.InternalMaskPath, i);
+                                    if (!string.IsNullOrEmpty(maskTex))
+                                        plugin.Chat.Print($"[Drag And Drop Debug] Vanilla fallback mask: {i.InternalMaskPath}");
+                                }
+
                                 if (!string.IsNullOrEmpty(baseTex) && (!BackupTexturePaths.OverrideMode || category != "_body"))
                                 {
                                     if (!string.IsNullOrEmpty(i.Base))
@@ -876,10 +896,34 @@ namespace RoleplayingVoice
         {
             try
             {
-                // Wait for game state to stabilize after login
-                Thread.Sleep(3000);
+                // Wait for Penumbra IPC to be fully ready (mod list + collection resolution)
+                bool penumbraReady = false;
+                for (int attempt = 0; attempt < 5; attempt++)
+                {
+                    Thread.Sleep(3000);
+                    try
+                    {
+                        if (plugin?.SafeGameObjectManager?.LocalPlayer == null) continue;
+                        var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                        if (character == null) continue;
 
-                if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
+                        // Verify Penumbra can return mod data
+                        var mods = PenumbraAndGlamourerIpcWrapper.Instance.GetModList.Invoke();
+                        var collectionResult = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex);
+                        if (mods.Count > 0 && collectionResult.Item3.Id != Guid.Empty)
+                        {
+                            penumbraReady = true;
+                            break;
+                        }
+                        plugin?.PluginLog?.Information($"[Drag And Drop Debug] Penumbra not ready yet (attempt {attempt + 1}/5, mods={mods.Count})");
+                    }
+                    catch
+                    {
+                        plugin?.PluginLog?.Information($"[Drag And Drop Debug] Penumbra IPC not available yet (attempt {attempt + 1}/5)");
+                    }
+                }
+
+                if (!penumbraReady) return;
                 if (_textureHistory.Count == 0) return;
 
                 string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
@@ -887,9 +931,9 @@ namespace RoleplayingVoice
                 if (charKeys.Count == 0) return;
 
                 // Snapshot the current customization
-                var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
-                if (character == null) return;
-                var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                var character2 = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                if (character2 == null) return;
+                var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character2);
                 _lastKnownFace = customization.Customize.Face.Value;
                 _lastKnownRace = customization.Customize.Race.Value;
                 _lastKnownClan = customization.Customize.Clan.Value;
@@ -898,7 +942,16 @@ namespace RoleplayingVoice
                 plugin.Chat.Print("[Drag And Drop Texturing] Rebuilding " + charKeys.Count + " texture categories for " + charName + "...");
                 foreach (var key in charKeys)
                 {
+                    // Wait for any previous rebuild to finish before starting the next
+                    int waitAttempts = 0;
+                    while (_lockDuplicateGeneration && waitAttempts < 60)
+                    {
+                        Thread.Sleep(1000);
+                        waitAttempts++;
+                    }
                     RebuildCategory(key);
+                    // Give the Task.Run inside RebuildCategory time to start and set the lock
+                    Thread.Sleep(500);
                 }
             }
             catch (Exception e)
@@ -1198,6 +1251,74 @@ namespace RoleplayingVoice
                 {
                     item.SkinType = 0;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Extracts a vanilla .tex file from FFXIV game data via Lumina, converts to PNG, 
+        /// and upscales to match the input texture resolution for use as an underlay.
+        /// </summary>
+        private string ExtractVanillaTexViaLumina(string internalGamePath, TextureSet textureSet)
+        {
+            try
+            {
+                var texFile = Plugin.DataManager.GetFile<Lumina.Data.Files.TexFile>(internalGamePath);
+                if (texFile == null) return "";
+
+                // Use the existing TexIO pattern to convert the raw .tex data to Bitmap
+                using (var stream = new MemoryStream(texFile.Data))
+                {
+                    var bitmap = TexIO.TexToBitmap(stream);
+                    int texWidth = bitmap.Width;
+                    int texHeight = bitmap.Height;
+
+                    // Determine target resolution from the input texture
+                    int targetWidth = texWidth;
+                    int targetHeight = texHeight;
+                    string inputFile = !string.IsNullOrEmpty(textureSet.Base) ? textureSet.Base :
+                        (textureSet.BaseOverlays.Count > 0 ? textureSet.BaseOverlays[0] : "");
+                    if (!string.IsNullOrEmpty(inputFile) && File.Exists(inputFile))
+                    {
+                        try
+                        {
+                            using (var inputImage = System.Drawing.Image.FromFile(inputFile))
+                            {
+                                targetWidth = inputImage.Width;
+                                targetHeight = inputImage.Height;
+                            }
+                        }
+                        catch { /* keep vanilla resolution */ }
+                    }
+
+                    // Upscale if needed
+                    Bitmap finalBitmap = bitmap;
+                    if (targetWidth != texWidth || targetHeight != texHeight)
+                    {
+                        finalBitmap = new Bitmap(targetWidth, targetHeight, PixelFormat.Format32bppArgb);
+                        using (var g = Graphics.FromImage(finalBitmap))
+                        {
+                            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                            g.DrawImage(bitmap, 0, 0, targetWidth, targetHeight);
+                        }
+                    }
+
+                    // Save as temp PNG
+                    string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
+                    Directory.CreateDirectory(tempDir);
+                    string safeName = internalGamePath.Replace("/", "_").Replace("\\", "_");
+                    string tempPath = Path.Combine(tempDir, safeName + $"_{targetWidth}x{targetHeight}.png");
+                    TexIO.SaveBitmap(finalBitmap, tempPath);
+
+                    if (finalBitmap != bitmap) finalBitmap.Dispose();
+                    bitmap.Dispose();
+
+                    return tempPath;
+                }
+            }
+            catch (Exception ex)
+            {
+                plugin?.PluginLog?.Warning(ex, $"Failed to extract vanilla tex: {internalGamePath}");
+                return "";
             }
         }
 
