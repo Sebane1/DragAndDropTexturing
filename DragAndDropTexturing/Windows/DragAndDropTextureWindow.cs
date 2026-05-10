@@ -250,7 +250,7 @@ namespace RoleplayingVoice
 
         private void TextureProcessor_OnLaunchedXnormal(object? sender, EventArgs e)
         {
-            _exportStatus = "Waiting For XNormal To Generate Assets For Mod";
+            _exportStatus = "Waiting For Fast UV Transfer To Generate Assets For Mod";
             plugin.Chat.Print("[Drag And Drop Texturing] " + _exportStatus);
         }
 
@@ -699,7 +699,7 @@ namespace RoleplayingVoice
                                 }
                                 else
                                 {
-                                    plugin.Chat.PrintError("[Drag And Drop Texturing] Unable to identify texture type!");
+                                    plugin.Chat.PrintError("[Drag And Drop Texturing] Unable to identify texture type! If its a transparent texture please include descriptors in the file name (IE: filename_bibo_base.png, filename_gen3_base.png, filename_gen2_base.png, etc)");
                                 }
                             });
                         }
