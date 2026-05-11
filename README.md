@@ -1,7 +1,7 @@
-Drag And Drop Texturing allows players to drag and drop transparent overlays or full diffuses DIRECTLY into the game over top of their existing body or face.
+Drag And Drop Texturing allows players to drag and drop transparent overlays or full diffuses DIRECTLY into the game over top of their existing body or face. Stack Bibo, Gen3, and Gen2 textures on top of eachother indiscriminately. They will automatically be compatible with eachother! Also automatically detects what body you're wearing and auto converts textures as needed, using skin textures from your highest priority skin mod as reference.
  
 Video Preview:
-https://www.youtube.com/watch?v=rRbJVhibT9I
+https://www.youtube.com/watch?v=xq6348de49Q
 
 Step 1:
 Install the Drag And Drop Texturing dalamud plugin.
