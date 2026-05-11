@@ -909,6 +909,7 @@ namespace RoleplayingVoice
                     _currentTarget = character.Value;
                     _lockDuplicateGeneration = true;
                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
+                    bool requiresFullRedraw = false;
 
                     // Extract currently equipped textures from Penumbra to use as underlay
                     try
@@ -946,11 +947,20 @@ namespace RoleplayingVoice
                             if (tName.Contains("body") || tName.Contains("bibo") || tName.Contains("gen3") || tName.Contains("tbse") || tPath.Contains("obj/body") || tPath.Contains("bibo") || tPath.Contains("otopop") || tPath.Contains("asym lala") || tPath.Contains("relala"))
                                 category = "_body";
                             else if (tName.Contains("eyebrows"))
+                            {
                                 category = "_eyebrows";
+                                requiresFullRedraw = true;
+                            }
                             else if (tName.Contains("eyes") || tPath.Contains("eye"))
+                            {
                                 category = "_eyes";
+                                requiresFullRedraw = true;
+                            }
                             else if (tName.Contains("face") || tPath.Contains("obj/face"))
+                            {
                                 category = "_face";
+                                requiresFullRedraw = true;
+                            }
 
                             if (!string.IsNullOrEmpty(category))
                             {
@@ -1039,8 +1049,27 @@ namespace RoleplayingVoice
                     {
                         PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
                     }
-                    Thread.Sleep(1000);
-                    PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                    Thread.Sleep(100);
+
+                    // Instead of redrawing the whole character, we grab their current Glamourer state,
+                    // and then immediately re-apply their state to force reload the new texture.
+                    var currentStateResult = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.Value.ObjectIndex);
+                    if (!requiresFullRedraw && currentStateResult.Item1 == 0 && !string.IsNullOrEmpty(currentStateResult.Item2)) // 0 = Success
+                    {
+                        string stateBase64 = currentStateResult.Item2;
+                        
+
+                        Thread.Sleep(100);
+                        
+                        // Re-apply appearance to force material refresh
+                        PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(stateBase64, character.Value.ObjectIndex);
+                    }
+                    else
+                    {
+                        // Fallback if Glamourer IPC fails, OR if we are modifying Face/Eyes which require a hard redraw
+                        PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                    }
+
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
                 }
                 finally
@@ -1371,7 +1400,21 @@ namespace RoleplayingVoice
 
                         try
                         {
-                            PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                            bool isBodyKey = categoryKey.EndsWith("_body");
+                            
+                            var currentStateResult = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
+                            if (isBodyKey && currentStateResult.Item1 == 0 && !string.IsNullOrEmpty(currentStateResult.Item2))
+                            {
+                                string stateBase64 = currentStateResult.Item2;
+                                PenumbraAndGlamourerHelperFunctions.SetEquipmentRaw(PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.FullEquipType.Body, 10033, character.ObjectIndex);
+                                PenumbraAndGlamourerHelperFunctions.SetEquipmentRaw(PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.FullEquipType.Legs, 10035, character.ObjectIndex);
+                                Thread.Sleep(5);
+                                PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(stateBase64, character.ObjectIndex);
+                            }
+                            else
+                            {
+                                PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                            }
                         }
                         catch { }
 
