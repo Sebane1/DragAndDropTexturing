@@ -27,6 +27,27 @@ public class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        bool isDownloading = Plugin.DragAndDropTextures != null && Plugin.DragAndDropTextures.IsDownloadingDLC;
+        if (isDownloading)
+        {
+            ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), "Background DLC download in progress. Settings locked.");
+            ImGui.Spacing();
+            
+            float progress = Plugin.DragAndDropTextures.DLCDownloadProgress;
+            if (progress > 0f && progress < 1f)
+            {
+                ImGui.ProgressBar(progress, new Vector2(-1, 0), $"Downloading DLC: {(progress * 100):0.0}%");
+            }
+            else
+            {
+                float bounce = (float)Math.Abs(Math.Sin(ImGui.GetTime() * 2.0));
+                ImGui.ProgressBar(bounce, new Vector2(-1, 0), "Fetching DLC (Please wait)...");
+            }
+            ImGui.Spacing();
+
+            ImGui.BeginDisabled();
+        }
+
         ImGui.Spacing();
         bool enableStacking = Plugin.Configuration.EnableTextureStacking;
         if (ImGui.Checkbox("Enable Texture Stacking", ref enableStacking))
@@ -183,6 +204,11 @@ public class MainWindow : Window, IDisposable
                     ImGui.TreePop();
                 }
             }
+        }
+
+        if (isDownloading)
+        {
+            ImGui.EndDisabled();
         }
     }
 }

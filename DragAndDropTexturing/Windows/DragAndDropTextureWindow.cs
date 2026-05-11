@@ -64,6 +64,11 @@ namespace RoleplayingVoice
         private Bone _closestBone;
         private Vector2 _cursorPosition;
         private Vector2 _smoothedBarPos = Vector2.Zero;
+        private bool _isDownloadingDLC = false;
+        private bool _isWaitingForPenumbra = false;
+        private float _dlcDownloadProgress = 0f;
+        public bool IsDownloadingDLC { get => _isDownloadingDLC || _isWaitingForPenumbra; }
+        public float DLCDownloadProgress { get => _dlcDownloadProgress; }
 
         List<string> _alreadyAddedBoneList = new List<string>();
         List<Tuple<string, float>> boneSorting = new List<Tuple<string, float>>();
@@ -153,14 +158,17 @@ namespace RoleplayingVoice
                     }
                     if (migrated) plugin.Configuration.Save();
 
-                    Task.Run(() => CheckAndDownloadDLC());
+                    Task.Run(async () =>
+                    {
+                        await CheckAndDownloadDLC();
 
-                    // Hook Glamourer state changes for auto-regeneration
-                    PenumbraAndGlamourerIpcWrapper.Instance.OnGlamourerStateChanged += OnGlamourerStateChanged;
-                    PenumbraAndGlamourerIpcWrapper.Instance.OnModSettingChanged += OnModSettingChanged;
+                        // Hook Glamourer state changes for auto-regeneration
+                        PenumbraAndGlamourerIpcWrapper.Instance.OnGlamourerStateChanged += OnGlamourerStateChanged;
+                        PenumbraAndGlamourerIpcWrapper.Instance.OnModSettingChanged += OnModSettingChanged;
 
-                    // Trigger initial rebuild if player is already logged in with existing texture history
-                    Task.Run(() => TryInitialRebuild());
+                        // Trigger initial rebuild if player is already logged in with existing texture history
+                        TryInitialRebuild();
+                    });
                 }
             }
         }
@@ -169,19 +177,54 @@ namespace RoleplayingVoice
         {
             try
             {
-                string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                string modPath = string.Empty;
+                _isWaitingForPenumbra = true;
+                while (string.IsNullOrEmpty(modPath))
+                {
+                    try
+                    {
+                        modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                    }
+                    catch
+                    {
+                        await Task.Delay(1000);
+                    }
+                }
+                _isWaitingForPenumbra = false;
+
                 string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
                 string fastUvPath = Path.Combine(dlcPath, "res", "fastuvtransfer");
                 if (!Directory.Exists(dlcPath) || !Directory.Exists(fastUvPath) || Directory.GetFiles(dlcPath, "*.*", SearchOption.AllDirectories).Length < 5)
                 {
+                    _isDownloadingDLC = true;
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Missing LooseTextureCompilerDLC. Auto-downloading from GitHub now... This may take a moment.");
                     using (HttpClient client = new HttpClient())
                     {
                         client.DefaultRequestHeaders.UserAgent.ParseAdd("DragAndDropTexturing/1.0");
                         string downloadUrl = "https://github.com/Sebane1/DragAndDropTexturing/releases/download/0.0.1.3/LooseTextureCompilerDLC.pmp";
-                        HttpResponseMessage response = await client.GetAsync(downloadUrl);
-                        response.EnsureSuccessStatusCode();
-                        byte[] fileBytes = await response.Content.ReadAsByteArrayAsync();
+                        using (HttpResponseMessage response = await client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead))
+                        {
+                            response.EnsureSuccessStatusCode();
+                            long? totalBytes = response.Content.Headers.ContentLength;
+                            byte[] fileBytes;
+
+                            using (var stream = await response.Content.ReadAsStreamAsync())
+                            using (var ms = new MemoryStream())
+                            {
+                                byte[] buffer = new byte[8192];
+                                int bytesRead;
+                                long totalRead = 0;
+                                while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                                {
+                                    await ms.WriteAsync(buffer, 0, bytesRead);
+                                    totalRead += bytesRead;
+                                    if (totalBytes.HasValue)
+                                    {
+                                        _dlcDownloadProgress = (float)totalRead / totalBytes.Value;
+                                    }
+                                }
+                                fileBytes = ms.ToArray();
+                            }
 
                         if (fileBytes.Length > 100 && fileBytes[0] == 0x50 && fileBytes[1] == 0x4B)
                         {
@@ -234,12 +277,17 @@ namespace RoleplayingVoice
                         {
                             plugin.PluginLog.Error("[Drag And Drop Texturing] Auto-download failed. The downloaded file was not a valid archive.");
                         }
-                    }
-                }
-            }
+                    } // using response
+                } // using client
+            } // if
+            } // try
             catch (Exception ex)
             {
                 plugin.PluginLog.Error("[Drag And Drop Texturing] Failed to download DLC: " + ex.Message);
+            }
+            finally
+            {
+                _isDownloadingDLC = false;
             }
         }
 
@@ -307,7 +355,32 @@ namespace RoleplayingVoice
             var cursorPosition = ImGui.GetIO().MousePos;
             if (IsOpen)
             {
-                if (_lockDuplicateGeneration)
+                if (_isWaitingForPenumbra)
+                {
+                    Vector2 barPos = new Vector2(size.X / 2 - 150, size.Y - 100);
+                    ImGui.SetCursorPos(barPos);
+                    ImGui.BeginChild("LoadingBoxPenumbra", new Vector2(300, 40), true, ImGuiWindowFlags.NoScrollbar);
+                    float bounce = (float)Math.Abs(Math.Sin(ImGui.GetTime() * 2.0));
+                    ImGui.ProgressBar(bounce, new Vector2(-1, 0), "Waiting for Penumbra IPC...");
+                    ImGui.EndChild();
+                }
+                else if (_isDownloadingDLC)
+                {
+                    Vector2 barPos = new Vector2(size.X / 2 - 150, size.Y - 100);
+                    ImGui.SetCursorPos(barPos);
+                    ImGui.BeginChild("LoadingBoxDLC", new Vector2(300, 40), true, ImGuiWindowFlags.NoScrollbar);
+                    if (_dlcDownloadProgress > 0f && _dlcDownloadProgress < 1f)
+                    {
+                        ImGui.ProgressBar(_dlcDownloadProgress, new Vector2(-1, 0), $"Downloading DLC: {(_dlcDownloadProgress * 100):0.0}%");
+                    }
+                    else
+                    {
+                        float bounce = (float)Math.Abs(Math.Sin(ImGui.GetTime() * 2.0));
+                        ImGui.ProgressBar(bounce, new Vector2(-1, 0), "Fetching DLC (Please wait)...");
+                    }
+                    ImGui.EndChild();
+                }
+                else if (_lockDuplicateGeneration)
                 {
                     Vector2 barPos = new Vector2(size.X / 2 - 150, size.Y - 100);
                     if (_currentTarget != null && _currentTarget.Address != nint.Zero)
@@ -345,7 +418,7 @@ namespace RoleplayingVoice
                     ImGui.EndChild();
                 }
 
-                if (!_lockDuplicateGeneration)
+                if (!_lockDuplicateGeneration && !_isDownloadingDLC && !_isWaitingForPenumbra)
                 {
                     Guid mainPlayerCollection = Guid.Empty;
                     Guid selectedPlayerCollection = Guid.Empty;
