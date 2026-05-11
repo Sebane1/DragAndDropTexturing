@@ -63,6 +63,7 @@ namespace RoleplayingVoice
         private byte[] _lastLoadedFrame;
         private Bone _closestBone;
         private Vector2 _cursorPosition;
+        private Vector2 _smoothedBarPos = Vector2.Zero;
 
         List<string> _alreadyAddedBoneList = new List<string>();
         List<Tuple<string, float>> boneSorting = new List<Tuple<string, float>>();
@@ -313,8 +314,23 @@ namespace RoleplayingVoice
                     {
                         if (DragAndDropTexturing.Plugin.GameGui.WorldToScreen(_currentTarget.Position + new Vector3(0, 1.5f, 0), out Vector2 screenPos))
                         {
-                            barPos = new Vector2(screenPos.X - 150, screenPos.Y);
+                            Vector2 targetPos = new Vector2(screenPos.X - 150, screenPos.Y);
+                            if (_smoothedBarPos == Vector2.Zero || Vector2.Distance(_smoothedBarPos, targetPos) > 200f)
+                            {
+                                _smoothedBarPos = targetPos; // Snap if too far or first frame
+                            }
+                            else if (Vector2.Distance(_smoothedBarPos, targetPos) > 2.0f)
+                            {
+                                // Lerp smoothly with a lower factor, but use a deadzone to prevent breathing jitter
+                                _smoothedBarPos = Vector2.Lerp(_smoothedBarPos, targetPos, 0.1f);
+                            }
+                            // Round the final coordinates to prevent ImGui sub-pixel anti-aliasing/rendering jitter
+                            barPos = new Vector2((float)Math.Round(_smoothedBarPos.X), (float)Math.Round(_smoothedBarPos.Y));
                         }
+                    }
+                    else
+                    {
+                        _smoothedBarPos = Vector2.Zero;
                     }
                     ImGui.SetCursorPos(barPos);
                     ImGui.BeginChild("LoadingBox", new Vector2(300, 40), true, ImGuiWindowFlags.NoScrollbar);
