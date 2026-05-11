@@ -11,10 +11,13 @@ jobs:
   release:
     name: Release
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v2
         with:
           submodules: recursive
+          token: ${{ secrets.RELEASE }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v1
@@ -68,10 +71,10 @@ jobs:
           $json = Get-Content -Raw $path | ConvertFrom-Json
           $json[0].AssemblyVersion = $ver
           $json[0].TestingAssemblyVersion = $ver
-          $json[0].DownloadLinkInstall = $json.DownloadLinkInstall -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
-          $json[0].DownloadLinkTesting = $json.DownloadLinkTesting -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
-          $json[0].DownloadLinkUpdate = $json.DownloadLinkUpdate -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
-          $content = $json | ConvertTo-Json -AsArray
+          $json[0].DownloadLinkInstall = $json[0].DownloadLinkInstall -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
+          $json[0].DownloadLinkTesting = $json[0].DownloadLinkTesting -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
+          $json[0].DownloadLinkUpdate = $json[0].DownloadLinkUpdate -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
+          $content = ConvertTo-Json @($json) -Depth 10
           set-content -Path $path -Value $content
 
       - name: Commit repo.json
