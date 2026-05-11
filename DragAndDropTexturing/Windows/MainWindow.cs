@@ -64,6 +64,49 @@ public class MainWindow : Window, IDisposable
         }
         ImGui.TextWrapped("Selects the base skin underlay type when a custom transparent tattoo is dropped. If the character's base body doesn't support the specific skin variant, it will fall back to its own default.");
         
+        ImGui.Spacing();
+        bool usePriorityMod = Plugin.Configuration.UsePriorityBodyMod;
+        if (ImGui.Checkbox("Use Textures From Priority Body Mod", ref usePriorityMod))
+        {
+            Plugin.Configuration.UsePriorityBodyMod = usePriorityMod;
+            FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = usePriorityMod;
+            Plugin.Configuration.Save();
+            
+            var ddtForRebuild = Plugin.DragAndDropTextures;
+            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            {
+                foreach (var key in ddtForRebuild.TextureHistory.Keys.ToList())
+                {
+                    ddtForRebuild.RebuildCategory(key);
+                }
+            }
+        }
+        ImGui.TextWrapped("When enabled, the compiler will scan your Penumbra modlist and automatically inherit the body texture of your highest priority active skin mod as the underlay for transparent overlays.");
+        
+        if (usePriorityMod)
+        {
+            ImGui.Spacing();
+            ImGui.Text("Active Body Overrides:");
+            ImGui.Indent();
+            var ddtForUI = Plugin.DragAndDropTextures;
+            if (ddtForUI != null && ddtForUI.ActiveBodyOverrides.Count > 0)
+            {
+                foreach (var kvp in ddtForUI.ActiveBodyOverrides)
+                {
+                    ImGui.TextColored(new Vector4(0.5f, 0.8f, 1f, 1f), $"{kvp.Key}: {kvp.Value}");
+                }
+            }
+            else
+            {
+                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "None detected (or scan pending)");
+            }
+            if (ImGui.Button("Scan For Overrides"))
+            {
+                ddtForUI?.RefreshActiveOverrides();
+            }
+            ImGui.Unindent();
+        }
+        
         ImGui.Separator();
         ImGui.Text("Active Texture Layers");
         

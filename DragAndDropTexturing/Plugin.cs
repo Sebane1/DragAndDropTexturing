@@ -23,6 +23,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
+    [PluginService] internal static IFramework Framework { get; private set; } = null!;
 
     private const string CommandName = "/ddt";
     private PenumbraAndGlamourerIpcWrapper _penumbraAndGlamourerIpcWrapper;
@@ -64,7 +65,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(MainWindow);
         _safeGameObjectManager = new ThreadSafeGameObjectManager(clientState, objectTable, framework, pluginLog);
         _pluginLog = pluginLog;
-        BackupTexturePaths.OverrideMode = true;
+        BackupTexturePaths.OverrideMode = Configuration.UsePriorityBodyMod;
     }
     public Dalamud.Game.ClientState.Objects.Types.IGameObject[] GetNearestObjects()
     {
@@ -102,5 +103,9 @@ public sealed class Plugin : IDalamudPlugin
 
     private void DrawUI() => WindowSystem.Draw();
 
-    public void ToggleMainUI() => MainWindow.Toggle();
+    public void ToggleMainUI()
+    {
+        DragAndDropTextures?.RefreshActiveOverrides();
+        MainWindow.Toggle();
+    }
 }
