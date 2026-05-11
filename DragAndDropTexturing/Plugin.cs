@@ -1,6 +1,7 @@
 using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Plugin;
+using System;
 using System.IO;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
@@ -24,6 +25,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
+    [PluginService] internal static Dalamud.Interface.DragDrop.IDragDropManager DragDropManager { get; private set; } = null!;
 
     private const string CommandName = "/ddt";
     private PenumbraAndGlamourerIpcWrapper _penumbraAndGlamourerIpcWrapper;
@@ -31,6 +33,8 @@ public sealed class Plugin : IDalamudPlugin
     private int _playerCount;
     private ThreadSafeGameObjectManager _safeGameObjectManager;
     private IPluginLog _pluginLog;
+    private EmoteReaderHooks _emoteReaderHooks;
+    private ContextualLayerManager _contextualLayerManager;
 
     public Configuration Configuration { get; init; }
 
@@ -40,8 +44,9 @@ public sealed class Plugin : IDalamudPlugin
     public IChatGui Chat { get => _chat; set => _chat = value; }
     public ThreadSafeGameObjectManager SafeGameObjectManager { get => _safeGameObjectManager; set => _safeGameObjectManager = value; }
     public IPluginLog PluginLog { get => _pluginLog; set => _pluginLog = value; }
+    public ContextualLayerManager ContextualLayerManager => _contextualLayerManager;
 
-    public Plugin(IClientState clientState, IChatGui chatGui, IObjectTable objectTable, IFramework framework, IPluginLog pluginLog)
+    public Plugin(IClientState clientState, IChatGui chatGui, IObjectTable objectTable, IFramework framework, IPluginLog pluginLog, IGameInteropProvider gameInteropProvider)
     {
         _penumbraAndGlamourerIpcWrapper = new PenumbraAndGlamourerIpcWrapper(PluginInterface);
         _chat = chatGui;
@@ -66,6 +71,16 @@ public sealed class Plugin : IDalamudPlugin
         _safeGameObjectManager = new ThreadSafeGameObjectManager(clientState, objectTable, framework, pluginLog);
         _pluginLog = pluginLog;
         BackupTexturePaths.OverrideMode = Configuration.UsePriorityBodyMod;
+
+        try
+        {
+            _emoteReaderHooks = new EmoteReaderHooks(gameInteropProvider, clientState, _safeGameObjectManager);
+            _contextualLayerManager = new ContextualLayerManager(this, _emoteReaderHooks);
+        }
+        catch (Exception ex)
+        {
+            pluginLog.Error(ex, "Failed to initialize ContextualLayerManager or EmoteReaderHooks");
+        }
     }
     public Dalamud.Game.ClientState.Objects.Types.IGameObject[] GetNearestObjects()
     {
@@ -90,6 +105,8 @@ public sealed class Plugin : IDalamudPlugin
     {
         WindowSystem.RemoveAllWindows();
 
+        _contextualLayerManager?.Dispose();
+        _emoteReaderHooks?.Dispose();
         DragAndDropTextures?.Dispose();
         MainWindow?.Dispose();
         CommandManager.RemoveHandler(CommandName);

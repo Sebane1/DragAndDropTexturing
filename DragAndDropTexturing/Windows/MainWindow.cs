@@ -5,12 +5,16 @@ using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
+using System.Collections.Generic;
 
 namespace DragAndDropTexturing.Windows;
 
 public class MainWindow : Window, IDisposable
 {
     private Plugin Plugin;
+    private List<Lumina.Excel.Sheets.Emote> _emotes = new();
+    private string[] _emoteNames = new string[0];
+    private string _emoteSearchFilter = "";
 
     public MainWindow(Plugin plugin)
         : base("Drag And Drop Texturing Config", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
@@ -21,6 +25,12 @@ public class MainWindow : Window, IDisposable
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
         };
         Plugin = plugin;
+
+        var sheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Emote>();
+        if (sheet != null) {
+            _emotes = sheet.Where(x => !string.IsNullOrEmpty(x.Name.ExtractText())).OrderBy(x => x.Name.ExtractText()).ToList();
+            _emoteNames = _emotes.Select(x => x.Name.ExtractText()).ToArray();
+        }
     }
 
     public void Dispose() { }
@@ -162,6 +172,17 @@ public class MainWindow : Window, IDisposable
                         {
                             list[i] = path;
                         }
+                        if (ImGui.IsItemHovered())
+                        {
+                            if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTarget", out var files, out _))
+                            {
+                                if (files.Count > 0)
+                                {
+                                    list[i] = files[0];
+                                    changed = true;
+                                }
+                            }
+                        }
                         if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
                         
                         if (ImGui.Button("Up##" + key + i) && i > 0)
@@ -203,6 +224,127 @@ public class MainWindow : Window, IDisposable
                     }
                     ImGui.TreePop();
                 }
+            }
+        }
+
+        ImGui.Separator();
+        ImGui.Text("Contextual Layers");
+
+        if (ImGui.Button("Add Contextual Layer"))
+        {
+            Plugin.Configuration.ContextualLayers.Add(new ContextualLayer());
+            Plugin.Configuration.Save();
+        }
+
+        for (int i = 0; i < Plugin.Configuration.ContextualLayers.Count; i++)
+        {
+            var layer = Plugin.Configuration.ContextualLayers[i];
+            
+            if (ImGui.TreeNode($"Layer {i + 1}: {layer.Name}##ContextLayer_{i}"))
+            {
+                bool changed = false;
+
+                string name = layer.Name;
+                if (ImGui.InputText($"Name##ContextName_{i}", ref name, 255))
+                {
+                    layer.Name = name;
+                    changed = true;
+                }
+
+                int triggerType = (int)layer.Trigger;
+                string[] triggerNames = Enum.GetNames(typeof(TriggerType));
+                if (ImGui.Combo($"Trigger Type##ContextTrigger_{i}", ref triggerType, triggerNames, triggerNames.Length))
+                {
+                    layer.Trigger = (TriggerType)triggerType;
+                    changed = true;
+                }
+
+                if (layer.Trigger == TriggerType.Emote)
+                {
+                    int emoteId = layer.EmoteId;
+                    var currentEmote = _emotes.FirstOrDefault(x => x.RowId == emoteId);
+                    string currentEmoteName = currentEmote.RowId != 0 ? currentEmote.Name.ExtractText() : $"ID: {emoteId}";
+
+                    if (ImGui.BeginCombo($"Emote##ContextEmote_{i}", currentEmoteName))
+                    {
+                        ImGui.InputText("Search##EmoteSearch", ref _emoteSearchFilter, 255);
+                        string filter = _emoteSearchFilter.ToLower();
+
+                        for (int eIndex = 0; eIndex < _emotes.Count; eIndex++)
+                        {
+                            var e = _emotes[eIndex];
+                            string eName = _emoteNames[eIndex];
+                            if (string.IsNullOrEmpty(filter) || eName.ToLower().Contains(filter))
+                            {
+                                bool isSelected = e.RowId == emoteId;
+                                if (ImGui.Selectable($"{eName}##{e.RowId}", isSelected))
+                                {
+                                    layer.EmoteId = (ushort)e.RowId;
+                                    changed = true;
+                                    ImGui.CloseCurrentPopup();
+                                }
+                                if (isSelected) ImGui.SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui.EndCombo();
+                    }
+                }
+                else if (layer.Trigger == TriggerType.HP_Threshold)
+                {
+                    int hpThresh = layer.HPThresholdPercentage;
+                    if (ImGui.SliderInt($"HP Threshold %##ContextHP_{i}", ref hpThresh, 1, 99))
+                    {
+                        layer.HPThresholdPercentage = hpThresh;
+                        changed = true;
+                    }
+                }
+
+                int duration = layer.DurationSeconds;
+                if (ImGui.InputInt($"Duration (Seconds)##ContextDur_{i}", ref duration))
+                {
+                    layer.DurationSeconds = Math.Max(1, duration);
+                    changed = true;
+                }
+
+                string[] bodyParts = { "body", "face", "eyes", "eyebrows" };
+                int partIndex = Math.Max(0, Array.IndexOf(bodyParts, layer.TargetBodyPart));
+                if (ImGui.Combo($"Target Body Part##ContextPart_{i}", ref partIndex, bodyParts, bodyParts.Length))
+                {
+                    layer.TargetBodyPart = bodyParts[partIndex];
+                    changed = true;
+                }
+
+                string path = layer.TexturePath;
+                if (ImGui.InputText($"Texture Path##ContextPath_{i}", ref path, 1024))
+                {
+                    layer.TexturePath = path;
+                    changed = true;
+                }
+                if (ImGui.IsItemHovered())
+                {
+                    if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTargetContext", out var files, out _))
+                    {
+                        if (files.Count > 0)
+                        {
+                            layer.TexturePath = files[0];
+                            changed = true;
+                        }
+                    }
+                }
+
+                if (ImGui.Button($"Remove Layer##ContextRemove_{i}"))
+                {
+                    Plugin.Configuration.ContextualLayers.RemoveAt(i);
+                    i--;
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    Plugin.Configuration.Save();
+                }
+
+                ImGui.TreePop();
             }
         }
 

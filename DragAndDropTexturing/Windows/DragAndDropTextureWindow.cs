@@ -1373,52 +1373,7 @@ namespace RoleplayingVoice
                     string lastFile = _textureHistory[categoryKey].FirstOrDefault();
                     if (string.IsNullOrEmpty(lastFile))
                     {
-                        if (categoryKey.EndsWith("_body")) categoryModName = "Body";
-                        else if (categoryKey.EndsWith("_eyebrows")) categoryModName = "Eyebrows";
-                        else if (categoryKey.EndsWith("_eyes")) categoryModName = "Eyes";
-                        else if (categoryKey.EndsWith("_face")) categoryModName = "Face";
-                        else return;
-
-                        localModName = localModName.Replace("Mod", categoryModName);
-                        string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
-
-                        try
-                        {
-                            if (Directory.Exists(fullModPath))
-                            {
-                                Directory.Delete(fullModPath, true);
-                            }
-                        }
-                        catch { }
-
-                        try
-                        {
-                            PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(fullModPath, localModName);
-                            PenumbraAndGlamourerIpcWrapper.Instance.DeleteMod.Invoke(localModName, localModName);
-                        }
-                        catch { }
-
-                        try
-                        {
-                            bool isBodyKey = categoryKey.EndsWith("_body");
-                            
-                            var currentStateResult = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
-                            if (isBodyKey && currentStateResult.Item1 == 0 && !string.IsNullOrEmpty(currentStateResult.Item2))
-                            {
-                                string stateBase64 = currentStateResult.Item2;
-                                PenumbraAndGlamourerHelperFunctions.SetEquipmentRaw(PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.FullEquipType.Body, 10033, character.ObjectIndex);
-                                PenumbraAndGlamourerHelperFunctions.SetEquipmentRaw(PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.FullEquipType.Legs, 10035, character.ObjectIndex);
-                                Thread.Sleep(5);
-                                PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(stateBase64, character.ObjectIndex);
-                            }
-                            else
-                            {
-                                PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
-                            }
-                        }
-                        catch { }
-
-                        return;
+                        lastFile = "empty.png";
                     }
 
                     if (categoryKey.EndsWith("_body"))
@@ -1526,6 +1481,27 @@ namespace RoleplayingVoice
                         foreach (string f in _textureHistory[categoryKey])
                         {
                             AddToTextureSet(item, f, overrideType);
+                        }
+
+                        bool hasContextualLayers = false;
+                        if (plugin.ContextualLayerManager != null && charName == plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue)
+                        {
+                            foreach (var activeLayer in plugin.ContextualLayerManager.GetActiveLayers())
+                            {
+                                if (categoryKey.EndsWith("_" + activeLayer.LayerDef.TargetBodyPart.ToLower()))
+                                {
+                                    if (!string.IsNullOrEmpty(activeLayer.LayerDef.TexturePath) && File.Exists(activeLayer.LayerDef.TexturePath))
+                                    {
+                                        hasContextualLayers = true;
+                                        AddToTextureSet(item, activeLayer.LayerDef.TexturePath, overrideType);
+                                    }
+                                }
+                            }
+                        }
+
+                        if (_textureHistory[categoryKey].Count == 0 && !hasContextualLayers)
+                        {
+                            AddToTextureSet(item, "empty.png", overrideType);
                         }
                         textureSets.Add(item);
                         localModName = localModName.Replace("Mod", categoryModName);
