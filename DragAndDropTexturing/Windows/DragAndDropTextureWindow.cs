@@ -755,7 +755,7 @@ namespace RoleplayingVoice
             }
         }
         public async Task<bool> Export(bool finalize, List<TextureSet> exportTextureSets, string path,
-            string name, KeyValuePair<string, ICharacter> character)
+            string name, KeyValuePair<string, ICharacter> character, int overrideRace = -1, int overrideClan = -1, int overrideGender = -1, int overrideFace = -1)
         {
             plugin.Chat.Print("[Drag And Drop Debug] Export started!");
             if (!_lockDuplicateGeneration)
@@ -773,17 +773,35 @@ namespace RoleplayingVoice
                     // Extract currently equipped textures from Penumbra to use as underlay
                     try
                     {
-                        var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character.Value);
-                        string raceCode = PenumbraAndGlamourerHelperFunctions.ModelRaceToRaceCode(customization.Customize.Race.Value - 1, customization.Customize.Clan.Value - 1, customization.Customize.Gender.Value);
-                        string subRaceName = PenumbraAndGlamourerHelperFunctions.SubRaceToSubRaceName(customization.Customize.Race.Value - 1, customization.Customize.Clan.Value - 1);
+                        // Use overridden customization if provided (from RebuildCategory), otherwise read live
+                        int useRace, useClan, useGender, useFace;
+                        if (overrideRace != -1)
+                        {
+                            useRace = overrideRace;
+                            useClan = overrideClan;
+                            useGender = overrideGender;
+                            useFace = overrideFace;
+                        }
+                        else
+                        {
+                            var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character.Value);
+                            useRace = customization.Customize.Race.Value - 1;
+                            useClan = customization.Customize.Clan.Value - 1;
+                            useGender = customization.Customize.Gender.Value;
+                            useFace = customization.Customize.Face.Value - 1;
+                        }
+                        string raceCode = PenumbraAndGlamourerHelperFunctions.ModelRaceToRaceCode(useRace, useClan, useGender);
+                        string subRaceName = PenumbraAndGlamourerHelperFunctions.SubRaceToSubRaceName(useRace, useClan);
+                        plugin.Chat.Print($"[Drag And Drop Debug] Export customization: Race={useRace}, Clan={useClan}, Face={useFace}, RaceCode={raceCode}");
 
-                        PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, customization.Customize.Gender.Value, customization.Customize.Clan.Value - 1, plugin);
+                        PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, useGender, useClan, plugin);
 
                         foreach (var i in exportTextureSets)
                         {
                             string category = "";
                             string tName = i.TextureSetName.ToLower();
                             string tPath = i.InternalBasePath.ToLower();
+                            plugin.Chat.Print($"[Drag And Drop Debug] TextureSet '{i.TextureSetName}' InternalBase: {i.InternalBasePath}");
 
                             if (tName.Contains("body") || tName.Contains("bibo") || tName.Contains("gen3") || tName.Contains("tbse") || tPath.Contains("obj/body") || tPath.Contains("bibo") || tPath.Contains("obj/body") || tPath.Contains("otopop") || tPath.Contains("asym lala") || tPath.Contains("relala"))
                                 category = "_body";
@@ -796,6 +814,12 @@ namespace RoleplayingVoice
 
                             if (!string.IsNullOrEmpty(category))
                             {
+                                // Dynamically update the face paths based on current face geometry to fix Au Ra UV mismatch
+                                if (category == "_face")
+                                {
+                                    BackupTexturePaths.AddFaceBackupPaths(useGender, useClan, useFace, i);
+                                }
+
                                 plugin.Chat.Print($"[Drag And Drop Debug] Extracting underlay for {category}...");
                                 string baseTex, normTex, maskTex;
                                 PenumbraAndGlamourerHelperFunctions.ExtractActiveTextureFromPenumbra(collection, category, raceCode, subRaceName, out _, out baseTex, out normTex, out maskTex, plugin, i);
@@ -820,35 +844,21 @@ namespace RoleplayingVoice
                                         plugin.Chat.Print($"[Drag And Drop Debug] Vanilla fallback mask: {i.InternalMaskPath}");
                                 }
 
-                                if (!string.IsNullOrEmpty(baseTex) && (!BackupTexturePaths.OverrideMode || category != "_body"))
+                                // Update BackupTexturePaths so the assembly pipeline
+                                // uses the freshly-extracted textures (not stale static presets)
+                                // Only for body — face/eyes use special isFace paths we must not overwrite
+                                if (category == "_body" && (!string.IsNullOrEmpty(baseTex) || !string.IsNullOrEmpty(normTex)))
                                 {
-                                    if (!string.IsNullOrEmpty(i.Base))
+                                    BackupTexturePaths btp = null;
+                                    if (!string.IsNullOrEmpty(baseTex) && !string.IsNullOrEmpty(normTex))
+                                        btp = new BackupTexturePaths(baseTex, normTex);
+                                    else if (!string.IsNullOrEmpty(baseTex))
+                                        btp = new BackupTexturePaths(baseTex);
+
+                                    if (btp != null)
                                     {
-                                        i.BaseOverlays.Insert(0, i.Base);
-                                        i.BaseOverlayUVs.Insert(0, i.BaseUV);
+                                        i.BackupTexturePaths = btp;
                                     }
-                                    i.Base = baseTex;
-                                    i.BaseUV = "auto";
-                                }
-                                if (!string.IsNullOrEmpty(normTex))
-                                {
-                                    if (!string.IsNullOrEmpty(i.Normal))
-                                    {
-                                        i.NormalOverlays.Insert(0, i.Normal);
-                                        i.NormalOverlayUVs.Insert(0, i.NormalUV);
-                                    }
-                                    i.Normal = normTex;
-                                    i.NormalUV = "auto";
-                                }
-                                if (!string.IsNullOrEmpty(maskTex))
-                                {
-                                    if (!string.IsNullOrEmpty(i.Mask))
-                                    {
-                                        i.MaskOverlays.Insert(0, i.Mask);
-                                        i.MaskOverlayUVs.Insert(0, i.MaskUV);
-                                    }
-                                    i.Mask = maskTex;
-                                    i.MaskUV = "auto";
                                 }
                             }
                         }
@@ -1052,9 +1062,21 @@ namespace RoleplayingVoice
                         _pendingRegenerationCategories.Clear();
                     }
 
+                    // Give Penumbra time to process the character model change
+                    // before we try to extract textures for the new race
+                    Thread.Sleep(2000);
+
                     foreach (var key in categories)
                     {
+                        // Wait for previous rebuild to finish before starting the next
+                        int waitAttempts = 0;
+                        while (_lockDuplicateGeneration && waitAttempts < 60)
+                        {
+                            Thread.Sleep(1000);
+                            waitAttempts++;
+                        }
                         RebuildCategory(key);
+                        Thread.Sleep(500);
                     }
                 }, null, 2000, System.Threading.Timeout.Infinite);
             }
@@ -1226,7 +1248,8 @@ namespace RoleplayingVoice
                         localModName = localModName.Replace("Mod", categoryModName);
 
                         string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
-                        await Export(true, textureSets, fullModPath, localModName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character));
+                        await Export(true, textureSets, fullModPath, localModName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
+                            localCustomization.Customize.Race.Value - 1, localCustomization.Customize.Clan.Value - 1, localCustomization.Customize.Gender.Value, localCustomization.Customize.Face.Value - 1);
                     }
                 }
                 catch (Exception e)
