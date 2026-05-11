@@ -26,6 +26,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static Dalamud.Interface.DragDrop.IDragDropManager DragDropManager { get; private set; } = null!;
+    [PluginService] internal static ICondition Condition { get; private set; } = null!;
 
     private const string CommandName = "/ddt";
     private PenumbraAndGlamourerIpcWrapper _penumbraAndGlamourerIpcWrapper;

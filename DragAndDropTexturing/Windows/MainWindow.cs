@@ -58,6 +58,34 @@ public class MainWindow : Window, IDisposable
             ImGui.BeginDisabled();
         }
 
+        if (ImGui.BeginTabBar("MainWindowTabs"))
+        {
+            if (ImGui.BeginTabItem("Active Layers"))
+            {
+                DrawActiveLayers();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Contextual Layers"))
+            {
+                DrawContextualLayers();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Settings"))
+            {
+                DrawSettings();
+                ImGui.EndTabItem();
+            }
+            ImGui.EndTabBar();
+        }
+
+        if (isDownloading)
+        {
+            ImGui.EndDisabled();
+        }
+    }
+
+    private void DrawSettings()
+    {
         ImGui.Spacing();
         bool enableStacking = Plugin.Configuration.EnableTextureStacking;
         if (ImGui.Checkbox("Enable Texture Stacking", ref enableStacking))
@@ -137,10 +165,11 @@ public class MainWindow : Window, IDisposable
             }
             ImGui.Unindent();
         }
-        
-        ImGui.Separator();
-        ImGui.Text("Active Texture Layers");
-        
+    }
+
+    private void DrawActiveLayers()
+    {
+        ImGui.Spacing();
         var ddt = Plugin.DragAndDropTextures;
         if (ddt != null && ddt.TextureHistory != null)
         {
@@ -226,10 +255,11 @@ public class MainWindow : Window, IDisposable
                 }
             }
         }
+    }
 
-        ImGui.Separator();
-        ImGui.Text("Contextual Layers");
-
+    private void DrawContextualLayers()
+    {
+        ImGui.Spacing();
         if (ImGui.Button("Add Contextual Layer"))
         {
             Plugin.Configuration.ContextualLayers.Add(new ContextualLayer());
@@ -346,11 +376,6 @@ public class MainWindow : Window, IDisposable
 
                 ImGui.TreePop();
             }
-        }
-
-        if (isDownloading)
-        {
-            ImGui.EndDisabled();
         }
     }
 }

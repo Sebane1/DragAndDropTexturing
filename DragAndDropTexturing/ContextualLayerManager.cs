@@ -41,6 +41,7 @@ namespace DragAndDropTexturing
             
             var player = _plugin.SafeGameObjectManager.LocalPlayer;
             if (player == null) return;
+            if (instigator.Address != player.Address) return;
 
             foreach (var layer in _plugin.Configuration.ContextualLayers)
             {
@@ -56,7 +57,7 @@ namespace DragAndDropTexturing
             var player = _plugin.SafeGameObjectManager.LocalPlayer as GameObjectHelper.ThreadSafeDalamudObjectTable.ThreadSafeCharacter;
             if (player == null) return;
 
-            // 1. Check HP Thresholds
+            // 1. Check HP Thresholds and Combat State
             float hpPercentage = 100f;
             if (player.MaxHp > 0)
             {
@@ -65,15 +66,34 @@ namespace DragAndDropTexturing
 
             foreach (var layer in _plugin.Configuration.ContextualLayers)
             {
+                bool isConditionMet = false;
+
                 if (layer.Trigger == TriggerType.HP_Threshold)
                 {
                     if (hpPercentage <= layer.HPThresholdPercentage)
                     {
-                        // Ensure it's active
-                        if (!_activeLayers.Any(x => x.LayerDef == layer))
-                        {
-                            ActivateLayer(layer);
-                        }
+                        isConditionMet = true;
+                    }
+                }
+                else if (layer.Trigger == TriggerType.Combat_State)
+                {
+                    if (Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat])
+                    {
+                        isConditionMet = true;
+                    }
+                }
+
+                if (isConditionMet)
+                {
+                    var existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
+                    if (existing == null)
+                    {
+                        ActivateLayer(layer);
+                    }
+                    else
+                    {
+                        // Keep the timer completely reset while the state condition is still met
+                        existing.Timer.Restart();
                     }
                 }
             }
@@ -83,7 +103,12 @@ namespace DragAndDropTexturing
             for (int i = _activeLayers.Count - 1; i >= 0; i--)
             {
                 var active = _activeLayers[i];
-                if (active.Timer.Elapsed.TotalSeconds >= active.LayerDef.DurationSeconds)
+
+                bool isStillActive = false;
+                if (active.LayerDef.Trigger == TriggerType.HP_Threshold && hpPercentage <= active.LayerDef.HPThresholdPercentage) isStillActive = true;
+                if (active.LayerDef.Trigger == TriggerType.Combat_State && Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat]) isStillActive = true;
+
+                if (!isStillActive && active.Timer.Elapsed.TotalSeconds >= active.LayerDef.DurationSeconds)
                 {
                     // Expired!
                     _activeLayers.RemoveAt(i);
@@ -128,10 +153,11 @@ namespace DragAndDropTexturing
                 foreach (var part in partsToUpdate)
                 {
                     string categoryKey = charName + "_" + part;
-                    if (_plugin.DragAndDropTextures.TextureHistory.ContainsKey(categoryKey))
+                    if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(categoryKey))
                     {
-                        _plugin.DragAndDropTextures.RebuildCategory(categoryKey);
+                        _plugin.DragAndDropTextures.TextureHistory[categoryKey] = new List<string>();
                     }
+                    _plugin.DragAndDropTextures.RebuildCategory(categoryKey);
                 }
             }
         }

@@ -45,6 +45,7 @@ namespace RoleplayingVoice
         private string _exportStatus;
         private ICharacter _currentTarget;
         private bool _lockDuplicateGeneration;
+        private bool _hideProgressUI;
         public Dictionary<string, string> ActiveBodyOverrides = new Dictionary<string, string>();
         private object _currentMod;
         private CharacterCustomization _currentCustomization;
@@ -380,7 +381,7 @@ namespace RoleplayingVoice
                     }
                     ImGui.EndChild();
                 }
-                else if (_lockDuplicateGeneration)
+                else if (_lockDuplicateGeneration && !_hideProgressUI)
                 {
                     Vector2 barPos = new Vector2(size.X / 2 - 150, size.Y - 100);
                     if (_currentTarget != null && _currentTarget.Address != nint.Zero)
@@ -894,7 +895,7 @@ namespace RoleplayingVoice
         }
 
         public async Task<bool> Export(bool finalize, List<TextureSet> exportTextureSets, string path,
-            string name, KeyValuePair<string, ICharacter> character, int overrideRace = -1, int overrideClan = -1, int overrideGender = -1, int overrideFace = -1)
+            string name, KeyValuePair<string, ICharacter> character, int overrideRace = -1, int overrideClan = -1, int overrideGender = -1, int overrideFace = -1, bool isContextual = false)
         {
             plugin.PluginLog.Information("[Drag And Drop Debug] Export started!");
             if (!_lockDuplicateGeneration)
@@ -907,6 +908,7 @@ namespace RoleplayingVoice
                     LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = _textureProcessor.BasePath;
                     _exportStatus = "Initializing";
                     _currentTarget = character.Value;
+                    _hideProgressUI = isContextual;
                     _lockDuplicateGeneration = true;
                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
                     bool requiresFullRedraw = false;
@@ -1057,12 +1059,35 @@ namespace RoleplayingVoice
                     if (!requiresFullRedraw && currentStateResult.Item1 == 0 && !string.IsNullOrEmpty(currentStateResult.Item2)) // 0 = Success
                     {
                         string stateBase64 = currentStateResult.Item2;
-                        
-
-                        Thread.Sleep(100);
-                        
-                        // Re-apply appearance to force material refresh
-                        PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(stateBase64, character.Value.ObjectIndex);
+                        try
+                        {
+                            var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64);
+                            if (customization?.Equipment != null)
+                            {
+                                // We extract the current gear so we can safely refresh only the armor pieces.
+                                // We avoid applying the whole state because applying weapons during combat causes crashes.
+                                
+                                // Re-apply actual gear to force texture reload
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Ears, (ulong)customization.Equipment.Ears.ItemId, new List<byte> { (byte)customization.Equipment.Ears.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Neck, (ulong)customization.Equipment.Neck.ItemId, new List<byte> { (byte)customization.Equipment.Neck.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Wrists, (ulong)customization.Equipment.Wrists.ItemId, new List<byte> { (byte)customization.Equipment.Wrists.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.RFinger, (ulong)customization.Equipment.RFinger.ItemId, new List<byte> { (byte)customization.Equipment.RFinger.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.LFinger, (ulong)customization.Equipment.LFinger.ItemId, new List<byte> { (byte)customization.Equipment.LFinger.Stain });
+                            }
+                            else
+                            {
+                                PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(stateBase64, character.Value.ObjectIndex);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            plugin.PluginLog.Warning(ex, "Failed to apply targeted equipment state");
+                        }
                     }
                     else
                     {
@@ -1498,17 +1523,25 @@ namespace RoleplayingVoice
                                 }
                             }
                         }
-
                         if (_textureHistory[categoryKey].Count == 0 && !hasContextualLayers)
                         {
-                            AddToTextureSet(item, "empty.png", overrideType);
+                            string emptyPath = Path.Combine(Plugin.PluginInterface.AssemblyLocation.Directory?.FullName!, "empty_base.png");
+                            if (!File.Exists(emptyPath))
+                            {
+                                using (var emptyBmp = new System.Drawing.Bitmap(1024, 1024))
+                                {
+                                    emptyBmp.Save(emptyPath, System.Drawing.Imaging.ImageFormat.Png);
+                                }
+                            }
+                            AddToTextureSet(item, emptyPath, overrideType);
                         }
+
                         textureSets.Add(item);
                         localModName = localModName.Replace("Mod", categoryModName);
 
                         string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
                         await Export(true, textureSets, fullModPath, localModName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
-                            localCustomization.Customize.Race.Value - 1, localCustomization.Customize.Clan.Value - 1, localCustomization.Customize.Gender.Value, localCustomization.Customize.Face.Value - 1);
+                            localCustomization.Customize.Race.Value - 1, localCustomization.Customize.Clan.Value - 1, localCustomization.Customize.Gender.Value, localCustomization.Customize.Face.Value - 1, true);
                     }
                 }
                 catch (Exception e)
