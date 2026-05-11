@@ -70,10 +70,6 @@ namespace RoleplayingVoice
         public Dictionary<string, List<string>> TextureHistory { get => _textureHistory; set => _textureHistory = value; }
 
         // Auto-regeneration tracking
-        private int _lastKnownFace = -1;
-        private int _lastKnownRace = -1;
-        private int _lastKnownClan = -1;
-        private int _lastKnownGender = -1;
         private System.Threading.Timer _regenerationDebounce;
         private HashSet<string> _pendingRegenerationCategories = new HashSet<string>();
         private readonly object _regenerationLock = new object();
@@ -1018,10 +1014,20 @@ namespace RoleplayingVoice
                 var character2 = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
                 if (character2 == null) return;
                 var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character2);
-                _lastKnownFace = customization.Customize.Face.Value;
-                _lastKnownRace = customization.Customize.Race.Value;
-                _lastKnownClan = customization.Customize.Clan.Value;
-                _lastKnownGender = customization.Customize.Gender.Value;
+                if (Plugin.Configuration.LastKnownFace == customization.Customize.Face.Value &&
+                    Plugin.Configuration.LastKnownRace == customization.Customize.Race.Value &&
+                    Plugin.Configuration.LastKnownClan == customization.Customize.Clan.Value &&
+                    Plugin.Configuration.LastKnownGender == customization.Customize.Gender.Value)
+                {
+                    plugin.PluginLog.Information("[Drag And Drop Texturing] Initial rebuild skipped: Customization exactly matches last session.");
+                    return;
+                }
+
+                Plugin.Configuration.LastKnownFace = customization.Customize.Face.Value;
+                Plugin.Configuration.LastKnownRace = customization.Customize.Race.Value;
+                Plugin.Configuration.LastKnownClan = customization.Customize.Clan.Value;
+                Plugin.Configuration.LastKnownGender = customization.Customize.Gender.Value;
+                Plugin.Configuration.Save();
 
                 plugin.PluginLog.Information("[Drag And Drop Texturing] Rebuilding " + charKeys.Count + " texture categories for " + charName + "...");
                 foreach (var key in charKeys)
@@ -1058,25 +1064,62 @@ namespace RoleplayingVoice
                 var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
                 string charName = character.Name.TextValue;
 
-                bool faceChanged = _lastKnownFace != -1 && _lastKnownFace != customization.Customize.Face.Value;
-                bool raceChanged = _lastKnownRace != -1 && (_lastKnownRace != customization.Customize.Race.Value || _lastKnownClan != customization.Customize.Clan.Value);
-                bool genderChanged = _lastKnownGender != -1 && _lastKnownGender != customization.Customize.Gender.Value;
+                int newRace = customization.Customize.Race.Value;
+                int newClan = customization.Customize.Clan.Value;
+                int newGender = customization.Customize.Gender.Value;
+                int newFace = customization.Customize.Face.Value;
+
+                bool faceChanged = Plugin.Configuration.LastKnownFace != -1 && Plugin.Configuration.LastKnownFace != newFace;
+                bool raceChanged = Plugin.Configuration.LastKnownRace != -1 && (Plugin.Configuration.LastKnownRace != newRace || Plugin.Configuration.LastKnownClan != newClan);
+                bool genderChanged = Plugin.Configuration.LastKnownGender != -1 && Plugin.Configuration.LastKnownGender != newGender;
+
+                bool bodyPathChanged = true;
+                if (Plugin.Configuration.LastKnownRace != -1 && Plugin.Configuration.LastKnownGender != -1 && Plugin.Configuration.LastKnownClan != -1)
+                {
+                    int oldMappedRace = FFXIVLooseTextureCompiler.Racial.RaceInfo.SubRaceToMainRace(Plugin.Configuration.LastKnownClan - 1);
+                    int newMappedRace = FFXIVLooseTextureCompiler.Racial.RaceInfo.SubRaceToMainRace(newClan - 1);
+
+                    // Check if the underlying game path for the body actually changed between the two states
+                    string oldBody = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(0, Plugin.Configuration.LastKnownGender, 0, oldMappedRace, 0, false);
+                    string newBody = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(0, newGender, 0, newMappedRace, 0, false);
+                    if (oldBody == newBody) bodyPathChanged = false;
+                }
 
                 // Update tracked state
-                _lastKnownFace = customization.Customize.Face.Value;
-                _lastKnownRace = customization.Customize.Race.Value;
-                _lastKnownClan = customization.Customize.Clan.Value;
-                _lastKnownGender = customization.Customize.Gender.Value;
+                Plugin.Configuration.LastKnownFace = newFace;
+                Plugin.Configuration.LastKnownRace = newRace;
+                Plugin.Configuration.LastKnownClan = newClan;
+                Plugin.Configuration.LastKnownGender = newGender;
+                Plugin.Configuration.Save();
+
+                List<string> partsToRegenerate = new List<string>();
 
                 if (raceChanged || genderChanged)
                 {
-                    plugin.PluginLog.Information("[Drag And Drop Texturing] Race/Gender change detected. Rebuilding all texture sets...");
-                    ScheduleRegeneration(charName, new[] { "_body", "_face", "_eyes", "_eyebrows" });
+                    if (bodyPathChanged)
+                    {
+                        plugin.PluginLog.Information("[Drag And Drop Texturing] Race/Gender body texture path changed. Rebuilding body...");
+                        partsToRegenerate.Add("_body");
+                    }
+                    else
+                    {
+                        plugin.PluginLog.Information("[Drag And Drop Texturing] Race changed but body texture path is identical. Skipping body rebuild.");
+                    }
+                    partsToRegenerate.Add("_face");
+                    partsToRegenerate.Add("_eyes");
+                    partsToRegenerate.Add("_eyebrows");
                 }
                 else if (faceChanged)
                 {
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Face change detected. Rebuilding face and eye textures...");
-                    ScheduleRegeneration(charName, new[] { "_face", "_eyes", "_eyebrows" });
+                    partsToRegenerate.Add("_face");
+                    partsToRegenerate.Add("_eyes");
+                    partsToRegenerate.Add("_eyebrows");
+                }
+
+                if (partsToRegenerate.Count > 0)
+                {
+                    ScheduleRegeneration(charName, partsToRegenerate.ToArray());
                 }
             }
             catch (Exception ex)
@@ -1205,12 +1248,46 @@ namespace RoleplayingVoice
                     List<TextureSet> textureSets = new List<TextureSet>();
                     string localModName = charName + " Texture Mod";
 
-                    string lastFile = _textureHistory[categoryKey].FirstOrDefault();
-                    if (string.IsNullOrEmpty(lastFile)) return;
-
                     TextureSet item = null;
                     string categoryModName = "";
                     string overrideType = "";
+
+                    string lastFile = _textureHistory[categoryKey].FirstOrDefault();
+                    if (string.IsNullOrEmpty(lastFile))
+                    {
+                        if (categoryKey.EndsWith("_body")) categoryModName = "Body";
+                        else if (categoryKey.EndsWith("_eyebrows")) categoryModName = "Eyebrows";
+                        else if (categoryKey.EndsWith("_eyes")) categoryModName = "Eyes";
+                        else if (categoryKey.EndsWith("_face")) categoryModName = "Face";
+                        else return;
+
+                        localModName = localModName.Replace("Mod", categoryModName);
+                        string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
+
+                        try
+                        {
+                            if (Directory.Exists(fullModPath))
+                            {
+                                Directory.Delete(fullModPath, true);
+                            }
+                        }
+                        catch { }
+
+                        try
+                        {
+                            PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(fullModPath, localModName);
+                            PenumbraAndGlamourerIpcWrapper.Instance.DeleteMod.Invoke(localModName, localModName);
+                        }
+                        catch { }
+
+                        try
+                        {
+                            PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                        }
+                        catch { }
+
+                        return;
+                    }
 
                     if (categoryKey.EndsWith("_body"))
                     {

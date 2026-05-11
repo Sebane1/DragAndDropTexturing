@@ -52,7 +52,7 @@ public class MainWindow : Window, IDisposable
                 }
             }
         }
-        ImGui.TextWrapped("When enabled, dropping a texture automatically applies universal conversion across all layers without holding the shift key. Warning: This can be slow.");
+        ImGui.TextWrapped("When enabled, textures are generated for all possible body types at once (Potentially slower generation)");
         
         ImGui.Spacing();
         var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
