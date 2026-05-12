@@ -870,15 +870,6 @@ namespace RoleplayingVoice
                     int useClan = customization.Customize.Clan.Value - 1;
                     int useGender = customization.Customize.Gender.Value;
 
-                    // Clear prior static values to prevent stale reads
-                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride = null;
-                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override = null;
-                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen2Override = null;
-                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride = null;
-                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OtopopOverride = null;
-                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.VanillaLalaOverride = null;
-                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.RelalaOverride = null;
-
                     // Ensure OriginalBaseDirectory is set so FastUVTransfer can find its transfer maps
                     string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
                     if (string.IsNullOrEmpty(LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory) ||
