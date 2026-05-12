@@ -1515,7 +1515,18 @@ namespace RoleplayingVoice
                             {
                                 if (categoryKey.EndsWith("_" + activeLayer.LayerDef.TargetBodyPart.ToLower()))
                                 {
-                                    if (!string.IsNullOrEmpty(activeLayer.LayerDef.TexturePath) && File.Exists(activeLayer.LayerDef.TexturePath))
+                                    if (activeLayer.LayerDef.Trigger == TriggerType.Kill_Count)
+                                    {
+                                        for (int layerIdx = 0; layerIdx < activeLayer.CurrentStackCount; layerIdx++)
+                                        {
+                                            if (layerIdx < activeLayer.CachedTexturePaths.Count && File.Exists(activeLayer.CachedTexturePaths[layerIdx]))
+                                            {
+                                                hasContextualLayers = true;
+                                                AddToTextureSet(item, activeLayer.CachedTexturePaths[layerIdx], overrideType);
+                                            }
+                                        }
+                                    }
+                                    else if (!string.IsNullOrEmpty(activeLayer.LayerDef.TexturePath) && File.Exists(activeLayer.LayerDef.TexturePath))
                                     {
                                         hasContextualLayers = true;
                                         AddToTextureSet(item, activeLayer.LayerDef.TexturePath, overrideType);

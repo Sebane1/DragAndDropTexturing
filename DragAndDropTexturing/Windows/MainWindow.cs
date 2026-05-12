@@ -275,7 +275,8 @@ public class MainWindow : Window, IDisposable
                 bool changed = false;
 
                 string name = layer.Name;
-                if (ImGui.InputText($"Name##ContextName_{i}", ref name, 255))
+                ImGui.InputText($"Name##ContextName_{i}", ref name, 255);
+                if (ImGui.IsItemDeactivatedAfterEdit())
                 {
                     layer.Name = name;
                     changed = true;
@@ -286,6 +287,14 @@ public class MainWindow : Window, IDisposable
                 if (ImGui.Combo($"Trigger Type##ContextTrigger_{i}", ref triggerType, triggerNames, triggerNames.Length))
                 {
                     layer.Trigger = (TriggerType)triggerType;
+                    changed = true;
+                }
+
+                int clearType = (int)layer.ClearTrigger;
+                string[] clearNames = Enum.GetNames(typeof(ClearCondition));
+                if (ImGui.Combo($"Clear Condition##ContextClear_{i}", ref clearType, clearNames, clearNames.Length))
+                {
+                    layer.ClearTrigger = (ClearCondition)clearType;
                     changed = true;
                 }
 
@@ -325,16 +334,32 @@ public class MainWindow : Window, IDisposable
                     if (ImGui.SliderInt($"HP Threshold %##ContextHP_{i}", ref hpThresh, 1, 99))
                     {
                         layer.HPThresholdPercentage = hpThresh;
-                        changed = true;
                     }
+                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
+                }
+                else if (layer.Trigger == TriggerType.Kill_Count)
+                {
+                    int reqKills = layer.RequiredKillsPerStack;
+                    if (ImGui.InputInt($"Required Kills per Stack##ContextKills_{i}", ref reqKills))
+                    {
+                        layer.RequiredKillsPerStack = Math.Max(1, reqKills);
+                    }
+                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
+                    
+                    int decay = layer.DecayIntervalSeconds;
+                    if (ImGui.InputInt($"Decay Interval (Seconds)##ContextDecay_{i}", ref decay))
+                    {
+                        layer.DecayIntervalSeconds = Math.Max(0, decay);
+                    }
+                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
                 }
 
                 int duration = layer.DurationSeconds;
                 if (ImGui.InputInt($"Duration (Seconds)##ContextDur_{i}", ref duration))
                 {
                     layer.DurationSeconds = Math.Max(1, duration);
-                    changed = true;
                 }
+                if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
 
                 string[] bodyParts = { "body", "face", "eyes", "eyebrows" };
                 int partIndex = Math.Max(0, Array.IndexOf(bodyParts, layer.TargetBodyPart));
@@ -344,20 +369,34 @@ public class MainWindow : Window, IDisposable
                     changed = true;
                 }
 
-                string path = layer.TexturePath;
-                if (ImGui.InputText($"Texture Path##ContextPath_{i}", ref path, 1024))
+                if (layer.Trigger == TriggerType.Kill_Count)
                 {
-                    layer.TexturePath = path;
-                    changed = true;
-                }
-                if (ImGui.IsItemHovered())
-                {
-                    if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTargetContext", out var files, out _))
+                    string dirPath = layer.TextureDirectoryPath;
+                    ImGui.InputText($"Texture Directory Path##ContextDirPath_{i}", ref dirPath, 1024);
+                    if (ImGui.IsItemDeactivatedAfterEdit())
                     {
-                        if (files.Count > 0)
+                        layer.TextureDirectoryPath = dirPath;
+                        changed = true;
+                    }
+                }
+                else
+                {
+                    string path = layer.TexturePath;
+                    ImGui.InputText($"Texture Path##ContextPath_{i}", ref path, 1024);
+                    if (ImGui.IsItemDeactivatedAfterEdit())
+                    {
+                        layer.TexturePath = path;
+                        changed = true;
+                    }
+                    if (ImGui.IsItemHovered())
+                    {
+                        if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTargetContext", out var files, out _))
                         {
-                            layer.TexturePath = files[0];
-                            changed = true;
+                            if (files.Count > 0)
+                            {
+                                layer.TexturePath = files[0];
+                                changed = true;
+                            }
                         }
                     }
                 }
