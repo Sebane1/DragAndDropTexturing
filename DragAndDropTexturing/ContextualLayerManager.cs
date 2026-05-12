@@ -78,7 +78,11 @@ namespace DragAndDropTexturing
                             
                             if (System.IO.Directory.Exists(layer.DirectoryPath))
                             {
-                                var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png").ToList();
+                                var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png")
+                                    .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) && 
+                                                !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) && 
+                                                !f.Contains("_from_gen3_to_bibo", StringComparison.OrdinalIgnoreCase))
+                                    .ToList();
                                 files.Sort();
                                 active.CachedTexturePaths = files;
                             }
@@ -428,7 +432,11 @@ namespace DragAndDropTexturing
                 
                 if (System.IO.Directory.Exists(layer.DirectoryPath))
                 {
-                    var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png").ToList();
+                    var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png")
+                        .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) && 
+                                    !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) && 
+                                    !f.Contains("_from_gen3_to_bibo", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
                     files.Sort();
                     active.CachedTexturePaths = files;
                 }
