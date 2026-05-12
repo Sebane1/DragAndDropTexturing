@@ -35,6 +35,7 @@ public sealed class Plugin : IDalamudPlugin
     private ThreadSafeGameObjectManager _safeGameObjectManager;
     private IPluginLog _pluginLog;
     private EmoteReaderHooks _emoteReaderHooks;
+    private ActionReaderHooks _actionReaderHooks;
     private ContextualLayerManager _contextualLayerManager;
 
     public Configuration Configuration { get; init; }
@@ -76,11 +77,12 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             _emoteReaderHooks = new EmoteReaderHooks(gameInteropProvider, clientState, _safeGameObjectManager);
-            _contextualLayerManager = new ContextualLayerManager(this, _emoteReaderHooks);
+            _actionReaderHooks = new ActionReaderHooks(gameInteropProvider);
+            _contextualLayerManager = new ContextualLayerManager(this, _emoteReaderHooks, _actionReaderHooks);
         }
         catch (Exception ex)
         {
-            pluginLog.Error(ex, "Failed to initialize ContextualLayerManager or EmoteReaderHooks");
+            pluginLog.Error(ex, "Failed to initialize ContextualLayerManager, EmoteReaderHooks, or ActionReaderHooks");
         }
     }
     public Dalamud.Game.ClientState.Objects.Types.IGameObject[] GetNearestObjects()
@@ -108,6 +110,7 @@ public sealed class Plugin : IDalamudPlugin
 
         _contextualLayerManager?.Dispose();
         _emoteReaderHooks?.Dispose();
+        _actionReaderHooks?.Dispose();
         DragAndDropTextures?.Dispose();
         MainWindow?.Dispose();
         CommandManager.RemoveHandler(CommandName);

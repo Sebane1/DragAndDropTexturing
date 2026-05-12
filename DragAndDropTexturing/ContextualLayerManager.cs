@@ -19,6 +19,7 @@ namespace DragAndDropTexturing
     {
         private Plugin _plugin;
         private EmoteReaderHooks _emoteReader;
+        private ActionReaderHooks _actionReader;
         
         // Track which layers are currently active
         private List<ActiveContextualLayer> _activeLayers = new List<ActiveContextualLayer>();
@@ -27,18 +28,174 @@ namespace DragAndDropTexturing
         
         public List<ActiveContextualLayer> GetActiveLayers() => _activeLayers;
 
-        public ContextualLayerManager(Plugin plugin, EmoteReaderHooks emoteReader)
+        public List<ContextualLayer> ContextualLayers { get; private set; } = new List<ContextualLayer>();
+        public string RootDirectory { get; private set; }
+
+        public ContextualLayerManager(Plugin plugin, EmoteReaderHooks emoteReader, ActionReaderHooks actionReader)
         {
             _plugin = plugin;
             _emoteReader = emoteReader;
+            _actionReader = actionReader;
             
+            RootDirectory = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "ContextualLayers");
+            if (!System.IO.Directory.Exists(RootDirectory))
+            {
+                System.IO.Directory.CreateDirectory(RootDirectory);
+            }
+            LoadLayers();
+
             if (_emoteReader != null)
             {
                 _emoteReader.OnEmote += OnEmote;
             }
+            if (_actionReader != null)
+            {
+                _actionReader.OnActionUsed += OnActionUsed;
+            }
             
             Plugin.Framework.Update += Framework_Update;
             Plugin.ClientState.TerritoryChanged += OnTerritoryChanged;
+        }
+
+        public void LoadLayers()
+        {
+            ContextualLayers.Clear();
+            _activeLayers.Clear();
+            if (System.IO.Directory.Exists(RootDirectory))
+            {
+                var dirs = System.IO.Directory.GetDirectories(RootDirectory);
+                foreach (var d in dirs)
+                {
+                    var layer = ContextualLayer.Load(d);
+                    ContextualLayers.Add(layer);
+
+                    // Restore cross-session stack counts
+                    if (_plugin.Configuration.PersistedContextualStacks.TryGetValue(layer.DirectoryPath, out int stackCount))
+                    {
+                        if (stackCount > 0 && layer.Trigger != TriggerType.HP_Threshold && layer.Trigger != TriggerType.Combat_State)
+                        {
+                            var active = new ActiveContextualLayer { LayerDef = layer, CurrentStackCount = stackCount };
+                            
+                            if (System.IO.Directory.Exists(layer.DirectoryPath))
+                            {
+                                var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png").ToList();
+                                files.Sort();
+                                active.CachedTexturePaths = files;
+                            }
+                            
+                            active.Timer.Start();
+                            _activeLayers.Add(active);
+                        }
+                    }
+                }
+            }
+        }
+
+        public void SavePersistedStates()
+        {
+            _plugin.Configuration.PersistedContextualStacks.Clear();
+            foreach (var active in _activeLayers)
+            {
+                if (active.LayerDef.Trigger != TriggerType.HP_Threshold && active.LayerDef.Trigger != TriggerType.Combat_State)
+                {
+                    _plugin.Configuration.PersistedContextualStacks[active.LayerDef.DirectoryPath] = active.CurrentStackCount;
+                }
+            }
+            _plugin.Configuration.Save();
+        }
+
+        public ContextualLayer CreateNewLayer()
+        {
+            string newDir = System.IO.Path.Combine(RootDirectory, Guid.NewGuid().ToString());
+            System.IO.Directory.CreateDirectory(newDir);
+            
+            // Create a helpful placeholder file so users know what to do when they open the folder
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(newDir, "place_layering_images_here.txt"), 
+                "Drop your .png texture files into this directory!\n\n" +
+                "For stacking triggers (like HP Thresholds or Actions Used), the plugin will sort the files alphabetically and apply them in sequence.\n" +
+                "For non-stacking triggers, it will apply all .png files found in this folder simultaneously."
+            );
+
+            var layer = new ContextualLayer { DirectoryPath = newDir, Name = "New Context Layer" };
+            layer.Save();
+            ContextualLayers.Add(layer);
+            return layer;
+        }
+
+        public void DeleteLayer(ContextualLayer layer)
+        {
+            ContextualLayers.Remove(layer);
+            _activeLayers.RemoveAll(x => x.LayerDef == layer);
+            if (System.IO.Directory.Exists(layer.DirectoryPath))
+            {
+                try { System.IO.Directory.Delete(layer.DirectoryPath, true); } catch { }
+            }
+            TriggerHotswapRebuild();
+        }
+
+        public void ExportLayer(ContextualLayer layer)
+        {
+            try
+            {
+                string exportFolder = System.IO.Path.Combine(RootDirectory, "Exports");
+                if (!System.IO.Directory.Exists(exportFolder)) System.IO.Directory.CreateDirectory(exportFolder);
+                
+                string safeName = string.Join("_", layer.Name.Split(System.IO.Path.GetInvalidFileNameChars()));
+                string zipPath = System.IO.Path.Combine(exportFolder, $"{safeName}.clmp");
+                
+                if (System.IO.File.Exists(zipPath)) System.IO.File.Delete(zipPath);
+                
+                System.IO.Compression.ZipFile.CreateFromDirectory(layer.DirectoryPath, zipPath);
+                
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
+                {
+                    FileName = exportFolder,
+                    UseShellExecute = true,
+                    Verb = "open"
+                });
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error($"Failed to export Contextual Layer: {ex.Message}");
+            }
+        }
+
+        public void ImportLayersFromImportsFolder()
+        {
+            string importFolder = System.IO.Path.Combine(RootDirectory, "Imports");
+            if (!System.IO.Directory.Exists(importFolder)) System.IO.Directory.CreateDirectory(importFolder);
+            
+            var files = System.IO.Directory.GetFiles(importFolder, "*.clmp");
+            foreach (var file in files)
+            {
+                ImportLayerFromFile(file, true);
+            }
+        }
+
+        public void ImportLayerFromFile(string filePath, bool deleteOriginal = false)
+        {
+            try
+            {
+                string newDir = System.IO.Path.Combine(RootDirectory, Guid.NewGuid().ToString());
+                System.IO.Directory.CreateDirectory(newDir);
+                
+                System.IO.Compression.ZipFile.ExtractToDirectory(filePath, newDir);
+                
+                if (deleteOriginal)
+                {
+                    System.IO.File.Delete(filePath);
+                }
+                
+                var layer = ContextualLayer.Load(newDir);
+                layer.DirectoryPath = newDir;
+                layer.Save();
+                ContextualLayers.Add(layer);
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error($"Failed to import Contextual Layer {filePath}: {ex.Message}");
+            }
         }
 
         private void OnTerritoryChanged(uint obj)
@@ -55,20 +212,32 @@ namespace DragAndDropTexturing
                 }
             }
             if (layersChanged) TriggerHotswapRebuild();
+            SavePersistedStates();
         }
 
         private void OnEmote(IGameObject instigator, ushort emoteId)
         {
             if (instigator == null) return;
-            
-            var player = _plugin.SafeGameObjectManager.LocalPlayer;
-            if (player == null) return;
-            if (instigator.Address != player.Address) return;
+            var player = _plugin.SafeGameObjectManager.LocalPlayer as GameObjectHelper.ThreadSafeDalamudObjectTable.ThreadSafeCharacter;
+            if (player == null || instigator.GameObjectId != player.GameObjectId) return;
 
-            foreach (var layer in _plugin.Configuration.ContextualLayers)
+            foreach (var layer in ContextualLayers)
             {
                 if (layer.Trigger == TriggerType.Emote && layer.EmoteId == emoteId)
                 {
+                    ActivateLayer(layer);
+                }
+            }
+        }
+
+        private void OnActionUsed(uint actionId)
+        {
+            foreach (var layer in ContextualLayers)
+            {
+                if (layer.Trigger == TriggerType.Action_Used)
+                {
+                    // To support specific actions in the future, we could add an ActionId property. 
+                    // For now, any spell casts advance the stack/activate.
                     ActivateLayer(layer);
                 }
             }
@@ -120,15 +289,26 @@ namespace DragAndDropTexturing
             _seenAliveEnemies.RemoveWhere(id => !currentObjects.Contains(id));
             _knownDeadEnemies.RemoveWhere(id => !currentObjects.Contains(id));
 
-            foreach (var layer in _plugin.Configuration.ContextualLayers)
+            bool layersChanged = false;
+
+            foreach (var layer in ContextualLayers)
             {
                 bool isConditionMet = false;
+                int desiredStackForHp = 0;
 
                 if (layer.Trigger == TriggerType.HP_Threshold)
                 {
                     if (hpPercentage <= layer.HPThresholdPercentage)
                     {
                         isConditionMet = true;
+                        var activeTemp = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
+                        int numIntervals = activeTemp != null ? activeTemp.CachedTexturePaths.Count : 1;
+                        if (numIntervals == 0) numIntervals = 1;
+                        
+                        float intervalSize = layer.HPThresholdPercentage / (float)numIntervals;
+                        float hpBelowThreshold = layer.HPThresholdPercentage - hpPercentage;
+                        desiredStackForHp = 1 + (int)(hpBelowThreshold / intervalSize);
+                        desiredStackForHp = Math.Clamp(desiredStackForHp, 1, numIntervals);
                     }
                 }
                 else if (layer.Trigger == TriggerType.Combat_State)
@@ -145,18 +325,33 @@ namespace DragAndDropTexturing
                     if (existing == null)
                     {
                         ActivateLayer(layer);
+                        existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
+                        if (existing != null && layer.Trigger == TriggerType.HP_Threshold)
+                        {
+                             int numIntervals = existing.CachedTexturePaths.Count;
+                             if (numIntervals == 0) numIntervals = 1;
+                             float intervalSize = layer.HPThresholdPercentage / (float)numIntervals;
+                             float hpBelowThreshold = layer.HPThresholdPercentage - hpPercentage;
+                             desiredStackForHp = 1 + (int)(hpBelowThreshold / intervalSize);
+                             desiredStackForHp = Math.Clamp(desiredStackForHp, 1, numIntervals);
+                             existing.CurrentStackCount = desiredStackForHp;
+                        }
                     }
                     else
                     {
                         // Keep the timer completely reset while the state condition is still met
                         existing.Timer.Restart();
+                        if (layer.Trigger == TriggerType.HP_Threshold && existing.CurrentStackCount != desiredStackForHp)
+                        {
+                            existing.CurrentStackCount = desiredStackForHp;
+                            layersChanged = true;
+                        }
                     }
                 }
             }
 
             // 2. Process Layer Decay / Expirations
             bool isSwimming = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Swimming] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Diving];
-            bool layersChanged = false;
             for (int i = _activeLayers.Count - 1; i >= 0; i--)
             {
                 var active = _activeLayers[i];
@@ -173,7 +368,7 @@ namespace DragAndDropTexturing
                 if (active.LayerDef.Trigger == TriggerType.HP_Threshold && hpPercentage <= active.LayerDef.HPThresholdPercentage) isStillActive = true;
                 if (active.LayerDef.Trigger == TriggerType.Combat_State && inCombat) isStillActive = true;
                 
-                if (active.LayerDef.Trigger == TriggerType.Kill_Count)
+                if (active.LayerDef.Trigger == TriggerType.Kill_Count || active.LayerDef.Trigger == TriggerType.Action_Used)
                 {
                     if (active.LayerDef.ClearTrigger == ClearCondition.Time && active.LayerDef.DecayIntervalSeconds > 0 && active.Timer.Elapsed.TotalSeconds >= active.LayerDef.DecayIntervalSeconds)
                     {
@@ -216,23 +411,29 @@ namespace DragAndDropTexturing
             if (existing != null)
             {
                 existing.Timer.Restart();
+                if (layer.Trigger == TriggerType.Emote)
+                {
+                    existing.CurrentStackCount++;
+                    if (existing.CurrentStackCount > existing.CachedTexturePaths.Count)
+                    {
+                        existing.CurrentStackCount = existing.CachedTexturePaths.Count;
+                    }
+                    TriggerHotswapRebuild();
+                }
             }
             else
             {
                 _plugin.PluginLog.Information($"Activating Contextual Layer '{layer.Name}'!");
                 var active = new ActiveContextualLayer { LayerDef = layer };
                 
-                if (layer.Trigger == TriggerType.Kill_Count && !string.IsNullOrEmpty(layer.TextureDirectoryPath) && System.IO.Directory.Exists(layer.TextureDirectoryPath))
+                if (System.IO.Directory.Exists(layer.DirectoryPath))
                 {
-                    var files = System.IO.Directory.GetFiles(layer.TextureDirectoryPath, "*.png").ToList();
+                    var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png").ToList();
                     files.Sort();
                     active.CachedTexturePaths = files;
                 }
-                else if (!string.IsNullOrEmpty(layer.TexturePath))
-                {
-                    active.CachedTexturePaths.Add(layer.TexturePath);
-                }
                 
+                active.CurrentStackCount = 1;
                 active.Timer.Start();
                 _activeLayers.Add(active);
                 
@@ -266,9 +467,9 @@ namespace DragAndDropTexturing
             var player = _plugin.SafeGameObjectManager.LocalPlayer;
             if (player == null) return;
 
-            foreach (var layer in _plugin.Configuration.ContextualLayers)
+            foreach (var layer in ContextualLayers)
             {
-                if (layer.Trigger == TriggerType.Kill_Count)
+                if (layer.Trigger == TriggerType.Kill_Count || layer.Trigger == TriggerType.Action_Used)
                 {
                     var existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
                     if (existing == null)
@@ -301,6 +502,7 @@ namespace DragAndDropTexturing
 
         public void Dispose()
         {
+            SavePersistedStates();
             if (_emoteReader != null)
             {
                 _emoteReader.OnEmote -= OnEmote;

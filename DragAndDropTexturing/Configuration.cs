@@ -17,8 +17,7 @@ public class Configuration : IPluginConfiguration
     public int LastKnownGender { get; set; } = -1;
     public int LastKnownFace { get; set; } = -1;
     public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> TextureHistory { get; set; } = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>();
-    public System.Collections.Generic.List<ContextualLayer> ContextualLayers { get; set; } = new System.Collections.Generic.List<ContextualLayer>();
-
+    public System.Collections.Generic.Dictionary<string, int> PersistedContextualStacks { get; set; } = new System.Collections.Generic.Dictionary<string, int>();
     // the below exist just to make saving less cumbersome
     public void Save()
     {

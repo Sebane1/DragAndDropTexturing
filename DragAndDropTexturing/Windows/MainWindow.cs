@@ -167,254 +167,318 @@ public class MainWindow : Window, IDisposable
         }
     }
 
+    private int _selectedActiveLayerIndex = 0;
+
     private void DrawActiveLayers()
     {
         ImGui.Spacing();
         var ddt = Plugin.DragAndDropTextures;
         if (ddt != null && ddt.TextureHistory != null)
         {
-            var keys = ddt.TextureHistory.Keys.ToList();
+            var keys = ddt.TextureHistory.Keys.Where(k => ddt.TextureHistory[k].Count > 0).ToList();
             if (keys.Count == 0)
             {
                 ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No active textures dropped yet.");
+                return;
             }
-            foreach (var key in keys)
+
+            ImGui.BeginChild("ActiveLayersList", new Vector2(200, 0), true);
+            for (int i = 0; i < keys.Count; i++)
             {
-                var list = ddt.TextureHistory[key];
-                if (list.Count == 0) continue;
-                
-                if (ImGui.TreeNode(key))
+                bool isSelected = _selectedActiveLayerIndex == i;
+                if (ImGui.Selectable($"{keys[i]}##SelectActiveLayer_{i}", isSelected))
                 {
-                    if (ImGui.Button("Clear All##" + key))
+                    _selectedActiveLayerIndex = i;
+                }
+            }
+            ImGui.EndChild();
+
+            ImGui.SameLine();
+
+            ImGui.BeginChild("ActiveLayerDetails", new Vector2(0, 0), true);
+            if (_selectedActiveLayerIndex >= 0 && _selectedActiveLayerIndex < keys.Count)
+            {
+                string key = keys[_selectedActiveLayerIndex];
+                var list = ddt.TextureHistory[key];
+                
+                ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), $"Active Layers for: {key}");
+                ImGui.Separator();
+                
+                if (ImGui.Button("Clear All##" + key))
+                {
+                    list.Clear();
+                    ddt.RebuildCategory(key);
+                    Plugin.Configuration.Save();
+                    // Keep index bounded if list clears and we want to prevent out of bounds next frame
+                }
+                
+                bool changed = false;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    string path = list[i] ?? "";
+                    ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
+                    if (ImGui.InputText("##path_" + key + i, ref path, 1024))
                     {
-                        list.Clear();
-                        ddt.RebuildCategory(key);
-                        Plugin.Configuration.Save();
+                        list[i] = path;
                     }
-                    
-                    bool changed = false;
-                    for (int i = 0; i < list.Count; i++)
+                    if (ImGui.IsItemHovered())
                     {
-                        string path = list[i] ?? "";
-                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
-                        if (ImGui.InputText("##path_" + key + i, ref path, 1024))
+                        if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTarget", out var files, out _))
                         {
-                            list[i] = path;
-                        }
-                        if (ImGui.IsItemHovered())
-                        {
-                            if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTarget", out var files, out _))
+                            if (files.Count > 0)
                             {
-                                if (files.Count > 0)
-                                {
-                                    list[i] = files[0];
-                                    changed = true;
-                                }
+                                list[i] = files[0];
+                                changed = true;
                             }
                         }
-                        if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
-                        
-                        if (ImGui.Button("Up##" + key + i) && i > 0)
-                        {
-                            var temp = list[i - 1];
-                            list[i - 1] = list[i];
-                            list[i] = temp;
-                            changed = true;
-                        }
-                        
-                        ImGui.SameLine();
-                        if (ImGui.Button("Down##" + key + i) && i < list.Count - 1)
-                        {
-                            var temp = list[i + 1];
-                            list[i + 1] = list[i];
-                            list[i] = temp;
-                            changed = true;
-                        }
-
-                        ImGui.SameLine();
-                        if (ImGui.Button("Remove##" + key + i))
-                        {
-                            list.RemoveAt(i);
-                            i--; // Adjust index since we removed
-                            changed = true;
-                        }
                     }
-
-                    if (ImGui.Button("Add New Layer##" + key))
+                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
+                    
+                    if (ImGui.Button("Up##" + key + i) && i > 0)
                     {
-                        list.Add("");
+                        var temp = list[i - 1];
+                        list[i - 1] = list[i];
+                        list[i] = temp;
+                        changed = true;
+                    }
+                    
+                    ImGui.SameLine();
+                    if (ImGui.Button("Down##" + key + i) && i < list.Count - 1)
+                    {
+                        var temp = list[i + 1];
+                        list[i + 1] = list[i];
+                        list[i] = temp;
                         changed = true;
                     }
 
-                    if (changed)
+                    ImGui.SameLine();
+                    if (ImGui.Button("Remove##" + key + i))
                     {
-                        ddt.RebuildCategory(key);
-                        Plugin.Configuration.Save();
+                        list.RemoveAt(i);
+                        i--;
+                        changed = true;
                     }
-                    ImGui.TreePop();
+                }
+
+                if (ImGui.Button("Add New Layer##" + key))
+                {
+                    list.Add("");
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    ddt.RebuildCategory(key);
+                    Plugin.Configuration.Save();
                 }
             }
+            ImGui.EndChild();
         }
     }
+
+    private int _selectedContextualLayerIndex = 0;
 
     private void DrawContextualLayers()
     {
         ImGui.Spacing();
         if (ImGui.Button("Add Contextual Layer"))
         {
-            Plugin.Configuration.ContextualLayers.Add(new ContextualLayer());
-            Plugin.Configuration.Save();
+            Plugin.ContextualLayerManager.CreateNewLayer();
+            _selectedContextualLayerIndex = Plugin.ContextualLayerManager.ContextualLayers.Count - 1;
+        }
+        
+        ImGui.SameLine();
+        if (ImGui.Button("Open Imports Folder"))
+        {
+            string importFolder = System.IO.Path.Combine(Plugin.ContextualLayerManager.RootDirectory, "Imports");
+            if (!System.IO.Directory.Exists(importFolder)) System.IO.Directory.CreateDirectory(importFolder);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
+            {
+                FileName = importFolder,
+                UseShellExecute = true,
+                Verb = "open"
+            });
+        }
+        
+        ImGui.SameLine();
+        if (ImGui.Button("Scan for Imports"))
+        {
+            Plugin.ContextualLayerManager.ImportLayersFromImportsFolder();
+            if (Plugin.ContextualLayerManager.ContextualLayers.Count > 0)
+                _selectedContextualLayerIndex = Plugin.ContextualLayerManager.ContextualLayers.Count - 1;
         }
 
-        for (int i = 0; i < Plugin.Configuration.ContextualLayers.Count; i++)
+        ImGui.Spacing();
+
+        if (Plugin.ContextualLayerManager.ContextualLayers.Count == 0)
         {
-            var layer = Plugin.Configuration.ContextualLayers[i];
-            
-            if (ImGui.TreeNode($"Layer {i + 1}: {layer.Name}##ContextLayer_{i}"))
+            ImGui.Text("No contextual layers configured.");
+            return;
+        }
+
+        ImGui.BeginChild("ContextLayersList", new Vector2(200, 0), true);
+        for (int i = 0; i < Plugin.ContextualLayerManager.ContextualLayers.Count; i++)
+        {
+            var layer = Plugin.ContextualLayerManager.ContextualLayers[i];
+            bool isSelected = _selectedContextualLayerIndex == i;
+            if (ImGui.Selectable($"{layer.Name}##SelectLayer_{i}", isSelected))
             {
-                bool changed = false;
-
-                string name = layer.Name;
-                ImGui.InputText($"Name##ContextName_{i}", ref name, 255);
-                if (ImGui.IsItemDeactivatedAfterEdit())
-                {
-                    layer.Name = name;
-                    changed = true;
-                }
-
-                int triggerType = (int)layer.Trigger;
-                string[] triggerNames = Enum.GetNames(typeof(TriggerType));
-                if (ImGui.Combo($"Trigger Type##ContextTrigger_{i}", ref triggerType, triggerNames, triggerNames.Length))
-                {
-                    layer.Trigger = (TriggerType)triggerType;
-                    changed = true;
-                }
-
-                int clearType = (int)layer.ClearTrigger;
-                string[] clearNames = Enum.GetNames(typeof(ClearCondition));
-                if (ImGui.Combo($"Clear Condition##ContextClear_{i}", ref clearType, clearNames, clearNames.Length))
-                {
-                    layer.ClearTrigger = (ClearCondition)clearType;
-                    changed = true;
-                }
-
-                if (layer.Trigger == TriggerType.Emote)
-                {
-                    int emoteId = layer.EmoteId;
-                    var currentEmote = _emotes.FirstOrDefault(x => x.RowId == emoteId);
-                    string currentEmoteName = currentEmote.RowId != 0 ? currentEmote.Name.ExtractText() : $"ID: {emoteId}";
-
-                    if (ImGui.BeginCombo($"Emote##ContextEmote_{i}", currentEmoteName))
-                    {
-                        ImGui.InputText("Search##EmoteSearch", ref _emoteSearchFilter, 255);
-                        string filter = _emoteSearchFilter.ToLower();
-
-                        for (int eIndex = 0; eIndex < _emotes.Count; eIndex++)
-                        {
-                            var e = _emotes[eIndex];
-                            string eName = _emoteNames[eIndex];
-                            if (string.IsNullOrEmpty(filter) || eName.ToLower().Contains(filter))
-                            {
-                                bool isSelected = e.RowId == emoteId;
-                                if (ImGui.Selectable($"{eName}##{e.RowId}", isSelected))
-                                {
-                                    layer.EmoteId = (ushort)e.RowId;
-                                    changed = true;
-                                    ImGui.CloseCurrentPopup();
-                                }
-                                if (isSelected) ImGui.SetItemDefaultFocus();
-                            }
-                        }
-                        ImGui.EndCombo();
-                    }
-                }
-                else if (layer.Trigger == TriggerType.HP_Threshold)
-                {
-                    int hpThresh = layer.HPThresholdPercentage;
-                    if (ImGui.SliderInt($"HP Threshold %##ContextHP_{i}", ref hpThresh, 1, 99))
-                    {
-                        layer.HPThresholdPercentage = hpThresh;
-                    }
-                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
-                }
-                else if (layer.Trigger == TriggerType.Kill_Count)
-                {
-                    int reqKills = layer.RequiredKillsPerStack;
-                    if (ImGui.InputInt($"Required Kills per Stack##ContextKills_{i}", ref reqKills))
-                    {
-                        layer.RequiredKillsPerStack = Math.Max(1, reqKills);
-                    }
-                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
-                    
-                    int decay = layer.DecayIntervalSeconds;
-                    if (ImGui.InputInt($"Decay Interval (Seconds)##ContextDecay_{i}", ref decay))
-                    {
-                        layer.DecayIntervalSeconds = Math.Max(0, decay);
-                    }
-                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
-                }
-
-                int duration = layer.DurationSeconds;
-                if (ImGui.InputInt($"Duration (Seconds)##ContextDur_{i}", ref duration))
-                {
-                    layer.DurationSeconds = Math.Max(1, duration);
-                }
-                if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
-
-                string[] bodyParts = { "body", "face", "eyes", "eyebrows" };
-                int partIndex = Math.Max(0, Array.IndexOf(bodyParts, layer.TargetBodyPart));
-                if (ImGui.Combo($"Target Body Part##ContextPart_{i}", ref partIndex, bodyParts, bodyParts.Length))
-                {
-                    layer.TargetBodyPart = bodyParts[partIndex];
-                    changed = true;
-                }
-
-                if (layer.Trigger == TriggerType.Kill_Count)
-                {
-                    string dirPath = layer.TextureDirectoryPath;
-                    ImGui.InputText($"Texture Directory Path##ContextDirPath_{i}", ref dirPath, 1024);
-                    if (ImGui.IsItemDeactivatedAfterEdit())
-                    {
-                        layer.TextureDirectoryPath = dirPath;
-                        changed = true;
-                    }
-                }
-                else
-                {
-                    string path = layer.TexturePath;
-                    ImGui.InputText($"Texture Path##ContextPath_{i}", ref path, 1024);
-                    if (ImGui.IsItemDeactivatedAfterEdit())
-                    {
-                        layer.TexturePath = path;
-                        changed = true;
-                    }
-                    if (ImGui.IsItemHovered())
-                    {
-                        if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTargetContext", out var files, out _))
-                        {
-                            if (files.Count > 0)
-                            {
-                                layer.TexturePath = files[0];
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-
-                if (ImGui.Button($"Remove Layer##ContextRemove_{i}"))
-                {
-                    Plugin.Configuration.ContextualLayers.RemoveAt(i);
-                    i--;
-                    changed = true;
-                }
-
-                if (changed)
-                {
-                    Plugin.Configuration.Save();
-                }
-
-                ImGui.TreePop();
+                _selectedContextualLayerIndex = i;
             }
         }
+        ImGui.EndChild();
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("You can drop .clmp files directly here to import them!");
+        }
+
+        if (Plugin.DragDropManager.CreateImGuiTarget("ContextualLayerImportTarget", out var droppedFiles, out _))
+        {
+            foreach (var f in droppedFiles)
+            {
+                if (f.EndsWith(".clmp", StringComparison.OrdinalIgnoreCase))
+                {
+                    Plugin.ContextualLayerManager.ImportLayerFromFile(f);
+                }
+            }
+            if (Plugin.ContextualLayerManager.ContextualLayers.Count > 0)
+                _selectedContextualLayerIndex = Plugin.ContextualLayerManager.ContextualLayers.Count - 1;
+        }
+
+        ImGui.SameLine();
+
+        ImGui.BeginChild("ContextLayerDetails", new Vector2(0, 0), true);
+        if (_selectedContextualLayerIndex >= 0 && _selectedContextualLayerIndex < Plugin.ContextualLayerManager.ContextualLayers.Count)
+        {
+            var layer = Plugin.ContextualLayerManager.ContextualLayers[_selectedContextualLayerIndex];
+            bool changed = false;
+
+            string name = layer.Name;
+            if (ImGui.InputText("Name##ContextName", ref name, 255))
+            {
+                layer.Name = name;
+                changed = true;
+            }
+
+            int triggerType = (int)layer.Trigger;
+            string[] triggerNames = Enum.GetNames(typeof(TriggerType));
+            if (ImGui.Combo("Trigger Type##ContextTrigger", ref triggerType, triggerNames, triggerNames.Length))
+            {
+                layer.Trigger = (TriggerType)triggerType;
+                changed = true;
+            }
+
+            int clearType = (int)layer.ClearTrigger;
+            string[] clearNames = Enum.GetNames(typeof(ClearCondition));
+            if (ImGui.Combo("Clear Condition##ContextClear", ref clearType, clearNames, clearNames.Length))
+            {
+                layer.ClearTrigger = (ClearCondition)clearType;
+                changed = true;
+            }
+
+            if (layer.Trigger == TriggerType.Emote)
+            {
+                int emoteId = layer.EmoteId;
+                var currentEmote = _emotes.FirstOrDefault(x => x.RowId == emoteId);
+                string currentEmoteName = currentEmote.RowId != 0 ? currentEmote.Name.ExtractText() : $"ID: {emoteId}";
+
+                if (ImGui.BeginCombo("Emote##ContextEmote", currentEmoteName))
+                {
+                    ImGui.InputText("Search##EmoteSearch", ref _emoteSearchFilter, 255);
+                    string filter = _emoteSearchFilter.ToLower();
+
+                    for (int eIndex = 0; eIndex < _emotes.Count; eIndex++)
+                    {
+                        var e = _emotes[eIndex];
+                        string eName = _emoteNames[eIndex];
+                        if (string.IsNullOrEmpty(filter) || eName.ToLower().Contains(filter))
+                        {
+                            bool isSelected = e.RowId == emoteId;
+                            if (ImGui.Selectable($"{eName}##{e.RowId}", isSelected))
+                            {
+                                layer.EmoteId = (ushort)e.RowId;
+                                changed = true;
+                                ImGui.CloseCurrentPopup();
+                            }
+                            if (isSelected) ImGui.SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui.EndCombo();
+                }
+            }
+            else if (layer.Trigger == TriggerType.HP_Threshold)
+            {
+                int hpThresh = layer.HPThresholdPercentage;
+                if (ImGui.SliderInt("HP Threshold %##ContextHP", ref hpThresh, 1, 99))
+                {
+                    layer.HPThresholdPercentage = hpThresh;
+                    changed = true;
+                }
+            }
+            else if (layer.Trigger == TriggerType.Kill_Count || layer.Trigger == TriggerType.Action_Used)
+            {
+                int reqKills = layer.RequiredKillsPerStack;
+                string stackLabel = layer.Trigger == TriggerType.Kill_Count ? "Required Kills per Stack" : "Required Actions per Stack";
+                if (ImGui.InputInt($"{stackLabel}##ContextKills", ref reqKills))
+                {
+                    layer.RequiredKillsPerStack = Math.Max(1, reqKills);
+                    changed = true;
+                }
+                
+                int decay = layer.DecayIntervalSeconds;
+                if (ImGui.InputInt("Decay Interval (Seconds)##ContextDecay", ref decay))
+                {
+                    layer.DecayIntervalSeconds = Math.Max(0, decay);
+                    changed = true;
+                }
+            }
+
+            int duration = layer.DurationSeconds;
+            if (ImGui.InputInt("Duration (Seconds)##ContextDur", ref duration))
+            {
+                layer.DurationSeconds = Math.Max(1, duration);
+                changed = true;
+            }
+
+            string[] bodyParts = { "body", "face", "eyes", "eyebrows" };
+            int partIndex = Math.Max(0, Array.IndexOf(bodyParts, layer.TargetBodyPart));
+            if (ImGui.Combo("Target Body Part##ContextPart", ref partIndex, bodyParts, bodyParts.Length))
+            {
+                layer.TargetBodyPart = bodyParts[partIndex];
+                changed = true;
+            }
+
+            ImGui.Spacing();
+            if (ImGui.Button("Open Folder##ContextFolder"))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
+                {
+                    FileName = layer.DirectoryPath,
+                    UseShellExecute = true,
+                    Verb = "open"
+                });
+            }
+
+            ImGui.SameLine();
+
+            if (ImGui.Button("Export Layer##ContextExport"))
+            {
+                Plugin.ContextualLayerManager.ExportLayer(layer);
+            }
+
+            ImGui.SameLine();
+
+            if (ImGui.Button("Remove Layer##ContextRemove"))
+            {
+                Plugin.ContextualLayerManager.DeleteLayer(layer);
+                _selectedContextualLayerIndex = Math.Max(0, _selectedContextualLayerIndex - 1);
+            }
+            else if (changed)
+            {
+                layer.Save();
+            }
+        }
+        ImGui.EndChild();
     }
 }

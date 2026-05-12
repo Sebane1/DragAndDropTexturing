@@ -7,7 +7,8 @@ public enum TriggerType
     Emote, 
     HP_Threshold, 
     Combat_State,
-    Kill_Count
+    Kill_Count,
+    Action_Used
 }
 
 public enum ClearCondition
@@ -21,8 +22,8 @@ public enum ClearCondition
 public class ContextualLayer
 {
     public string Name { get; set; } = "New Context Layer";
-    public string TexturePath { get; set; } = "";
-    public string TextureDirectoryPath { get; set; } = "";
+    [Newtonsoft.Json.JsonIgnore]
+    public string DirectoryPath { get; set; } = "";
     
     // The condition that triggers this layer
     public TriggerType Trigger { get; set; } = TriggerType.Emote;
@@ -41,4 +42,27 @@ public class ContextualLayer
     
     // Which body part this applies to (body, face, eyes, eyebrows) so we know which texture to hotswap
     public string TargetBodyPart { get; set; } = "body"; 
+
+    public void Save()
+    {
+        if (string.IsNullOrEmpty(DirectoryPath)) return;
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(this, Newtonsoft.Json.Formatting.Indented);
+        System.IO.File.WriteAllText(System.IO.Path.Combine(DirectoryPath, "rules.json"), json);
+    }
+
+    public static ContextualLayer Load(string directoryPath)
+    {
+        string file = System.IO.Path.Combine(directoryPath, "rules.json");
+        if (System.IO.File.Exists(file))
+        {
+            var json = System.IO.File.ReadAllText(file);
+            var layer = Newtonsoft.Json.JsonConvert.DeserializeObject<ContextualLayer>(json);
+            if (layer != null)
+            {
+                layer.DirectoryPath = directoryPath;
+                return layer;
+            }
+        }
+        return new ContextualLayer { DirectoryPath = directoryPath };
+    }
 }
