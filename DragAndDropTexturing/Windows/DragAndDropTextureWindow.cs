@@ -879,12 +879,22 @@ namespace RoleplayingVoice
                     FFXIVLooseTextureCompiler.Export.BackupTexturePaths.VanillaLalaOverride = null;
                     FFXIVLooseTextureCompiler.Export.BackupTexturePaths.RelalaOverride = null;
 
+                    // Ensure OriginalBaseDirectory is set so FastUVTransfer can find its transfer maps
+                    string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                    if (string.IsNullOrEmpty(LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory) ||
+                        LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory == System.AppDomain.CurrentDomain.BaseDirectory)
+                    {
+                        LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = modPath + @"\LooseTextureCompilerDLC";
+                    }
+
                     PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, useGender, useClan, plugin);
 
                     if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null && !string.IsNullOrEmpty(FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.ModName))
                         ActiveBodyOverrides["Bibo+"] = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.ModName;
                     if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null && !string.IsNullOrEmpty(FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.ModName))
                         ActiveBodyOverrides["Gen3"] = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.ModName;
+                    if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen2Override != null && !string.IsNullOrEmpty(FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen2Override.ModName))
+                        ActiveBodyOverrides["Vanilla/Gen2"] = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen2Override.ModName;
                     if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null && !string.IsNullOrEmpty(FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.ModName))
                         ActiveBodyOverrides["TBSE"] = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.ModName;
                     if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OtopopOverride != null && !string.IsNullOrEmpty(FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OtopopOverride.ModName))
@@ -938,7 +948,6 @@ namespace RoleplayingVoice
                         plugin.PluginLog.Information($"[Drag And Drop Debug] Export customization: Race={useRace}, Clan={useClan}, Face={useFace}, RaceCode={raceCode}");
 
                         PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, useGender, useClan, plugin);
-
                         foreach (var i in exportTextureSets)
                         {
                             string category = "";
