@@ -1041,59 +1041,67 @@ namespace RoleplayingVoice
 
                     ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath);
                     Thread.Sleep(100);
-                    PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
-                    PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
-                    collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
-                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name);
-                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name);
-                    var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
-                    foreach (var group in settings.Item2.Value.Item3)
+                    
+                    Plugin.Framework.RunOnFrameworkThread(() =>
                     {
-                        PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
-                    }
+                        PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
+                        PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
+                        collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
+                        PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name);
+                        PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name);
+                        var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
+                        foreach (var group in settings.Item2.Value.Item3)
+                        {
+                            PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
+                        }
+                    });
+
                     Thread.Sleep(100);
 
-                    // Instead of redrawing the whole character, we grab their current Glamourer state,
-                    // and then immediately re-apply their state to force reload the new texture.
-                    var currentStateResult = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.Value.ObjectIndex);
-                    if (!requiresFullRedraw && currentStateResult.Item1 == 0 && !string.IsNullOrEmpty(currentStateResult.Item2)) // 0 = Success
+                    Plugin.Framework.RunOnFrameworkThread(() =>
                     {
-                        string stateBase64 = currentStateResult.Item2;
-                        try
+                        // Instead of redrawing the whole character, we grab their current Glamourer state,
+                        // and then immediately re-apply their state to force reload the new texture.
+                        var currentStateResult = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.Value.ObjectIndex);
+                        if (!requiresFullRedraw && currentStateResult.Item1 == 0 && !string.IsNullOrEmpty(currentStateResult.Item2)) // 0 = Success
                         {
-                            var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64);
-                            if (customization?.Equipment != null)
+                            string stateBase64 = currentStateResult.Item2;
+                            try
                             {
-                                // We extract the current gear so we can safely refresh only the armor pieces.
-                                // We avoid applying the whole state because applying weapons during combat causes crashes.
-                                
-                                // Re-apply actual gear to force texture reload
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Ears, (ulong)customization.Equipment.Ears.ItemId, new List<byte> { (byte)customization.Equipment.Ears.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Neck, (ulong)customization.Equipment.Neck.ItemId, new List<byte> { (byte)customization.Equipment.Neck.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Wrists, (ulong)customization.Equipment.Wrists.ItemId, new List<byte> { (byte)customization.Equipment.Wrists.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.RFinger, (ulong)customization.Equipment.RFinger.ItemId, new List<byte> { (byte)customization.Equipment.RFinger.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.LFinger, (ulong)customization.Equipment.LFinger.ItemId, new List<byte> { (byte)customization.Equipment.LFinger.Stain });
+                                var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64);
+                                if (customization?.Equipment != null)
+                                {
+                                    // We extract the current gear so we can safely refresh only the armor pieces.
+                                    // We avoid applying the whole state because applying weapons during combat causes crashes.
+
+                                    // Re-apply actual gear to force texture reload
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Ears, (ulong)customization.Equipment.Ears.ItemId, new List<byte> { (byte)customization.Equipment.Ears.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Neck, (ulong)customization.Equipment.Neck.ItemId, new List<byte> { (byte)customization.Equipment.Neck.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Wrists, (ulong)customization.Equipment.Wrists.ItemId, new List<byte> { (byte)customization.Equipment.Wrists.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.RFinger, (ulong)customization.Equipment.RFinger.ItemId, new List<byte> { (byte)customization.Equipment.RFinger.Stain });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.LFinger, (ulong)customization.Equipment.LFinger.ItemId, new List<byte> { (byte)customization.Equipment.LFinger.Stain });
+                                }
+                                else
+                                {
+                                    PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(stateBase64, character.Value.ObjectIndex);
+                                }
                             }
-                            else
+                            catch (Exception ex)
                             {
-                                PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(stateBase64, character.Value.ObjectIndex);
+                                plugin.PluginLog.Warning(ex, "Failed to apply targeted equipment state");
                             }
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            plugin.PluginLog.Warning(ex, "Failed to apply targeted equipment state");
+                            // Fallback if Glamourer IPC fails, OR if we are modifying Face/Eyes which require a hard redraw
+                            PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
                         }
-                    }
-                    else
-                    {
-                        // Fallback if Glamourer IPC fails, OR if we are modifying Face/Eyes which require a hard redraw
-                        PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
-                    }
+                    });
 
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
                 }
