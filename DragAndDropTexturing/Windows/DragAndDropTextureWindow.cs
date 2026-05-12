@@ -227,60 +227,60 @@ namespace RoleplayingVoice
                                 fileBytes = ms.ToArray();
                             }
 
-                        if (fileBytes.Length > 100 && fileBytes[0] == 0x50 && fileBytes[1] == 0x4B)
-                        {
-                            string tempZip = Path.Combine(Path.GetTempPath(), "LooseTextureCompilerDLC.pmp");
-                            File.WriteAllBytes(tempZip, fileBytes);
-
-                            string extractPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
-                            if (!Directory.Exists(extractPath))
+                            if (fileBytes.Length > 100 && fileBytes[0] == 0x50 && fileBytes[1] == 0x4B)
                             {
-                                Directory.CreateDirectory(extractPath);
-                            }
+                                string tempZip = Path.Combine(Path.GetTempPath(), "LooseTextureCompilerDLC.pmp");
+                                File.WriteAllBytes(tempZip, fileBytes);
 
-                            string tempExtract = Path.Combine(Path.GetTempPath(), "LooseTextureCompilerDLC_Temp");
-                            if (Directory.Exists(tempExtract)) Directory.Delete(tempExtract, true);
-                            Directory.CreateDirectory(tempExtract);
-
-                            ZipFile.ExtractToDirectory(tempZip, tempExtract, true);
-
-                            string[] dirs = Directory.GetDirectories(tempExtract);
-                            string[] filesExtracted = Directory.GetFiles(tempExtract);
-                            if (dirs.Length == 1 && filesExtracted.Length == 0 && Path.GetFileName(dirs[0]) == "LooseTextureCompilerDLC")
-                            {
-                                foreach (string dirPath in Directory.GetDirectories(dirs[0], "*", SearchOption.AllDirectories))
+                                string extractPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
+                                if (!Directory.Exists(extractPath))
                                 {
-                                    Directory.CreateDirectory(dirPath.Replace(dirs[0], extractPath));
+                                    Directory.CreateDirectory(extractPath);
                                 }
-                                foreach (string newPath in Directory.GetFiles(dirs[0], "*.*", SearchOption.AllDirectories))
+
+                                string tempExtract = Path.Combine(Path.GetTempPath(), "LooseTextureCompilerDLC_Temp");
+                                if (Directory.Exists(tempExtract)) Directory.Delete(tempExtract, true);
+                                Directory.CreateDirectory(tempExtract);
+
+                                ZipFile.ExtractToDirectory(tempZip, tempExtract, true);
+
+                                string[] dirs = Directory.GetDirectories(tempExtract);
+                                string[] filesExtracted = Directory.GetFiles(tempExtract);
+                                if (dirs.Length == 1 && filesExtracted.Length == 0 && Path.GetFileName(dirs[0]) == "LooseTextureCompilerDLC")
                                 {
-                                    File.Copy(newPath, newPath.Replace(dirs[0], extractPath), true);
+                                    foreach (string dirPath in Directory.GetDirectories(dirs[0], "*", SearchOption.AllDirectories))
+                                    {
+                                        Directory.CreateDirectory(dirPath.Replace(dirs[0], extractPath));
+                                    }
+                                    foreach (string newPath in Directory.GetFiles(dirs[0], "*.*", SearchOption.AllDirectories))
+                                    {
+                                        File.Copy(newPath, newPath.Replace(dirs[0], extractPath), true);
+                                    }
                                 }
+                                else
+                                {
+                                    foreach (string dirPath in Directory.GetDirectories(tempExtract, "*", SearchOption.AllDirectories))
+                                    {
+                                        Directory.CreateDirectory(dirPath.Replace(tempExtract, extractPath));
+                                    }
+                                    foreach (string newPath in Directory.GetFiles(tempExtract, "*.*", SearchOption.AllDirectories))
+                                    {
+                                        File.Copy(newPath, newPath.Replace(tempExtract, extractPath), true);
+                                    }
+                                }
+
+                                Directory.Delete(tempExtract, true);
+                                File.Delete(tempZip);
+
+                                plugin.PluginLog.Information("[Drag And Drop Texturing] LooseTextureCompilerDLC downloaded and installed successfully!");
                             }
                             else
                             {
-                                foreach (string dirPath in Directory.GetDirectories(tempExtract, "*", SearchOption.AllDirectories))
-                                {
-                                    Directory.CreateDirectory(dirPath.Replace(tempExtract, extractPath));
-                                }
-                                foreach (string newPath in Directory.GetFiles(tempExtract, "*.*", SearchOption.AllDirectories))
-                                {
-                                    File.Copy(newPath, newPath.Replace(tempExtract, extractPath), true);
-                                }
+                                plugin.PluginLog.Error("[Drag And Drop Texturing] Auto-download failed. The downloaded file was not a valid archive.");
                             }
-
-                            Directory.Delete(tempExtract, true);
-                            File.Delete(tempZip);
-
-                            plugin.PluginLog.Information("[Drag And Drop Texturing] LooseTextureCompilerDLC downloaded and installed successfully!");
-                        }
-                        else
-                        {
-                            plugin.PluginLog.Error("[Drag And Drop Texturing] Auto-download failed. The downloaded file was not a valid archive.");
-                        }
-                    } // using response
-                } // using client
-            } // if
+                        } // using response
+                    } // using client
+                } // if
             } // try
             catch (Exception ex)
             {
@@ -831,7 +831,10 @@ namespace RoleplayingVoice
                                     }
                                     else
                                     {
-                                        plugin.PluginLog.Error("[Drag And Drop Texturing] Unable to identify texture type! If its a transparent texture please include descriptors in the file name (IE: filename_bibo_base.png, filename_gen3_base.png, filename_gen2_base.png, etc)");
+                                        Plugin.Framework.RunOnFrameworkThread(() =>
+                                        {
+                                            plugin.Chat.PrintError("[Drag And Drop Texturing] Unable to identify texture type! If its a transparent texture please include descriptors in the file name (IE: filename_bibo_base.png, filename_gen3_base.png, filename_gen2_base.png, etc)");
+                                        });
                                     }
                                 }
                                 catch (Exception e)
@@ -1015,7 +1018,7 @@ namespace RoleplayingVoice
                                 {
                                     bool hasValidBase = !string.IsNullOrEmpty(baseTex);
                                     bool hasValidNorm = !string.IsNullOrEmpty(normTex);
-                                    
+
                                     string finalBase = i.BackupTexturePaths != null ? i.BackupTexturePaths.Base : "";
                                     string finalNorm = i.BackupTexturePaths != null ? i.BackupTexturePaths.Normal : "";
 
@@ -1041,7 +1044,7 @@ namespace RoleplayingVoice
 
                     ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath);
                     Thread.Sleep(100);
-                    
+
                     Plugin.Framework.RunOnFrameworkThread(() =>
                     {
                         PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
