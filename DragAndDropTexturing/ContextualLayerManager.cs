@@ -1,4 +1,4 @@
-﻿using Dalamud.Game.ClientState.Objects.Types;
+using Dalamud.Game.ClientState.Objects.Types;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -26,6 +26,7 @@ namespace DragAndDropTexturing
         private List<ActiveContextualLayer> _activeLayers = new List<ActiveContextualLayer>();
         private HashSet<ulong> _knownDeadEnemies = new HashSet<ulong>();
         private HashSet<ulong> _seenAliveEnemies = new HashSet<ulong>();
+        private HashSet<string> _contextuallyTouchedParts = new HashSet<string>();
         
         public List<ActiveContextualLayer> GetActiveLayers() => _activeLayers;
 
@@ -603,9 +604,24 @@ namespace DragAndDropTexturing
             if (_plugin.DragAndDropTextures != null && _plugin.SafeGameObjectManager.LocalPlayer != null)
             {
                 var charName = _plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
-                // Safely queue the rebuild through the debounce logic to avoid blocking parallel duplicate generation
-                List<string> partsToUpdate = new List<string> { "_body", "_face", "_eyes", "_eyebrows" };
-                
+                // Only rebuild body parts targeted by active contextual layers
+                // plus any parts that WERE previously targeted (so they get cleaned up on removal)
+                var partsToUpdate = new HashSet<string>();
+                foreach (var active in _activeLayers)
+                {
+                    string part = "_" + active.LayerDef.TargetBodyPart.ToLower();
+                    partsToUpdate.Add(part);
+                    _contextuallyTouchedParts.Add(part);
+                }
+                // Include parts that were previously touched but no longer have active layers
+                // (needed to rebuild them clean after a layer is removed)
+                foreach (var previousPart in _contextuallyTouchedParts)
+                {
+                    partsToUpdate.Add(previousPart);
+                }
+                // Clean up: remove parts that no longer have active layers
+                _contextuallyTouchedParts.RemoveWhere(p => !_activeLayers.Any(a => "_" + a.LayerDef.TargetBodyPart.ToLower() == p));
+
                 foreach (var part in partsToUpdate)
                 {
                     string categoryKey = charName + part;

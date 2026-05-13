@@ -1,4 +1,4 @@
-﻿using Dalamud.Interface.DragDrop;
+using Dalamud.Interface.DragDrop;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Bindings.ImGui;
@@ -1317,7 +1317,7 @@ namespace RoleplayingVoice
                 foreach (var suffix in categorySuffixes)
                 {
                     string key = charName + suffix;
-                    if (_textureHistory.ContainsKey(key) && _textureHistory[key].Count > 0)
+                    if (_textureHistory.ContainsKey(key))
                     {
                         _pendingRegenerationCategories.Add(key);
                     }
