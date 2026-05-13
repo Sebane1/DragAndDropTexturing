@@ -22,6 +22,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] public static IClientState ClientState { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+    [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
@@ -36,6 +37,7 @@ public sealed class Plugin : IDalamudPlugin
     private IPluginLog _pluginLog;
     private EmoteReaderHooks _emoteReaderHooks;
     private ActionReaderHooks _actionReaderHooks;
+    private AudioReaderHooks _audioReaderHooks;
     private ContextualLayerManager _contextualLayerManager;
 
     public Configuration Configuration { get; init; }
@@ -78,7 +80,8 @@ public sealed class Plugin : IDalamudPlugin
         {
             _emoteReaderHooks = new EmoteReaderHooks(gameInteropProvider, clientState, _safeGameObjectManager);
             _actionReaderHooks = new ActionReaderHooks(gameInteropProvider);
-            _contextualLayerManager = new ContextualLayerManager(this, _emoteReaderHooks, _actionReaderHooks);
+            _audioReaderHooks = new AudioReaderHooks(gameInteropProvider, SigScanner);
+            _contextualLayerManager = new ContextualLayerManager(this, _emoteReaderHooks, _actionReaderHooks, _audioReaderHooks);
         }
         catch (Exception ex)
         {
@@ -111,6 +114,7 @@ public sealed class Plugin : IDalamudPlugin
         _contextualLayerManager?.Dispose();
         _emoteReaderHooks?.Dispose();
         _actionReaderHooks?.Dispose();
+        _audioReaderHooks?.Dispose();
         DragAndDropTextures?.Dispose();
         MainWindow?.Dispose();
         CommandManager.RemoveHandler(CommandName);
