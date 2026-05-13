@@ -29,6 +29,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
     <PackageReference Include="PsdSharp" Version="1.2.0" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.4.0" />
   </ItemGroup>
 
   <ItemGroup>

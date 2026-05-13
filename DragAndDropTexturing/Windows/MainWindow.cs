@@ -194,6 +194,17 @@ public class MainWindow : Window, IDisposable
     }
 
     private int _selectedActiveLayerIndex = 0;
+    private Dictionary<string, Dalamud.Interface.Textures.ISharedImmediateTexture> _textureCache = new();
+
+    private Dalamud.Interface.Textures.ISharedImmediateTexture GetPreviewTexture(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path)) return null;
+        if (!_textureCache.ContainsKey(path))
+        {
+            _textureCache[path] = Plugin.TextureProvider.GetFromFile(path);
+        }
+        return _textureCache[path];
+    }
 
     private void DrawActiveLayers()
     {
@@ -242,7 +253,23 @@ public class MainWindow : Window, IDisposable
                 for (int i = 0; i < list.Count; i++)
                 {
                     string path = list[i] ?? "";
-                    ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
+                    
+                    var tex = GetPreviewTexture(path);
+                    var wrap = tex?.GetWrapOrDefault();
+                    
+                    if (wrap != null)
+                    {
+                        ImGui.Image(wrap.Handle, new Vector2(40, 40));
+                        ImGui.SameLine();
+                        // Adjust Y cursor to vertically align the InputText with the image
+                        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 10);
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 200);
+                    }
+                    else
+                    {
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
+                    }
+                    
                     if (ImGui.InputText("##path_" + key + i, ref path, 1024))
                     {
                         list[i] = path;

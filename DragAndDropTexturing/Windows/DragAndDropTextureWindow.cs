@@ -644,13 +644,22 @@ namespace RoleplayingVoice
                                 try
                                 {
                                     HashSet<string> droppedCategories = new HashSet<string>();
+                                    var psdFiles = files.Where(f => Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
+                                    files = files.Where(f => !Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                                    if (psdFiles.Count > 0)
+                                    {
+                                        var capturedPlayer = selectedPlayer;
+                                        var capturedPart = bodyDragPart;
+                                        plugin.PsdImportWindow.StartImport(psdFiles[0], extractedPngs => {
+                                            return InjectFilesAndRebuild(extractedPngs, capturedPlayer, capturedPart);
+                                        });
+                                    }
+
+                                    if (files.Count == 0) return;
+
                                     foreach (var file in files)
                                     {
-                                        if (Path.GetExtension(file).Equals(".psd", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            plugin.PsdImportWindow.StartImport(file);
-                                            continue;
-                                        }
                                         if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
                                         string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
                                         string categoryKey = selectedPlayer.Key + "_";
@@ -1377,6 +1386,60 @@ namespace RoleplayingVoice
                     }
                 }, null, 2000, System.Threading.Timeout.Infinite);
             }
+        }
+
+        public Task InjectFilesAndRebuild(List<string> extractedFiles, KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter> selectedPlayer, BodyDragPart bodyDragPart)
+        {
+            _currentTarget = selectedPlayer.Value;
+            return Task.Run(() =>
+            {
+                HashSet<string> droppedCategories = new HashSet<string>();
+                foreach (var file in extractedFiles)
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
+                    string categoryKey = selectedPlayer.Key + "_";
+                    if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                        fileName.Contains("bibo") || fileName.Contains("b+") ||
+                        fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
+                    else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
+                    else if (fileName.Contains("eye")) categoryKey += "eyes";
+                    else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                    else
+                    {
+                        switch (bodyDragPart)
+                        {
+                            case BodyDragPart.Body: categoryKey += "body"; break;
+                            case BodyDragPart.Face: categoryKey += "face"; break;
+                            case BodyDragPart.Eyes: categoryKey += "eyes"; break;
+                            case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
+                            default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
+                        }
+                    }
+
+                    if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
+                    
+                    if (!plugin.Configuration.EnableTextureStacking && !droppedCategories.Contains(categoryKey))
+                    {
+                        _textureHistory[categoryKey].Clear();
+                    }
+                    
+                    _textureHistory[categoryKey].Add(file);
+                    droppedCategories.Add(categoryKey);
+                }
+                plugin.Configuration.Save();
+
+                foreach (var cat in droppedCategories)
+                {
+                    int waitAttempts = 0;
+                    while (_lockDuplicateGeneration && waitAttempts < 60)
+                    {
+                        Thread.Sleep(1000);
+                        waitAttempts++;
+                    }
+                    RebuildCategory(cat);
+                    Thread.Sleep(500);
+                }
+            });
         }
 
         private static readonly string[] ValidTextureExtensions = new[]
