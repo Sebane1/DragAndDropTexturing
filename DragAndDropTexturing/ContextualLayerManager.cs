@@ -1,4 +1,4 @@
-using Dalamud.Game.ClientState.Objects.Types;
+﻿using Dalamud.Game.ClientState.Objects.Types;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -20,6 +20,7 @@ namespace DragAndDropTexturing
         private Plugin _plugin;
         private EmoteReaderHooks _emoteReader;
         private ActionReaderHooks _actionReader;
+        private AudioReaderHooks _audioReader;
         
         // Track which layers are currently active
         private List<ActiveContextualLayer> _activeLayers = new List<ActiveContextualLayer>();
@@ -31,11 +32,12 @@ namespace DragAndDropTexturing
         public List<ContextualLayer> ContextualLayers { get; private set; } = new List<ContextualLayer>();
         public string RootDirectory { get; private set; }
 
-        public ContextualLayerManager(Plugin plugin, EmoteReaderHooks emoteReader, ActionReaderHooks actionReader)
+        public ContextualLayerManager(Plugin plugin, EmoteReaderHooks emoteReader, ActionReaderHooks actionReader, AudioReaderHooks audioReader)
         {
             _plugin = plugin;
             _emoteReader = emoteReader;
             _actionReader = actionReader;
+            _audioReader = audioReader;
             
             RootDirectory = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "ContextualLayers");
             if (!System.IO.Directory.Exists(RootDirectory))
@@ -52,9 +54,14 @@ namespace DragAndDropTexturing
             {
                 _actionReader.OnActionUsed += OnActionUsed;
             }
+            if (_audioReader != null)
+            {
+                _audioReader.OnSoundPlayed += OnSoundPlayed;
+            }
             
             Plugin.Framework.Update += Framework_Update;
             Plugin.ClientState.TerritoryChanged += OnTerritoryChanged;
+            _plugin.Chat.ChatMessage += OnChatMessage;
         }
 
         public void LoadLayers()
@@ -219,6 +226,56 @@ namespace DragAndDropTexturing
             SavePersistedStates();
         }
 
+        private void OnSoundPlayed(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            foreach (var layer in ContextualLayers)
+            {
+                if (layer.Trigger == TriggerType.Audio_Path_Load && !string.IsNullOrEmpty(layer.AudioTriggerPath))
+                {
+                    if (path.Contains(layer.AudioTriggerPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ActivateLayer(layer);
+                    }
+                }
+            }
+        }
+
+        private void OnChatMessage(Dalamud.Game.Chat.IHandleableChatMessage msg)
+        {
+            var msgText = msg.Message?.TextValue;
+            if (string.IsNullOrEmpty(msgText)) return;
+
+            foreach (var layer in ContextualLayers)
+            {
+                if (layer.Trigger == TriggerType.Chat_Message && !string.IsNullOrEmpty(layer.ChatRegex))
+                {
+                    // If filter is enabled, only accept Custom Emotes or Standard Emotes
+                    if (layer.ChatFilterCustomEmotesOnly)
+                    {
+                        var t = msg.GetType().GetProperty("Type")?.GetValue(msg) 
+                             ?? msg.GetType().GetProperty("LogKind")?.GetValue(msg)
+                             ?? msg.GetType().GetProperty("ChatType")?.GetValue(msg);
+                             
+                        if (t != null && t is Enum e)
+                        {
+                            string typeName = e.ToString();
+                            if (!typeName.Contains("Emote", StringComparison.OrdinalIgnoreCase)) continue;
+                        }
+                    }
+
+                    try
+                    {
+                        if (System.Text.RegularExpressions.Regex.IsMatch(msgText, layer.ChatRegex, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                        {
+                            ActivateLayer(layer);
+                        }
+                    }
+                    catch { /* Invalid Regex */ }
+                }
+            }
+        }
+
         private void OnEmote(IGameObject instigator, ushort emoteId)
         {
             if (instigator == null) return;
@@ -260,6 +317,13 @@ namespace DragAndDropTexturing
             }
             
             bool inCombat = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat];
+            bool weaponDrawn = player.StatusFlags.HasFlag(Dalamud.Game.ClientState.Objects.Enums.StatusFlags.WeaponOut);
+            bool isSwimming = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Swimming] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Diving];
+
+            long unixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long eorzeaMs = (long)(unixMs * (3600.0 / 175.0));
+            DateTime eorzeaTime = DateTimeOffset.FromUnixTimeMilliseconds(eorzeaMs).UtcDateTime;
+            int eorzeaHour = eorzeaTime.Hour;
 
             // Kill Tracking Logic (Continuous)
             HashSet<ulong> currentObjects = new HashSet<ulong>();
@@ -267,7 +331,7 @@ namespace DragAndDropTexturing
             {
                 currentObjects.Add(obj.GameObjectId);
 
-                if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc && obj.SubKind == (byte)5)
+                if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
                 {
                     bool isDead = obj.IsDead || (obj is GameObjectHelper.ThreadSafeDalamudObjectTable.ThreadSafeCharacter chara && chara.CurrentHp <= 0);
                     
@@ -317,9 +381,54 @@ namespace DragAndDropTexturing
                 }
                 else if (layer.Trigger == TriggerType.Combat_State)
                 {
-                    if (inCombat)
+                    if (inCombat) isConditionMet = true;
+                }
+                else if (layer.Trigger == TriggerType.Weapon_Drawn)
+                {
+                    if (weaponDrawn) isConditionMet = true;
+                }
+                else if (layer.Trigger == TriggerType.Swimming_State)
+                {
+                    if (isSwimming) isConditionMet = true;
+                }
+                else if (layer.Trigger == TriggerType.In_Game_Time)
+                {
+                    int start = layer.TargetTimeStartHour;
+                    int end = layer.TargetTimeEndHour;
+                    if (start <= end)
                     {
-                        isConditionMet = true;
+                        if (eorzeaHour >= start && eorzeaHour < end) isConditionMet = true;
+                    }
+                    else
+                    {
+                        if (eorzeaHour >= start || eorzeaHour < end) isConditionMet = true;
+                    }
+                }
+                else if (layer.Trigger == TriggerType.Territory_ID)
+                {
+                    if (Plugin.ClientState.TerritoryType == layer.TargetTerritoryId) isConditionMet = true;
+                }
+                else if (layer.Trigger == TriggerType.Weather_ID)
+                {
+                    unsafe
+                    {
+                        var env = FFXIVClientStructs.FFXIV.Client.Graphics.Environment.EnvManager.Instance();
+                        if (env != null && env->ActiveWeather == layer.TargetWeatherId) isConditionMet = true;
+                    }
+                }
+                else if (layer.Trigger == TriggerType.Enemy_Nearby && !string.IsNullOrEmpty(layer.TargetEnemyName))
+                {
+                    foreach (var obj in _plugin.SafeGameObjectManager)
+                    {
+                        if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc && 
+                            obj.Name.TextValue.Contains(layer.TargetEnemyName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (System.Numerics.Vector3.Distance(player.Position, obj.Position) < 30f)
+                            {
+                                isConditionMet = true;
+                                break;
+                            }
+                        }
                     }
                 }
 
@@ -355,7 +464,6 @@ namespace DragAndDropTexturing
             }
 
             // 2. Process Layer Decay / Expirations
-            bool isSwimming = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Swimming] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Diving];
             for (int i = _activeLayers.Count - 1; i >= 0; i--)
             {
                 var active = _activeLayers[i];
@@ -371,6 +479,45 @@ namespace DragAndDropTexturing
                 bool isStillActive = false;
                 if (active.LayerDef.Trigger == TriggerType.HP_Threshold && hpPercentage <= active.LayerDef.HPThresholdPercentage) isStillActive = true;
                 if (active.LayerDef.Trigger == TriggerType.Combat_State && inCombat) isStillActive = true;
+                if (active.LayerDef.Trigger == TriggerType.Weapon_Drawn && weaponDrawn) isStillActive = true;
+                if (active.LayerDef.Trigger == TriggerType.Swimming_State && isSwimming) isStillActive = true;
+                if (active.LayerDef.Trigger == TriggerType.In_Game_Time)
+                {
+                    int start = active.LayerDef.TargetTimeStartHour;
+                    int end = active.LayerDef.TargetTimeEndHour;
+                    if (start <= end)
+                    {
+                        if (eorzeaHour >= start && eorzeaHour < end) isStillActive = true;
+                    }
+                    else
+                    {
+                        if (eorzeaHour >= start || eorzeaHour < end) isStillActive = true;
+                    }
+                }
+                if (active.LayerDef.Trigger == TriggerType.Territory_ID && Plugin.ClientState.TerritoryType == active.LayerDef.TargetTerritoryId) isStillActive = true;
+                if (active.LayerDef.Trigger == TriggerType.Weather_ID)
+                {
+                    unsafe
+                    {
+                        var env = FFXIVClientStructs.FFXIV.Client.Graphics.Environment.EnvManager.Instance();
+                        if (env != null && env->ActiveWeather == active.LayerDef.TargetWeatherId) isStillActive = true;
+                    }
+                }
+                if (active.LayerDef.Trigger == TriggerType.Enemy_Nearby)
+                {
+                    foreach (var obj in _plugin.SafeGameObjectManager)
+                    {
+                        if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc && 
+                            obj.Name.TextValue.Contains(active.LayerDef.TargetEnemyName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (System.Numerics.Vector3.Distance(player.Position, obj.Position) < 30f)
+                            {
+                                isStillActive = true;
+                                break;
+                            }
+                        }
+                    }
+                }
                 
                 if (active.LayerDef.Trigger == TriggerType.Kill_Count || active.LayerDef.Trigger == TriggerType.Action_Used)
                 {
@@ -456,17 +603,19 @@ namespace DragAndDropTexturing
             if (_plugin.DragAndDropTextures != null && _plugin.SafeGameObjectManager.LocalPlayer != null)
             {
                 var charName = _plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
-                // Rebuild for each active body part category we've touched
-                List<string> partsToUpdate = new List<string> { "body", "face", "eyes", "eyebrows" };
+                // Safely queue the rebuild through the debounce logic to avoid blocking parallel duplicate generation
+                List<string> partsToUpdate = new List<string> { "_body", "_face", "_eyes", "_eyebrows" };
+                
                 foreach (var part in partsToUpdate)
                 {
-                    string categoryKey = charName + "_" + part;
+                    string categoryKey = charName + part;
                     if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(categoryKey))
                     {
                         _plugin.DragAndDropTextures.TextureHistory[categoryKey] = new List<string>();
                     }
-                    _plugin.DragAndDropTextures.RebuildCategory(categoryKey);
                 }
+                
+                _plugin.DragAndDropTextures.ScheduleRegeneration(charName, partsToUpdate.ToArray());
             }
         }
 
@@ -515,7 +664,12 @@ namespace DragAndDropTexturing
             {
                 _emoteReader.OnEmote -= OnEmote;
             }
+            if (_audioReader != null)
+            {
+                _audioReader.OnSoundPlayed -= OnSoundPlayed;
+            }
             Plugin.Framework.Update -= Framework_Update;
+            _plugin.Chat.ChatMessage -= OnChatMessage;
         }
     }
 }

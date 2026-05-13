@@ -8,7 +8,15 @@ public enum TriggerType
     HP_Threshold, 
     Combat_State,
     Kill_Count,
-    Action_Used
+    Action_Used,
+    Weapon_Drawn,
+    Audio_Path_Load,
+    Chat_Message,
+    Enemy_Nearby,
+    Territory_ID,
+    Weather_ID,
+    In_Game_Time,
+    Swimming_State
 }
 
 public enum ClearCondition
@@ -35,6 +43,14 @@ public class ContextualLayer
     public ushort EmoteId { get; set; } = 0;
     public int HPThresholdPercentage { get; set; } = 50; 
     public int RequiredKillsPerStack { get; set; } = 1;
+    public string AudioTriggerPath { get; set; } = "";
+    public string ChatRegex { get; set; } = "";
+    public bool ChatFilterCustomEmotesOnly { get; set; } = true;
+    public string TargetEnemyName { get; set; } = "";
+    public uint TargetTerritoryId { get; set; } = 0;
+    public uint TargetWeatherId { get; set; } = 0;
+    public int TargetTimeStartHour { get; set; } = 0;
+    public int TargetTimeEndHour { get; set; } = 0;
     
     // How long the effect lasts before turning off
     public int DurationSeconds { get; set; } = 10;
