@@ -44,6 +44,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public readonly WindowSystem WindowSystem = new("DragAndDropTexturing");
     private MainWindow MainWindow { get; init; }
+    public PsdImportWindow PsdImportWindow { get; init; }
     internal DragAndDropTextureWindow? DragAndDropTextures { get; private set; }
     public IChatGui Chat { get => _chat; set => _chat = value; }
     public ThreadSafeGameObjectManager SafeGameObjectManager { get => _safeGameObjectManager; set => _safeGameObjectManager = value; }
@@ -72,6 +73,8 @@ public sealed class Plugin : IDalamudPlugin
         }
         MainWindow = new MainWindow(this);
         WindowSystem.AddWindow(MainWindow);
+        PsdImportWindow = new PsdImportWindow(this);
+        WindowSystem.AddWindow(PsdImportWindow);
         _safeGameObjectManager = new ThreadSafeGameObjectManager(clientState, objectTable, framework, pluginLog);
         _pluginLog = pluginLog;
         BackupTexturePaths.OverrideMode = Configuration.UsePriorityBodyMod;
@@ -117,6 +120,7 @@ public sealed class Plugin : IDalamudPlugin
         _audioReaderHooks?.Dispose();
         DragAndDropTextures?.Dispose();
         MainWindow?.Dispose();
+        PsdImportWindow?.Dispose();
         CommandManager.RemoveHandler(CommandName);
     }
 
