@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Interface.Utility;
@@ -252,8 +253,15 @@ public class MainWindow : Window, IDisposable
                         {
                             if (files.Count > 0)
                             {
-                                list[i] = files[0];
-                                changed = true;
+                                if (Path.GetExtension(files[0]).Equals(".psd", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    Plugin.PsdImportWindow.StartImport(files[0]);
+                                }
+                                else
+                                {
+                                    list[i] = files[0];
+                                    changed = true;
+                                }
                             }
                         }
                     }

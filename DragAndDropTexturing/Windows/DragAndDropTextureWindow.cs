@@ -646,6 +646,11 @@ namespace RoleplayingVoice
                                     HashSet<string> droppedCategories = new HashSet<string>();
                                     foreach (var file in files)
                                     {
+                                        if (Path.GetExtension(file).Equals(".psd", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            plugin.PsdImportWindow.StartImport(file);
+                                            continue;
+                                        }
                                         if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
                                         string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
                                         string categoryKey = selectedPlayer.Key + "_";
@@ -1380,6 +1385,7 @@ namespace RoleplayingVoice
           ".dds",
           ".bmp",
           ".tex",
+          ".psd"
         };
         public void RebuildAllCategories()
         {
