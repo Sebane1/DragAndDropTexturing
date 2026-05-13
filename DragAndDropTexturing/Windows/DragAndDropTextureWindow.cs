@@ -1,4 +1,4 @@
-using Dalamud.Interface.DragDrop;
+﻿using Dalamud.Interface.DragDrop;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Bindings.ImGui;
@@ -728,7 +728,7 @@ namespace RoleplayingVoice
                                             }
                                             else
                                             {
-                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, selectedPlayerCollection),
+                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, selectedPlayerCollection, _currentCustomization.Customize.Gender.Value),
                                                 effectiveRace,
                                                 _currentCustomization.Customize.TailShape.Value - 1, false);
                                             }
@@ -780,7 +780,7 @@ namespace RoleplayingVoice
                                                     }
                                                     else
                                                     {
-                                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, selectedPlayerCollection),
+                                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, selectedPlayerCollection, _currentCustomization.Customize.Gender.Value),
                                                         effectiveRace,
                                                         _currentCustomization.Customize.TailShape.Value - 1, false);
                                                     }
@@ -1310,7 +1310,7 @@ namespace RoleplayingVoice
             }
         }
 
-        private void ScheduleRegeneration(string charName, string[] categorySuffixes)
+        public void ScheduleRegeneration(string charName, string[] categorySuffixes)
         {
             lock (_regenerationLock)
             {
@@ -1449,7 +1449,7 @@ namespace RoleplayingVoice
                         }
                         else
                         {
-                            item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, collection),
+                            item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, collection, localCustomization.Customize.Gender.Value),
                             RaceInfo.SubRaceToMainRace(localCustomization.Customize.Clan.Value - 1),
                             localCustomization.Customize.TailShape.Value - 1, false);
                         }
@@ -1498,7 +1498,7 @@ namespace RoleplayingVoice
                         }
                         else
                         {
-                            item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, collection),
+                            item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, collection, localCustomization.Customize.Gender.Value),
                             RaceInfo.SubRaceToMainRace(localCustomization.Customize.Clan.Value - 1),
                             localCustomization.Customize.TailShape.Value - 1, false);
                         }
@@ -1672,9 +1672,9 @@ namespace RoleplayingVoice
             }
         }
 
-        private int DetectBaseBodyType(string file, Guid collection)
+        private int DetectBaseBodyType(string file, Guid collection, int gender)
         {
-            int penumbraBase = PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collection, out string detectedModName, plugin);
+            int penumbraBase = PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collection, gender, out string detectedModName, plugin);
             if (penumbraBase != -1)
             {
                 string bodyName = penumbraBase == 1 ? "Bibo" : penumbraBase == 2 ? "Gen3" : penumbraBase == 3 ? "TBSE" : "Unknown";
@@ -1689,9 +1689,13 @@ namespace RoleplayingVoice
             }
 
             string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
-            if (fileName.Contains("bibo") || fileName.Contains("b+")) return 1;
-            if (fileName.Contains("gen3") || fileName.Contains("eve")) return 2;
-            if (fileName.Contains("tbse")) return 3;
+            if (gender != 0) {
+                if (fileName.Contains("bibo") || fileName.Contains("b+")) return 1;
+                if (fileName.Contains("gen3") || fileName.Contains("eve")) return 2;
+            }
+            if (gender != 1) {
+                if (fileName.Contains("tbse")) return 3;
+            }
             if (fileName.Contains("gen2") || fileName.Contains("body") || fileName.Contains("mata")) return 0;
 
             switch (ImageManipulation.FemaleBodyUVClassifier(file))

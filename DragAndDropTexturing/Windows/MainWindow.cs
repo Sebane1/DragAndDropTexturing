@@ -441,6 +441,74 @@ public class MainWindow : Window, IDisposable
                     changed = true;
                 }
             }
+            else if (layer.Trigger == TriggerType.Audio_Path_Load)
+            {
+                string audioPath = layer.AudioTriggerPath;
+                if (ImGui.InputText("Audio Path / Name (.scd)##ContextAudio", ref audioPath, 255))
+                {
+                    layer.AudioTriggerPath = audioPath;
+                    changed = true;
+                }
+            }
+            else if (layer.Trigger == TriggerType.Chat_Message)
+            {
+                string chatRegex = layer.ChatRegex;
+                if (ImGui.InputText("Chat Regex Pattern##ContextChat", ref chatRegex, 255))
+                {
+                    layer.ChatRegex = chatRegex;
+                    changed = true;
+                }
+                
+                bool emoteOnly = layer.ChatFilterCustomEmotesOnly;
+                if (ImGui.Checkbox("Only trigger on Emotes (/em or standard)##ContextChatEmote", ref emoteOnly))
+                {
+                    layer.ChatFilterCustomEmotesOnly = emoteOnly;
+                    changed = true;
+                }
+            }
+            else if (layer.Trigger == TriggerType.Enemy_Nearby)
+            {
+                string enemyName = layer.TargetEnemyName;
+                if (ImGui.InputText("Target Enemy Name##ContextEnemy", ref enemyName, 255))
+                {
+                    layer.TargetEnemyName = enemyName;
+                    changed = true;
+                }
+            }
+            else if (layer.Trigger == TriggerType.Territory_ID)
+            {
+                int territoryId = (int)layer.TargetTerritoryId;
+                if (ImGui.InputInt("Territory ID##ContextTerritory", ref territoryId))
+                {
+                    layer.TargetTerritoryId = (uint)Math.Max(0, territoryId);
+                    changed = true;
+                }
+            }
+            else if (layer.Trigger == TriggerType.Weather_ID)
+            {
+                int weatherId = (int)layer.TargetWeatherId;
+                if (ImGui.InputInt("Weather ID##ContextWeather", ref weatherId))
+                {
+                    layer.TargetWeatherId = (uint)Math.Max(0, weatherId);
+                    changed = true;
+                }
+            }
+            else if (layer.Trigger == TriggerType.In_Game_Time)
+            {
+                int startHour = layer.TargetTimeStartHour;
+                int endHour = layer.TargetTimeEndHour;
+                
+                if (ImGui.SliderInt("Start Hour (ET)##ContextTimeStart", ref startHour, 0, 23))
+                {
+                    layer.TargetTimeStartHour = startHour;
+                    changed = true;
+                }
+                if (ImGui.SliderInt("End Hour (ET)##ContextTimeEnd", ref endHour, 0, 23))
+                {
+                    layer.TargetTimeEndHour = endHour;
+                    changed = true;
+                }
+            }
             else if (layer.Trigger == TriggerType.Kill_Count || layer.Trigger == TriggerType.Action_Used)
             {
                 int reqKills = layer.RequiredKillsPerStack;
@@ -459,11 +527,16 @@ public class MainWindow : Window, IDisposable
                 }
             }
 
-            int duration = layer.DurationSeconds;
-            if (ImGui.InputInt("Duration (Seconds)##ContextDur", ref duration))
+            if (layer.Trigger == TriggerType.Emote || 
+                layer.Trigger == TriggerType.Audio_Path_Load || 
+                layer.Trigger == TriggerType.Chat_Message)
             {
-                layer.DurationSeconds = Math.Max(1, duration);
-                changed = true;
+                int duration = layer.DurationSeconds;
+                if (ImGui.InputInt("Duration (Seconds)##ContextDur", ref duration))
+                {
+                    layer.DurationSeconds = Math.Max(1, duration);
+                    changed = true;
+                }
             }
 
             string[] bodyParts = { "body", "face", "eyes", "eyebrows" };
