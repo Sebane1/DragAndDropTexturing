@@ -83,6 +83,10 @@ namespace RoleplayingVoice
 
         private void AddToTextureSet(TextureSet item, string file, string overrideType = "")
         {
+            if (item.TextureSetName.ToLower().Contains("face"))
+            {
+                item.IgnoreNormalGeneration = true;
+            }
             UVMapType uvType = UVMapType.Base;
             if (overrideType == "Normal") uvType = UVMapType.Normal;
             else if (overrideType == "Base") uvType = UVMapType.Base;
@@ -819,6 +823,23 @@ namespace RoleplayingVoice
                                             foreach (string f in _textureHistory[categoryKey])
                                             {
                                                 AddToTextureSet(item, f, overrideType);
+                                            }
+                                            // Composite active contextual layers on top of drag-and-drop textures
+                                            if (plugin.ContextualLayerManager != null && selectedPlayer.Key == plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue)
+                                            {
+                                                foreach (var activeLayer in plugin.ContextualLayerManager.GetActiveLayers())
+                                                {
+                                                    if (categoryKey.EndsWith("_" + activeLayer.LayerDef.TargetBodyPart.ToLower()))
+                                                    {
+                                                        for (int layerIdx = 0; layerIdx < activeLayer.CurrentStackCount; layerIdx++)
+                                                        {
+                                                            if (layerIdx < activeLayer.CachedTexturePaths.Count && File.Exists(activeLayer.CachedTexturePaths[layerIdx]))
+                                                            {
+                                                                AddToTextureSet(item, activeLayer.CachedTexturePaths[layerIdx], overrideType);
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                             plugin.PluginLog.Information($"[Glow Debug] TextureSet '{item.TextureSetName}': Base='{item.Base}', Normal='{item.Normal}', Mask='{item.Mask}', Glow='{item.Glow}', Material='{item.Material}', InternalMtrl='{item.InternalMaterialPath}'");
                                             textureSets.Add(item);

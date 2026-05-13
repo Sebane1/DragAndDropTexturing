@@ -16,7 +16,8 @@ public enum TriggerType
     Territory_ID,
     Weather_ID,
     In_Game_Time,
-    Swimming_State
+    Swimming_State,
+    Mounted_State
 }
 
 public enum ClearCondition
@@ -44,6 +45,7 @@ public class ContextualLayer
     public int HPThresholdPercentage { get; set; } = 50; 
     public int RequiredKillsPerStack { get; set; } = 1;
     public string AudioTriggerPath { get; set; } = "";
+    public int RequiredSoundsPerStack { get; set; } = 1;
     public string ChatRegex { get; set; } = "";
     public bool ChatFilterCustomEmotesOnly { get; set; } = true;
     public string TargetEnemyName { get; set; } = "";

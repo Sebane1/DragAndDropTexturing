@@ -12,6 +12,7 @@ namespace DragAndDropTexturing
         public Stopwatch Timer = new Stopwatch();
         public int CurrentStackCount = 0;
         public int KillsSinceLastStack = 0;
+        public int SoundsSinceLastStack = 0;
         public List<string> CachedTexturePaths = new List<string>();
     }
 
@@ -230,6 +231,7 @@ namespace DragAndDropTexturing
         private void OnSoundPlayed(string path)
         {
             if (string.IsNullOrEmpty(path)) return;
+            _plugin.PluginLog.Information($"[Contextual Layers] Sound detected: {path}");
             foreach (var layer in ContextualLayers)
             {
                 if (layer.Trigger == TriggerType.Audio_Path_Load && !string.IsNullOrEmpty(layer.AudioTriggerPath))
@@ -320,6 +322,7 @@ namespace DragAndDropTexturing
             bool inCombat = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat];
             bool weaponDrawn = player.StatusFlags.HasFlag(Dalamud.Game.ClientState.Objects.Enums.StatusFlags.WeaponOut);
             bool isSwimming = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Swimming] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Diving];
+            bool isMounted = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Mounted] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.RidingPillion];
 
             long unixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             long eorzeaMs = (long)(unixMs * (3600.0 / 175.0));
@@ -391,6 +394,10 @@ namespace DragAndDropTexturing
                 else if (layer.Trigger == TriggerType.Swimming_State)
                 {
                     if (isSwimming) isConditionMet = true;
+                }
+                else if (layer.Trigger == TriggerType.Mounted_State)
+                {
+                    if (isMounted) isConditionMet = true;
                 }
                 else if (layer.Trigger == TriggerType.In_Game_Time)
                 {
@@ -482,6 +489,7 @@ namespace DragAndDropTexturing
                 if (active.LayerDef.Trigger == TriggerType.Combat_State && inCombat) isStillActive = true;
                 if (active.LayerDef.Trigger == TriggerType.Weapon_Drawn && weaponDrawn) isStillActive = true;
                 if (active.LayerDef.Trigger == TriggerType.Swimming_State && isSwimming) isStillActive = true;
+                if (active.LayerDef.Trigger == TriggerType.Mounted_State && isMounted) isStillActive = true;
                 if (active.LayerDef.Trigger == TriggerType.In_Game_Time)
                 {
                     int start = active.LayerDef.TargetTimeStartHour;
@@ -571,6 +579,24 @@ namespace DragAndDropTexturing
                         existing.CurrentStackCount = existing.CachedTexturePaths.Count;
                     }
                     TriggerHotswapRebuild();
+                }
+                else if (layer.Trigger == TriggerType.Audio_Path_Load)
+                {
+                    existing.SoundsSinceLastStack++;
+                    if (existing.SoundsSinceLastStack >= layer.RequiredSoundsPerStack)
+                    {
+                        existing.SoundsSinceLastStack = 0;
+                        if (existing.CurrentStackCount < existing.CachedTexturePaths.Count)
+                        {
+                            existing.CurrentStackCount++;
+                            existing.Timer.Restart();
+                            TriggerHotswapRebuild();
+                        }
+                        else
+                        {
+                            existing.Timer.Restart();
+                        }
+                    }
                 }
             }
             else

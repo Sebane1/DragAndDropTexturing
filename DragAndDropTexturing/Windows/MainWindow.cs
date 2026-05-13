@@ -449,6 +449,13 @@ public class MainWindow : Window, IDisposable
                     layer.AudioTriggerPath = audioPath;
                     changed = true;
                 }
+                
+                int reqSounds = layer.RequiredSoundsPerStack;
+                if (ImGui.InputInt("Required Sounds per Stack##ContextSounds", ref reqSounds))
+                {
+                    layer.RequiredSoundsPerStack = Math.Max(1, reqSounds);
+                    changed = true;
+                }
             }
             else if (layer.Trigger == TriggerType.Chat_Message)
             {
