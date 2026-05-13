@@ -327,6 +327,7 @@ namespace RoleplayingVoice
             _textureProcessor.OnStartedProcessing += TextureProcessor_OnStartedProcessing;
             _textureProcessor.OnLaunchedXnormal += TextureProcessor_OnLaunchedXnormal;
             _textureProcessor.OnProgressReport += TextureProcessor_OnProgressReport;
+            _textureProcessor.OnError += (sender, msg) => plugin.PluginLog.Error($"[TextureProcessor] {msg}");
 
             _textureProvider = textureProvider;
         }
@@ -819,6 +820,7 @@ namespace RoleplayingVoice
                                             {
                                                 AddToTextureSet(item, f, overrideType);
                                             }
+                                            plugin.PluginLog.Information($"[Glow Debug] TextureSet '{item.TextureSetName}': Base='{item.Base}', Normal='{item.Normal}', Mask='{item.Mask}', Glow='{item.Glow}', Material='{item.Material}', InternalMtrl='{item.InternalMaterialPath}'");
                                             textureSets.Add(item);
                                             modName = modName.Replace("Mod", categoryModName);
                                         }
@@ -1013,27 +1015,25 @@ namespace RoleplayingVoice
 
                                 // Update BackupTexturePaths so the assembly pipeline
                                 // uses the freshly-extracted textures (not stale static presets)
-                                // Only for body — face/eyes use special isFace paths we must not overwrite
-                                if (category == "_body")
-                                {
+                                // This is required for all categories so the extracted normal map is preserved.
                                     bool hasValidBase = !string.IsNullOrEmpty(baseTex);
                                     bool hasValidNorm = !string.IsNullOrEmpty(normTex);
 
                                     string finalBase = i.BackupTexturePaths != null ? i.BackupTexturePaths.Base : "";
                                     string finalNorm = i.BackupTexturePaths != null ? i.BackupTexturePaths.Normal : "";
 
-                                    // If we got a texture from Penumbra, OR if we had to use Lumina because OmniOverrides was empty, we apply it.
-                                    // If we skipped Lumina because OmniOverrides HAD a value, we do NOT overwrite it.
-                                    if (hasValidBase && (!usedLuminaBase || string.IsNullOrEmpty(finalBase)))
+                                    // We must always overwrite finalBase/finalNorm with the newly extracted textures.
+                                    // The static presets in BackupTexturePaths point to dead 'res\textures\...' paths 
+                                    // which are only valid in the standalone compiler, not the runtime plugin.
+                                    if (hasValidBase)
                                         finalBase = baseTex;
-                                    if (hasValidNorm && (!usedLuminaNorm || string.IsNullOrEmpty(finalNorm)))
+                                    if (hasValidNorm)
                                         finalNorm = normTex;
 
                                     if (!string.IsNullOrEmpty(finalBase) && !string.IsNullOrEmpty(finalNorm))
                                         i.BackupTexturePaths = new BackupTexturePaths(finalBase, finalNorm);
                                     else if (!string.IsNullOrEmpty(finalBase))
                                         i.BackupTexturePaths = new BackupTexturePaths(finalBase);
-                                }
                             }
                         }
                     }
@@ -1042,7 +1042,7 @@ namespace RoleplayingVoice
                         plugin.PluginLog.Error("[Drag And Drop Texturing] Error during underlay extraction: " + ex.Message);
                     }
 
-                    ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath);
+                    ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath, 3, Plugin.Configuration.GenerateNormals, false, true, Plugin.Configuration.ExportCompression == 1);
                     Thread.Sleep(100);
 
                     Plugin.Framework.RunOnFrameworkThread(() =>
@@ -1360,6 +1360,27 @@ namespace RoleplayingVoice
           ".bmp",
           ".tex",
         };
+        public void RebuildAllCategories()
+        {
+            if (_textureHistory == null || _textureHistory.Count == 0) return;
+            var keys = _textureHistory.Keys.ToList();
+            
+            Task.Run(() =>
+            {
+                foreach (var key in keys)
+                {
+                    int waitAttempts = 0;
+                    while (_lockDuplicateGeneration && waitAttempts < 60)
+                    {
+                        Thread.Sleep(1000);
+                        waitAttempts++;
+                    }
+                    RebuildCategory(key);
+                    Thread.Sleep(500);
+                }
+            });
+        }
+
         public void RebuildCategory(string categoryKey)
         {
             if (!_textureHistory.ContainsKey(categoryKey)) return;

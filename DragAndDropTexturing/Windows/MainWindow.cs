@@ -105,13 +105,41 @@ public class MainWindow : Window, IDisposable
             var ddtForRebuild = Plugin.DragAndDropTextures;
             if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
             {
-                foreach (var key in ddtForRebuild.TextureHistory.Keys.ToList())
-                {
-                    ddtForRebuild.RebuildCategory(key);
-                }
+                ddtForRebuild.RebuildAllCategories();
             }
         }
         ImGui.TextWrapped("When enabled, textures are generated for all possible body types at once (Potentially slower generation)");
+        
+        ImGui.Spacing();
+        bool generateNormals = Plugin.Configuration.GenerateNormals;
+        if (ImGui.Checkbox("Generate Normals", ref generateNormals))
+        {
+            Plugin.Configuration.GenerateNormals = generateNormals;
+            Plugin.Configuration.Save();
+            
+            var ddtForRebuild = Plugin.DragAndDropTextures;
+            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            {
+                ddtForRebuild.RebuildAllCategories();
+            }
+        }
+        ImGui.TextWrapped("When enabled, normal maps will be automatically generated from base textures if they are missing.");
+
+        ImGui.Spacing();
+        int exportCompression = Plugin.Configuration.ExportCompression;
+        string[] compressionOptions = { "Speed (Uncompressed)", "Sync Friendly (Mode 6 BC7)" };
+        if (ImGui.Combo("Export Compression", ref exportCompression, compressionOptions, compressionOptions.Length))
+        {
+            Plugin.Configuration.ExportCompression = exportCompression;
+            Plugin.Configuration.Save();
+            
+            var ddtForRebuild = Plugin.DragAndDropTextures;
+            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            {
+                ddtForRebuild.RebuildAllCategories();
+            }
+        }
+        ImGui.TextWrapped("Selects the texture compression method used for exports. Speed is faster to generate but results in larger file sizes. BC7 offers the lowest file sizes for Dawntrail, but is performance heavy exporting.");
         
         ImGui.Spacing();
         var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
@@ -134,10 +162,7 @@ public class MainWindow : Window, IDisposable
             var ddtForRebuild = Plugin.DragAndDropTextures;
             if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
             {
-                foreach (var key in ddtForRebuild.TextureHistory.Keys.ToList())
-                {
-                    ddtForRebuild.RebuildCategory(key);
-                }
+                ddtForRebuild.RebuildAllCategories();
             }
         }
         ImGui.TextWrapped("When enabled, the compiler will scan your Penumbra modlist and automatically inherit the body texture of your highest priority active skin mod as the underlay for transparent overlays.");

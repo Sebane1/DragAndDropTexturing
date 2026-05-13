@@ -10,6 +10,8 @@ public class Configuration : IPluginConfiguration
     public int Version { get; set; } = 0;
     public bool EnableTextureStacking { get; set; } = true;
     public bool AutoUniversalConvert { get; set; } = false;
+    public bool GenerateNormals { get; set; } = false;
+    public int ExportCompression { get; set; } = 0; // 0 = Speed (Uncompressed), 1 = BC7 High Quality
     public string DefaultUnderlaySkinType { get; set; } = "Bibo Detailed";
     public bool UsePriorityBodyMod { get; set; } = true;
     public int LastKnownRace { get; set; } = -1;
