@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 
@@ -17,6 +18,35 @@ namespace DragAndDropTexturing.Windows
         private ID3D11DepthStencilView _depthStencilView;
         private ID3D11DepthStencilState _depthStencilState;
         private ID3D11RasterizerState _rasterizerState;
+
+        // GPU Paint system
+        private ID3D11Texture2D _gpuPaintTex;
+        private ID3D11UnorderedAccessView _gpuPaintUAV;
+        private ID3D11ShaderResourceView _gpuPaintSRV;
+
+        private ID3D11Texture2D _gpuBaseTex;
+        private ID3D11ShaderResourceView _gpuBaseSRV;
+
+        private ID3D11Texture2D _gpuCompositeTex;
+        private ID3D11UnorderedAccessView _gpuCompositeUAV;
+        private ID3D11ShaderResourceView _gpuCompositeSRV;
+
+        private ID3D11ComputeShader _paintBrushCS;
+        private ID3D11ComputeShader _compositeCS;
+        private ID3D11Buffer _brushCB;
+        private int _paintTexWidth, _paintTexHeight;
+        private bool _gpuPaintReady;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BrushParams
+        {
+            public Vector2 Center;
+            public Vector2 PrevCenter;
+            public float Radius;
+            public int HasPrev;
+            public float Pad0, Pad1;
+            public Vector4 Color;
+        }
 
         public IntPtr ShaderResourceViewHandle => _shaderResourceView?.NativePointer ?? IntPtr.Zero;
 
@@ -626,6 +656,48 @@ float4 PS(PS_IN input) : SV_TARGET
             model.HasTexture = true;
         }
 
+        public void LoadTextureRaw(string slot, IntPtr pPixels, int width, int height)
+        {
+            if (_device == null || pPixels == IntPtr.Zero) return;
+            if (!_models.TryGetValue(slot, out var model)) return; // Model must exist
+
+            model.Texture?.Dispose();
+            model.TextureSRV?.Dispose();
+            model.SamplerState?.Dispose();
+
+            var texDesc = new Texture2DDescription
+            {
+                Width = width,
+                Height = height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+
+            var subData = new SubresourceData(pPixels, width * 4);
+            model.Texture = _device.CreateTexture2D(texDesc, new[] { subData });
+
+            model.TextureSRV = _device.CreateShaderResourceView(model.Texture);
+
+            var samplerDesc = new SamplerDescription
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Wrap,
+                AddressV = TextureAddressMode.Wrap,
+                AddressW = TextureAddressMode.Wrap,
+                ComparisonFunc = ComparisonFunction.Never,
+                MinLOD = 0,
+                MaxLOD = float.MaxValue
+            };
+            model.SamplerState = _device.CreateSamplerState(samplerDesc);
+
+            model.HasTexture = true;
+        }
+
         /// <summary>Remove the currently loaded texture for a slot, reverting to normal-colored shading.</summary>
         public void ClearTexture(string slot)
         {
@@ -643,13 +715,352 @@ float4 PS(PS_IN input) : SV_TARGET
 
         public bool HasTexture(string slot) => _models.TryGetValue(slot, out var m) && m.HasTexture;
 
+        public IntPtr GetTextureHandle(string slot)
+        {
+            if (_models.TryGetValue(slot, out var model) && model.TextureSRV != null)
+            {
+                return model.TextureSRV.NativePointer;
+            }
+            return IntPtr.Zero;
+        }
+
+        // ─── GPU Paint Implementation ───────────────────────────────────────
+
+        private const string PaintBrushShaderCode = @"
+cbuffer BrushParams : register(b0)
+{
+    float2 Center;
+    float2 PrevCenter;
+    float Radius;
+    int HasPrev;
+    float2 _pad;
+    float4 Color;
+};
+RWTexture2D<float4> PaintLayer : register(u0);
+
+float distToSegment(float2 p, float2 a, float2 b)
+{
+    float2 ab = b - a;
+    float2 ap = p - a;
+    float t = saturate(dot(ap, ab) / max(dot(ab, ab), 0.0001f));
+    float2 closest = a + ab * t;
+    return length(p - closest);
+}
+
+[numthreads(16, 16, 1)]
+void CSPaint(uint3 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    PaintLayer.GetDimensions(w, h);
+    if (id.x >= w || id.y >= h) return;
+
+    float2 pixel = float2(id.x, id.y) + 0.5f;
+    float dist;
+    if (HasPrev > 0)
+        dist = distToSegment(pixel, PrevCenter, Center);
+    else
+        dist = length(pixel - Center);
+
+    if (dist <= Radius)
+    {
+        float edge = smoothstep(Radius, Radius * 0.5f, dist);
+        float alpha = Color.a * edge;
+        float4 existing = PaintLayer[id.xy];
+        float outA = alpha + existing.a * (1.0f - alpha);
+        float3 outRGB = (outA > 0.001f)
+            ? (Color.rgb * alpha + existing.rgb * existing.a * (1.0f - alpha)) / outA
+            : float3(0,0,0);
+        PaintLayer[id.xy] = float4(outRGB, outA);
+    }
+}";
+
+        private const string CompositeShaderCode = @"
+Texture2D<float4> BaseTexture : register(t0);
+Texture2D<float4> PaintTexture : register(t1);
+RWTexture2D<float4> Output : register(u0);
+
+[numthreads(16, 16, 1)]
+void CSComposite(uint3 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    Output.GetDimensions(w, h);
+    if (id.x >= w || id.y >= h) return;
+
+    float4 baseCol = BaseTexture[id.xy];
+    float4 paint = PaintTexture[id.xy];
+
+    // Alpha blend paint over base
+    float outA = paint.a + baseCol.a * (1.0f - paint.a);
+    float3 outRGB = (outA > 0.001f)
+        ? (paint.rgb * paint.a + baseCol.rgb * baseCol.a * (1.0f - paint.a)) / outA
+        : float3(0,0,0);
+    Output[id.xy] = float4(outRGB, outA);
+}";
+
+        public void InitGpuPaint(int width, int height)
+        {
+            if (_device == null) return;
+
+            // Dispose old resources
+            DisposeGpuPaint();
+
+            _paintTexWidth = width;
+            _paintTexHeight = height;
+
+            // Paint layer: UAV + SRV, float for precision
+            var paintDesc = new Texture2DDescription
+            {
+                Width = width, Height = height,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.UnorderedAccess | BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            _gpuPaintTex = _device.CreateTexture2D(paintDesc);
+            _gpuPaintUAV = _device.CreateUnorderedAccessView(_gpuPaintTex);
+            _gpuPaintSRV = _device.CreateShaderResourceView(_gpuPaintTex);
+
+            // Composite output: UAV + SRV
+            var compDesc = new Texture2DDescription
+            {
+                Width = width, Height = height,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.UnorderedAccess | BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            _gpuCompositeTex = _device.CreateTexture2D(compDesc);
+            _gpuCompositeUAV = _device.CreateUnorderedAccessView(_gpuCompositeTex);
+            _gpuCompositeSRV = _device.CreateShaderResourceView(_gpuCompositeTex);
+
+            // Compile compute shaders
+            var paintBlob = Vortice.D3DCompiler.Compiler.Compile(PaintBrushShaderCode, "CSPaint", "", "cs_5_0");
+            _paintBrushCS = _device.CreateComputeShader(paintBlob.Span);
+
+            var compBlob = Vortice.D3DCompiler.Compiler.Compile(CompositeShaderCode, "CSComposite", "", "cs_5_0");
+            _compositeCS = _device.CreateComputeShader(compBlob.Span);
+
+            // Constant buffer for brush params (48 bytes, padded to 16-byte alignment)
+            _brushCB = _device.CreateBuffer(new BufferDescription
+            {
+                ByteWidth = Marshal.SizeOf<BrushParams>(),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ConstantBuffer
+            });
+
+            // Clear the paint layer to transparent by dispatching a zero-fill
+            GpuClearPaint();
+
+            _gpuPaintReady = true;
+        }
+
+        public void SetBaseTexture(IntPtr bgraPixels, int width, int height)
+        {
+            if (_device == null || bgraPixels == IntPtr.Zero) return;
+
+            _gpuBaseTex?.Dispose();
+            _gpuBaseSRV?.Dispose();
+
+            var texDesc = new Texture2DDescription
+            {
+                Width = width, Height = height,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            var subData = new SubresourceData(bgraPixels, width * 4);
+            _gpuBaseTex = _device.CreateTexture2D(texDesc, new[] { subData });
+            _gpuBaseSRV = _device.CreateShaderResourceView(_gpuBaseTex);
+        }
+
+        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, Vector4 color)
+        {
+            if (!_gpuPaintReady || _context == null) return;
+
+            var brushParams = new BrushParams
+            {
+                Center = new Vector2(uvCenter.X * _paintTexWidth, uvCenter.Y * _paintTexHeight),
+                PrevCenter = uvPrev.HasValue
+                    ? new Vector2(uvPrev.Value.X * _paintTexWidth, uvPrev.Value.Y * _paintTexHeight)
+                    : Vector2.Zero,
+                Radius = radiusPixels,
+                HasPrev = uvPrev.HasValue ? 1 : 0,
+                Color = color
+            };
+
+            _context.UpdateSubresource(brushParams, _brushCB);
+
+            // Save current CS state
+            _context.CSSetShader(_paintBrushCS);
+            _context.CSSetConstantBuffer(0, _brushCB);
+            _context.CSSetUnorderedAccessView(0, _gpuPaintUAV);
+
+            // Dispatch over the affected region (full texture for simplicity, GPU handles it fast)
+            int groupsX = (_paintTexWidth + 15) / 16;
+            int groupsY = (_paintTexHeight + 15) / 16;
+            _context.Dispatch(groupsX, groupsY, 1);
+
+            // Unbind
+            _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
+            _context.CSSetShader(null);
+        }
+
+        public void GpuComposite(string[] slots)
+        {
+            if (!_gpuPaintReady || _context == null || _gpuBaseSRV == null) return;
+
+            _context.CSSetShader(_compositeCS);
+            _context.CSSetShaderResource(0, _gpuBaseSRV);
+            _context.CSSetShaderResource(1, _gpuPaintSRV);
+            _context.CSSetUnorderedAccessView(0, _gpuCompositeUAV);
+
+            int groupsX = (_paintTexWidth + 15) / 16;
+            int groupsY = (_paintTexHeight + 15) / 16;
+            _context.Dispatch(groupsX, groupsY, 1);
+
+            // Unbind
+            _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
+            _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
+            _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
+            _context.CSSetShader(null);
+
+            // Point the model texture SRVs at the composite
+            foreach (var slotName in slots)
+            {
+                if (_models.TryGetValue(slotName, out var model))
+                {
+                    // Replace the model's texture SRV with the composite SRV
+                    // (don't dispose the old one if it was previously the composite SRV)
+                    model.TextureSRV = _gpuCompositeSRV;
+                    model.HasTexture = true;
+
+                    // Ensure a SamplerState exists so the render pipeline uses the texture
+                    if (model.SamplerState == null)
+                    {
+                        model.SamplerState = _device.CreateSamplerState(new SamplerDescription
+                        {
+                            Filter = Filter.MinMagMipLinear,
+                            AddressU = TextureAddressMode.Wrap,
+                            AddressV = TextureAddressMode.Wrap,
+                            AddressW = TextureAddressMode.Wrap,
+                            ComparisonFunc = ComparisonFunction.Never,
+                            MinLOD = 0,
+                            MaxLOD = float.MaxValue
+                        });
+                    }
+                }
+            }
+        }
+
+        public void GpuClearPaint()
+        {
+            if (_context == null || _gpuPaintTex == null) return;
+
+            // Recreate the paint texture to clear it (fastest guaranteed zero-fill)
+            var desc = _gpuPaintTex.Description;
+            _gpuPaintUAV?.Dispose();
+            _gpuPaintSRV?.Dispose();
+            _gpuPaintTex?.Dispose();
+
+            _gpuPaintTex = _device.CreateTexture2D(desc);
+            _gpuPaintUAV = _device.CreateUnorderedAccessView(_gpuPaintTex);
+            _gpuPaintSRV = _device.CreateShaderResourceView(_gpuPaintTex);
+        }
+
+        public IntPtr GetCompositeSrvHandle()
+        {
+            return _gpuCompositeSRV?.NativePointer ?? IntPtr.Zero;
+        }
+
+        /// <summary>
+        /// Reads the paint layer back from GPU to CPU as BGRA8 pixels for saving to disk.
+        /// </summary>
+        public byte[] ReadbackPaintLayer()
+        {
+            if (!_gpuPaintReady || _gpuPaintTex == null) return null;
+
+            // Create a staging texture to read back
+            var stagingDesc = new Texture2DDescription
+            {
+                Width = _paintTexWidth, Height = _paintTexHeight,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read
+            };
+            using var staging = _device.CreateTexture2D(stagingDesc);
+            _context.CopyResource(staging, _gpuPaintTex);
+
+            var mapped = _context.Map(staging, 0, MapMode.Read);
+            try
+            {
+                byte[] result = new byte[_paintTexWidth * _paintTexHeight * 4];
+                unsafe
+                {
+                    float* src = (float*)mapped.DataPointer;
+                    for (int y = 0; y < _paintTexHeight; y++)
+                    {
+                        float* row = (float*)((byte*)mapped.DataPointer + y * mapped.RowPitch);
+                        for (int x = 0; x < _paintTexWidth; x++)
+                        {
+                            int si = x * 4;
+                            int di = (y * _paintTexWidth + x) * 4;
+                            // Convert float RGBA to byte BGRA for System.Drawing
+                            result[di + 0] = (byte)(Math.Clamp(row[si + 2], 0f, 1f) * 255f); // B
+                            result[di + 1] = (byte)(Math.Clamp(row[si + 1], 0f, 1f) * 255f); // G
+                            result[di + 2] = (byte)(Math.Clamp(row[si + 0], 0f, 1f) * 255f); // R
+                            result[di + 3] = (byte)(Math.Clamp(row[si + 3], 0f, 1f) * 255f); // A
+                        }
+                    }
+                }
+                return result;
+            }
+            finally
+            {
+                _context.Unmap(staging, 0);
+            }
+        }
+
+        public int PaintTexWidth => _paintTexWidth;
+        public int PaintTexHeight => _paintTexHeight;
+
+        private void DisposeGpuPaint()
+        {
+            _gpuPaintReady = false;
+            _gpuPaintUAV?.Dispose(); _gpuPaintUAV = null;
+            _gpuPaintSRV?.Dispose(); _gpuPaintSRV = null;
+            _gpuPaintTex?.Dispose(); _gpuPaintTex = null;
+            _gpuCompositeUAV?.Dispose(); _gpuCompositeUAV = null;
+            _gpuCompositeSRV?.Dispose(); _gpuCompositeSRV = null;
+            _gpuCompositeTex?.Dispose(); _gpuCompositeTex = null;
+            _gpuBaseSRV?.Dispose(); _gpuBaseSRV = null;
+            _gpuBaseTex?.Dispose(); _gpuBaseTex = null;
+            _paintBrushCS?.Dispose(); _paintBrushCS = null;
+            _compositeCS?.Dispose(); _compositeCS = null;
+            _brushCB?.Dispose(); _brushCB = null;
+        }
+
         public void Dispose()
         {
             foreach (var model in _models.Values)
             {
+                // Don't dispose TextureSRV if it's the shared composite SRV
+                if (model.TextureSRV == _gpuCompositeSRV)
+                    model.TextureSRV = null;
                 model.Dispose();
             }
             _models.Clear();
+
+            DisposeGpuPaint();
 
             _vertexShader?.Dispose();
             _pixelShader?.Dispose();

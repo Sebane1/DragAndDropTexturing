@@ -32,15 +32,13 @@ namespace DragAndDropTexturing.Windows
         private bool _isGen3Preview = false;
         private bool _isBiboPreview = false;
 
-        private System.Drawing.Bitmap _paintLayer;
-        private System.Drawing.Graphics _paintGraphics;
-        private System.Drawing.SolidBrush _paintBrush;
         private float _brushSize = 10f;
         private System.Numerics.Vector4 _paintColor = new System.Numerics.Vector4(1, 0, 0, 1);
-        private int _paintStrokeCount = 0;
         private Vector2? _lastUvHit = null;
-        private Dalamud.Interface.Textures.ISharedImmediateTexture _canvasTexture;
-        private string _canvasTexturePath;
+        private bool _gpuPaintInitialized = false;
+        private bool _needsComposite = true;
+        private System.Drawing.Bitmap _cachedBaseBitmap = null;
+        private string _cachedBaseBitmapPath = "";
 
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
         {
@@ -52,18 +50,10 @@ namespace DragAndDropTexturing.Windows
         public override void OnOpen()
         {
             _tempDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Paint_Temp");
-            _canvasTexturePath = Path.Combine(_tempDir, "canvas_preview.png");
             Directory.CreateDirectory(_tempDir);
-            
-            if (_paintLayer == null)
-            {
-                _paintLayer = new System.Drawing.Bitmap(1024, 1024, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                _paintGraphics = System.Drawing.Graphics.FromImage(_paintLayer);
-                _paintGraphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                _paintBrush = new System.Drawing.SolidBrush(System.Drawing.Color.Red);
-            }
 
             _rendererInitialized = false;
+            _gpuPaintInitialized = false;
             _renderer?.Dispose();
             _renderer = null;
 
@@ -73,8 +63,7 @@ namespace DragAndDropTexturing.Windows
             _activeNormalTexturePng = "";
             _isGen3Preview = false;
             _isBiboPreview = false;
-            _previewDirty = true;
-            _canvasTexture = null;
+            _needsComposite = true;
         }
 
         public override void Draw()
@@ -106,8 +95,8 @@ namespace DragAndDropTexturing.Windows
             ImGui.SameLine();
             if (ImGui.Button("Clear Paint"))
             {
-                _paintGraphics.Clear(System.Drawing.Color.Transparent);
-                _previewDirty = true;
+                _renderer?.GpuClearPaint();
+                _needsComposite = true;
             }
 
             ImGui.Separator();
@@ -143,14 +132,11 @@ namespace DragAndDropTexturing.Windows
                             if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot))
                             {
                                 PaintAtUV(uvHit);
-                                _paintStrokeCount++;
-                                if (_paintStrokeCount % 5 == 0) _previewDirty = true;
                             }
                         }
                         else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
                         {
                             _lastUvHit = null;
-                            _previewDirty = true;
                         }
                         else
                         {
@@ -165,7 +151,14 @@ namespace DragAndDropTexturing.Windows
                                 _lastMousePos = mousePos;
                             }
                             var delta = mousePos - _lastMousePos;
-                            _renderer.PanCamera(delta.X, delta.Y);
+                            if (ImGui.IsKeyDown(ImGuiKey.ModShift))
+                            {
+                                _renderer.PanCamera(delta.X, delta.Y);
+                            }
+                            else
+                            {
+                                _renderer.RotateCamera(delta.X * 0.01f, delta.Y * 0.01f);
+                            }
                             _lastMousePos = mousePos;
                         }
                         else _isDragging = false;
@@ -185,78 +178,78 @@ namespace DragAndDropTexturing.Windows
             var canvasRegion = ImGui.GetContentRegionAvail();
             float canvasSize = Math.Min(canvasRegion.X, canvasRegion.Y);
             
-            if (_canvasTexture != null)
+            if (_renderer != null)
             {
-                var wrap = _canvasTexture.GetWrapOrDefault();
-                if (wrap != null)
+                IntPtr srvHandle = _renderer.GetCompositeSrvHandle();
+                if (srvHandle != IntPtr.Zero)
                 {
                     var cursorPos = ImGui.GetCursorScreenPos();
-                    ImGui.Image(wrap.Handle, new Vector2(canvasSize, canvasSize));
+                    ImGui.Image(new ImTextureID(srvHandle), new Vector2(canvasSize, canvasSize));
                     
-                    if (ImGui.IsItemHovered() && ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                    ImGui.SetCursorScreenPos(cursorPos);
+                    ImGui.InvisibleButton("##viewport2d", new Vector2(canvasSize, canvasSize));
+                    
+                    if (ImGui.IsItemHovered() || ImGui.IsItemActive())
                     {
                         var mousePos = ImGui.GetMousePos();
-                        Vector2 localMousePos = mousePos - cursorPos;
-                        Vector2 uv = new Vector2(localMousePos.X / canvasSize, localMousePos.Y / canvasSize);
-                        if (uv.X >= 0 && uv.X <= 1 && uv.Y >= 0 && uv.Y <= 1)
+                        if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                         {
+                            Vector2 localMousePos = mousePos - cursorPos;
+                            Vector2 uv = new Vector2(localMousePos.X / canvasSize, localMousePos.Y / canvasSize);
                             PaintAtUV(uv);
-                            _paintStrokeCount++;
-                            if (_paintStrokeCount % 5 == 0) _previewDirty = true;
                         }
-                    }
-                    else if (ImGui.IsItemHovered() && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
-                    {
-                        _lastUvHit = null;
-                        _previewDirty = true;
+                        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+                        {
+                            _lastUvHit = null;
+                        }
+                        else
+                        {
+                            _lastUvHit = null;
+                        }
                     }
                 }
             }
 
             ImGui.Columns(1);
 
-            if (_previewDirty && !_isPreviewUpdating)
+            // GPU composite every frame (microseconds)
+            if (_renderer != null && _gpuPaintInitialized && _needsComposite)
             {
-                _previewDirty = false;
-                UpdatePreviewTextures();
+                _renderer.GpuComposite(new[] { "Top", "Bottom" });
+                _needsComposite = false;
             }
         }
 
         private void PaintAtUV(Vector2 uvHit)
         {
-            if (_paintGraphics == null || _paintBrush == null) return;
-            
-            _paintBrush.Color = System.Drawing.Color.FromArgb((int)(_paintColor.W * 255), (int)(_paintColor.X * 255), (int)(_paintColor.Y * 255), (int)(_paintColor.Z * 255));
-            float x = uvHit.X * 1024;
-            float y = uvHit.Y * 1024;
-            
-            if (_lastUvHit.HasValue)
-            {
-                float lastX = _lastUvHit.Value.X * 1024;
-                float lastY = _lastUvHit.Value.Y * 1024;
-                if (Vector2.Distance(uvHit, _lastUvHit.Value) < 0.1f)
-                {
-                    using (var pen = new System.Drawing.Pen(_paintBrush, _brushSize))
-                    {
-                        pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
-                        pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                        _paintGraphics.DrawLine(pen, lastX, lastY, x, y);
-                    }
-                }
-            }
-            _paintGraphics.FillEllipse(_paintBrush, x - _brushSize / 2f, y - _brushSize / 2f, _brushSize, _brushSize);
+            if (_renderer == null || !_gpuPaintInitialized) return;
+            _renderer.GpuPaintStroke(uvHit, _lastUvHit, _brushSize, new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, _paintColor.W));
             _lastUvHit = uvHit;
+            _needsComposite = true;
         }
 
         private void CommitPaintLayer()
         {
-            if (_paintLayer == null) return;
+            if (_renderer == null || !_gpuPaintInitialized) return;
             
             string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
             if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
             
             string outPath = Path.Combine(importDir, $"PaintedUV_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
-            _paintLayer.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+            
+            // Read paint layer back from GPU and save as PNG
+            byte[] pixels = _renderer.ReadbackPaintLayer();
+            if (pixels != null)
+            {
+                int w = _renderer.PaintTexWidth;
+                int h = _renderer.PaintTexHeight;
+                using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                var rect = new System.Drawing.Rectangle(0, 0, w, h);
+                var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+                bmp.UnlockBits(data);
+                bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+            }
             
             var targetChar = _plugin.SafeGameObjectManager.LocalPlayer;
             if (targetChar != null && _plugin.DragAndDropTextures != null)
@@ -271,17 +264,15 @@ namespace DragAndDropTexturing.Windows
                 }
             }
             
-            _paintGraphics.Clear(System.Drawing.Color.Transparent);
-            _previewDirty = true;
+            _renderer.GpuClearPaint();
+            _needsComposite = true;
             IsOpen = false;
         }
 
         public void Dispose()
         {
-            _paintLayer?.Dispose();
-            _paintGraphics?.Dispose();
-            _paintBrush?.Dispose();
             _renderer?.Dispose();
+            _cachedBaseBitmap?.Dispose();
         }
 private void LoadPlayerModels()
         {
@@ -446,7 +437,7 @@ private void LoadPlayerModels()
                     }
                 }
 
-                UpdatePreviewTextures();
+                UploadBaseTextureToGpu();
             }
             catch (Exception ex)
             {
@@ -609,81 +600,41 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
         }
 
 
-        private System.Drawing.Bitmap CompositeLayersToBitmap(string activeBaseTexPng)
+        private void UploadBaseTextureToGpu()
         {
-            System.Drawing.Bitmap baseBitmap = null;
-            int width = 1024, height = 1024;
-            
-            if (!string.IsNullOrEmpty(activeBaseTexPng) && File.Exists(activeBaseTexPng))
+            if (_renderer == null || string.IsNullOrEmpty(_activeBaseTexturePng)) return;
+            try
             {
-                baseBitmap = new System.Drawing.Bitmap(activeBaseTexPng);
-                width = baseBitmap.Width;
-                height = baseBitmap.Height;
-            }
-
-            var composite = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-            using var g = System.Drawing.Graphics.FromImage(composite);
-            g.Clear(System.Drawing.Color.Transparent);
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-
-            if (baseBitmap != null)
-            {
-                g.DrawImage(baseBitmap, 0, 0, width, height);
-                baseBitmap.Dispose();
-            }
-
-            if (_paintLayer != null)
-            {
-                g.DrawImage(_paintLayer, 0, 0, width, height);
-            }
-
-            return composite;
-        }
-
-        public void UpdatePreviewTextures()
-        {
-            if (!_rendererInitialized || _renderer == null) return;
-            _isPreviewUpdating = true;
-            Task.Run(() => {
-                try
+                if (_cachedBaseBitmapPath != _activeBaseTexturePng || _cachedBaseBitmap == null)
                 {
-                    using var bitmap = CompositeLayersToBitmap(_activeBaseTexturePng);
-                    
-                    // Save to canvas path for 2D ImGui display
-                    bitmap.Save(_canvasTexturePath, System.Drawing.Imaging.ImageFormat.Png);
-                    _canvasTexture = Plugin.TextureProvider.GetFromFile(_canvasTexturePath);
-
-                    int w = bitmap.Width;
-                    int h = bitmap.Height;
-                    byte[] pixels = new byte[w * h * 4];
-                    var rect = new System.Drawing.Rectangle(0, 0, w, h);
-                    var data = bitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                    unsafe
-                    {
-                        byte* ptr = (byte*)data.Scan0;
-                        for (int y = 0; y < h; y++)
-                        {
-                            byte* row = ptr + (y * data.Stride);
-                            for (int x = 0; x < w; x++)
-                            {
-                                int sIdx = x * 4;
-                                int dIdx = (y * w + x) * 4;
-                                pixels[dIdx + 0] = row[sIdx + 2]; // R
-                                pixels[dIdx + 1] = row[sIdx + 1]; // G
-                                pixels[dIdx + 2] = row[sIdx + 0]; // B
-                                pixels[dIdx + 3] = row[sIdx + 3]; // A
-                            }
-                        }
-                    }
-                    bitmap.UnlockBits(data);
-                    
-                    _renderer.LoadTexture("Top", pixels, w, h);
-                    _renderer.LoadTexture("Bottom", pixels, w, h);
+                    _cachedBaseBitmap?.Dispose();
+                    _cachedBaseBitmap = new System.Drawing.Bitmap(_activeBaseTexturePng);
+                    _cachedBaseBitmapPath = _activeBaseTexturePng;
                 }
-                catch (Exception ex) { _plugin.PluginLog.Error(ex, "Failed to update preview textures"); }
-                finally { _isPreviewUpdating = false; }
-            });
+                int w = _cachedBaseBitmap.Width;
+                int h = _cachedBaseBitmap.Height;
+                var rect = new System.Drawing.Rectangle(0, 0, w, h);
+                var data = _cachedBaseBitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                
+                // Init GPU paint system at the texture resolution
+                if (!_gpuPaintInitialized)
+                {
+                    _renderer.InitGpuPaint(w, h);
+                    _gpuPaintInitialized = true;
+                }
+                
+                // Upload the base texture to GPU
+                _renderer.SetBaseTexture(data.Scan0, w, h);
+                _cachedBaseBitmap.UnlockBits(data);
+                
+                // Initial composite
+                _renderer.GpuComposite(new[] { "Top", "Bottom" });
+                _needsComposite = false;
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error(ex, "Failed to upload base texture to GPU");
+            }
         }
     }
 }
