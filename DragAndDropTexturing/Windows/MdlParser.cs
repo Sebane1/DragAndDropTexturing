@@ -396,6 +396,7 @@ namespace DragAndDropTexturing.Windows
                         Vector3 pos = Vector3.Zero;
                         Vector3 norm = Vector3.UnitY;
                         Vector2 uv = Vector2.Zero;
+                        bool uvRead = false;
 
                         foreach (var elem in decl)
                         {
@@ -443,7 +444,7 @@ namespace DragAndDropTexturing.Windows
                                     else if (elem.type == 3 && ms.Position + 16 <= fileData.Length) // Float4
                                         norm = new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
                                 }
-                                else if (elem.usage == 4) // UV (TexCoord)
+                                else if (elem.usage == 4 && !uvRead) // UV (TexCoord)
                                 {
                                     if (elem.type == 13 && ms.Position + 4 <= fileData.Length) // Half2
                                     {
@@ -469,6 +470,7 @@ namespace DragAndDropTexturing.Windows
                                     {
                                         uv = new Vector2(reader.ReadSingle(), reader.ReadSingle());
                                     }
+                                    uvRead = true;
                                 }
                             }
                             catch (EndOfStreamException) { }

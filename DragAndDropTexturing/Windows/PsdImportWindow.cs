@@ -52,6 +52,8 @@ namespace DragAndDropTexturing.Windows
         private string _activeNormalTexturePng = "";
         private bool _previewDirty = false;
         private bool _isPreviewUpdating = false;
+        private bool _isGen3Preview = false;
+        private bool _isBiboPreview = false;
 
         public List<PsdImportLayer> Layers = new();
         private readonly string[] _bodyParts = { "body", "face", "eyes", "eyebrows" };
@@ -419,8 +421,9 @@ namespace DragAndDropTexturing.Windows
                 PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collectionId, ffxivGender, ffxivRace, _plugin);
                 FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = prevOverrideMode;
 
-                bool isGen3 = _topModelDiskPath.ToLower().Contains("gen3") || _topModelDiskPath.ToLower().Contains("tfgen3");
-                bool isBibo = _topModelDiskPath.ToLower().Contains("bibo") || _topModelDiskPath.ToLower().Contains("b+");
+                string lowerPath = _topModelDiskPath.ToLower();
+                bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || lowerPath.Contains("eve") || lowerPath.Contains("gaia");
+                bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+");
 
                 if (!isGen3 && !isBibo)
                 {
@@ -429,6 +432,9 @@ namespace DragAndDropTexturing.Windows
                     if (bodyIndex == 1) isBibo = true;
                     _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3' or 'bibo'. Fallback detection returned: {detectedName} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : "Unknown")})");
                 }
+
+                _isGen3Preview = isGen3;
+                _isBiboPreview = isBibo;
 
                 string baseTexPath = null;
                 string normTexPath = null;
@@ -600,14 +606,11 @@ namespace DragAndDropTexturing.Windows
             Task.Run(() => {
                 try
                 {
-                    bool isGen3 = _topModelDiskPath.ToLower().Contains("gen3") || _topModelDiskPath.ToLower().Contains("tfgen3");
-                    bool isBibo = _topModelDiskPath.ToLower().Contains("bibo") || _topModelDiskPath.ToLower().Contains("b+");
-
                     string outBasePng = Path.Combine(_tempDir, "preview_base.png");
                     string outNormPng = Path.Combine(_tempDir, "preview_norm.png");
 
-                    CompositeLayers(0, _activeBaseTexturePng, outBasePng, isGen3, isBibo);
-                    CompositeLayers(1, _activeNormalTexturePng, outNormPng, isGen3, isBibo);
+                    CompositeLayers(0, _activeBaseTexturePng, outBasePng, _isGen3Preview, _isBiboPreview);
+                    CompositeLayers(1, _activeNormalTexturePng, outNormPng, _isGen3Preview, _isBiboPreview);
 
                     if (File.Exists(outBasePng))
                     {
