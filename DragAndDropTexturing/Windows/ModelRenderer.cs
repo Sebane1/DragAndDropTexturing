@@ -303,8 +303,10 @@ float4 PS(PS_IN input) : SV_TARGET
             float[] posData = new float[width * height * 4];
             float[] normData = new float[width * height * 4];
 
-            foreach (var model in _models.Values)
+            foreach (var kvp in _models)
             {
+                if (kvp.Key.Contains("_")) continue; // Skip sub-meshes like Top_1, Bottom_1
+                var model = kvp.Value;
                 if (model.Vertices == null || model.Indices == null) continue;
 
                 for (int i = 0; i < model.Indices.Length; i += 3)
@@ -317,10 +319,10 @@ float4 PS(PS_IN input) : SV_TARGET
                     Vector2 p1 = new Vector2(v1.UV.X * width, v1.UV.Y * height);
                     Vector2 p2 = new Vector2(v2.UV.X * width, v2.UV.Y * height);
 
-                    int minX = (int)Math.Max(0, Math.Floor(Math.Min(p0.X, Math.Min(p1.X, p2.X))));
-                    int maxX = (int)Math.Min(width - 1, Math.Ceiling(Math.Max(p0.X, Math.Max(p1.X, p2.X))));
-                    int minY = (int)Math.Max(0, Math.Floor(Math.Min(p0.Y, Math.Min(p1.Y, p2.Y))));
-                    int maxY = (int)Math.Min(height - 1, Math.Ceiling(Math.Max(p0.Y, Math.Max(p1.Y, p2.Y))));
+                    int minX = (int)Math.Floor(Math.Min(p0.X, Math.Min(p1.X, p2.X)));
+                    int maxX = (int)Math.Ceiling(Math.Max(p0.X, Math.Max(p1.X, p2.X)));
+                    int minY = (int)Math.Floor(Math.Min(p0.Y, Math.Min(p1.Y, p2.Y)));
+                    int maxY = (int)Math.Ceiling(Math.Max(p0.Y, Math.Max(p1.Y, p2.Y)));
 
                     for (int y = minY; y <= maxY; y++)
                     {
@@ -345,7 +347,13 @@ float4 PS(PS_IN input) : SV_TARGET
                                 float nLen = norm.Length();
                                 if (nLen > 0.0001f) norm /= nLen;
 
-                                int idx = (y * width + x) * 4;
+                                int wrapX = ((x % width) + width) % width;
+                                int wrapY = ((y % height) + height) % height;
+                                int idx = (wrapY * width + wrapX) * 4;
+                                
+                                // Basic Z-buffer for UV map (keep front-most faces if overlapping in UV space)
+                                // If multiple meshes map to the same UV, we want the one with a valid position.
+                                // In FFXIV, we just overwrite for now, but a proper UV z-buffer could be added.
                                 posData[idx] = pos.X;
                                 posData[idx+1] = pos.Y;
                                 posData[idx+2] = pos.Z;
@@ -590,8 +598,9 @@ float4 PS(PS_IN input) : SV_TARGET
 
             foreach (var kvp in _models)
             {
-                // Skip sub-meshes if filtering is active
+                // Skip sub-meshes if filtering is active, or if it's a sub-mesh (contains underscore)
                 if (allowedSlots != null && !allowedSlots.Contains(kvp.Key)) continue;
+                if (allowedSlots == null && kvp.Key.Contains("_")) continue;
 
                 var model = kvp.Value;
                 if (model.Vertices == null || model.Indices == null) continue;
@@ -610,9 +619,10 @@ float4 PS(PS_IN input) : SV_TARGET
                             hitSlot = kvp.Key;
                             hit = true;
                             
-                            // Interpolate UV
+                            // Interpolate UV and wrap to [0, 1]
                             float w = 1.0f - u - v;
-                            uvHit = v0.UV * w + v1.UV * u + v2.UV * v;
+                            Vector2 rawUv = v0.UV * w + v1.UV * u + v2.UV * v;
+                            uvHit = new Vector2((rawUv.X % 1.0f + 1.0f) % 1.0f, (rawUv.Y % 1.0f + 1.0f) % 1.0f);
                             worldPos = rayOrigin + rayDir * t;
                             
                             // Interpolate Normal
@@ -1037,7 +1047,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             
             float3 offset = pos - DecalCenter;
             float z = dot(offset, DecalNormal);
-            if (abs(z) <= DecalDepth)
+            if (abs(z) <= DecalDepth && dot(norm, DecalNormal) > 0.0f)
             {
                 float x = dot(offset, DecalTangent);
                 float y = dot(offset, DecalBitangent);
@@ -1046,11 +1056,6 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                     float2 localUv = float2(x / DecalRadius * 0.5f + 0.5f, -y / DecalRadius * 0.5f + 0.5f);
                     stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
                 }
-            }
-            // Debug: Draw a red dot exactly at the center
-            if (length(offset) < 0.02f)
-            {
-                stamp = float4(1, 0, 0, 1);
             }
         }
     }
