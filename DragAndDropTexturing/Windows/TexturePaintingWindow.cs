@@ -145,7 +145,7 @@ namespace DragAndDropTexturing.Windows
             ImGui.SetNextItemWidth(100);
             ImGui.SliderFloat("Opacity", ref _brushOpacity, 0f, 1f, "%.2f");
             
-            if (ImGui.Button("Commit Paint to Active Character Overlays"))
+            if (ImGui.Button("Commit Paint to Active Layers"))
             {
                 CommitPaintLayer();
             }

@@ -131,11 +131,7 @@ public class MainWindow : Window, IDisposable
             Plugin.MdlPreviewWindow.IsOpen = !Plugin.MdlPreviewWindow.IsOpen;
         }
         
-        ImGui.SameLine();
-        if (ImGui.Button("Open 3D Texture Painter"))
-        {
-            Plugin.TexturePaintingWindow.IsOpen = !Plugin.TexturePaintingWindow.IsOpen;
-        }
+
 
         ImGui.Spacing();
         bool enableStacking = Plugin.Configuration.EnableTextureStacking;
@@ -266,6 +262,11 @@ public class MainWindow : Window, IDisposable
             if (keys.Count == 0)
             {
                 ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No active textures dropped yet.");
+                ImGui.Spacing();
+                if (ImGui.Button("Open Texture Painter"))
+                {
+                    Plugin.TexturePaintingWindow.IsOpen = true;
+                }
                 return;
             }
 
@@ -370,10 +371,9 @@ public class MainWindow : Window, IDisposable
                     }
                 }
 
-                if (ImGui.Button("Add New Layer##" + key))
+                if (ImGui.Button("Add New Layer (Open Painter)##" + key))
                 {
-                    list.Add("");
-                    changed = true;
+                    Plugin.TexturePaintingWindow.IsOpen = true;
                 }
 
                 if (changed)
