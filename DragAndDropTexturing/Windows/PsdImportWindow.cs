@@ -40,6 +40,19 @@ namespace DragAndDropTexturing.Windows
         private Action<List<string>> _onComplete;
         private Func<List<string>, Task> _onCompleteAsync;
         
+        private ModelRenderer _renderer;
+        private bool _rendererInitialized = false;
+        private Vector2 _lastMousePos = Vector2.Zero;
+        private bool _isDragging = false;
+        private bool _isPanning = false;
+
+        private string _topModelDiskPath = "";
+        private string _botModelDiskPath = "";
+        private string _activeBaseTexturePng = "";
+        private string _activeNormalTexturePng = "";
+        private bool _previewDirty = false;
+        private bool _isPreviewUpdating = false;
+
         public List<PsdImportLayer> Layers = new();
         private readonly string[] _bodyParts = { "body", "face", "eyes", "eyebrows" };
         private readonly string[] _overrideTypes = { "Base", "Normal" };
@@ -158,6 +171,17 @@ namespace DragAndDropTexturing.Windows
 
         public override void Draw()
         {
+            try
+            {
+                if (!_rendererInitialized)
+                {
+                    _renderer = new ModelRenderer(800, 600);
+                    _rendererInitialized = true;
+                    LoadPlayerModels();
+                }
+            }
+            catch { }
+
             if (_isProcessing)
             {
                 ImGui.Text(_statusText);
@@ -172,6 +196,9 @@ namespace DragAndDropTexturing.Windows
                 return;
             }
 
+            ImGui.Columns(2, "PsdLayout", false);
+            ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.5f);
+
             ImGui.Text("Select layers to import:");
             ImGui.Separator();
 
@@ -181,7 +208,11 @@ namespace DragAndDropTexturing.Windows
                 ImGui.PushID(layer.OriginalName);
                 
                 bool selected = layer.Selected;
-                if (ImGui.Checkbox("##Select", ref selected)) layer.Selected = selected;
+                if (ImGui.Checkbox("##Select", ref selected))
+                {
+                    layer.Selected = selected;
+                    _previewDirty = true;
+                }
                 
                 ImGui.SameLine();
                 ImGui.Text(layer.OriginalName);
@@ -189,19 +220,31 @@ namespace DragAndDropTexturing.Windows
                 ImGui.SameLine(250);
                 ImGui.SetNextItemWidth(100);
                 int part = layer.BodyPartIndex;
-                if (ImGui.Combo("##BodyPart", ref part, _bodyParts, _bodyParts.Length)) layer.BodyPartIndex = part;
+                if (ImGui.Combo("##BodyPart", ref part, _bodyParts, _bodyParts.Length))
+                {
+                    layer.BodyPartIndex = part;
+                    _previewDirty = true;
+                }
 
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(80);
                 int type = layer.OverrideTypeIndex;
-                if (ImGui.Combo("##OverrideType", ref type, _overrideTypes, _overrideTypes.Length)) layer.OverrideTypeIndex = type;
+                if (ImGui.Combo("##OverrideType", ref type, _overrideTypes, _overrideTypes.Length))
+                {
+                    layer.OverrideTypeIndex = type;
+                    _previewDirty = true;
+                }
 
                 if (layer.BodyPartIndex == 0)
                 {
                     ImGui.SameLine();
                     ImGui.SetNextItemWidth(80);
                     int bType = layer.BodyTypeIndex;
-                    if (ImGui.Combo("##BodyType", ref bType, _bodyTypes, _bodyTypes.Length)) layer.BodyTypeIndex = bType;
+                    if (ImGui.Combo("##BodyType", ref bType, _bodyTypes, _bodyTypes.Length))
+                    {
+                        layer.BodyTypeIndex = bType;
+                        _previewDirty = true;
+                    }
                 }
 
                 if (layer.Selected)
@@ -239,6 +282,338 @@ namespace DragAndDropTexturing.Windows
             {
                 FinalizeImport();
             }
+
+            if (_previewDirty && !_isPreviewUpdating)
+            {
+                _previewDirty = false;
+                UpdatePreviewTextures();
+            }
+
+            ImGui.NextColumn();
+
+            // Right column: 3D Preview
+            if (_renderer != null)
+            {
+                var region = ImGui.GetContentRegionAvail();
+                if (region.X > 0 && region.Y > 0 && (region.X != _renderer.Width || region.Y != _renderer.Height))
+                {
+                    _renderer.Resize((int)region.X, (int)region.Y);
+                }
+
+                _renderer.Render();
+
+                if (_renderer.ShaderResourceViewHandle != IntPtr.Zero)
+                {
+                    var cursorPos = ImGui.GetCursorScreenPos();
+                    var drawList = ImGui.GetWindowDrawList();
+                    drawList.AddImage(new ImTextureID(_renderer.ShaderResourceViewHandle), cursorPos, cursorPos + region);
+
+                    ImGui.InvisibleButton("##viewportPsd", region);
+                    bool isHovered = ImGui.IsItemHovered();
+                    bool isActive = ImGui.IsItemActive();
+
+                    if (isHovered || isActive)
+                    {
+                        var mousePos = ImGui.GetMousePos();
+                        if (ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+                        {
+                            if (!_isDragging)
+                            {
+                                _isDragging = true;
+                                _lastMousePos = mousePos;
+                            }
+                            var delta = mousePos - _lastMousePos;
+                            _renderer.RotateCamera(delta.X * 0.005f, delta.Y * 0.005f);
+                            _lastMousePos = mousePos;
+                        }
+                        else _isDragging = false;
+
+                        if (ImGui.IsMouseDragging(ImGuiMouseButton.Middle) || ImGui.IsMouseDragging(ImGuiMouseButton.Right))
+                        {
+                            if (!_isPanning)
+                            {
+                                _isPanning = true;
+                                _lastMousePos = mousePos;
+                            }
+                            var delta = mousePos - _lastMousePos;
+                            _renderer.PanCamera(delta.X, delta.Y);
+                            _lastMousePos = mousePos;
+                        }
+                        else _isPanning = false;
+
+                        float wheel = ImGui.GetIO().MouseWheel;
+                        if (wheel != 0) _renderer.ZoomCamera(wheel);
+                    }
+                    else
+                    {
+                        _isDragging = false;
+                        _isPanning = false;
+                    }
+                }
+            }
+
+            ImGui.Columns(1);
+        }
+
+        private void LoadPlayerModels()
+        {
+            try
+            {
+                var character = _plugin.SafeGameObjectManager.LocalPlayer;
+                if (character == null)
+                {
+                    _plugin.PluginLog.Warning("[PSD Preview] LocalPlayer is null!");
+                    return;
+                }
+
+                _plugin.PluginLog.Info($"[PSD Preview] Attempting to load models for {character.Name}");
+
+                var stateBase64Result = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
+                var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64Result.Item2);
+                
+                // We always want to preview on the naked body. Since users use Penumbra to replace
+                // the Emperor's New clothes with naked bodies, we hardcode the equipment ID to e0279.
+                _plugin.PluginLog.Info($"[PSD Preview] Auto-stripping to Emperor's New gear (e0279) for preview.");
+
+                int ffxivRace = customization.Customize.Race.Value;
+                int ffxivClan = customization.Customize.Clan.Value;
+                int ffxivGender = customization.Customize.Gender.Value;
+
+                string GetFfxivModelRaceCode(int race, int clan, int gender)
+                {
+                    int code = 101;
+                    switch (race)
+                    {
+                        case 1: // Hyur
+                            code = clan == 2 ? 301 : 101; break;
+                        case 2: // Elezen
+                        case 4: // Miqo'te
+                        case 6: // Au Ra
+                        case 8: // Viera
+                            code = 101; break; // Gear for these races shares the Midlander base mesh
+                        case 3: // Lalafell
+                            code = 1101; break;
+                        case 5: // Roegadyn
+                            code = 901; break;
+                        case 7: // Hrothgar
+                            code = 1501; break;
+                    }
+                    if (gender == 1) code += 100; // Female is +100
+                    return $"c{code:D4}";
+                }
+
+                string trueRaceCode = GetFfxivModelRaceCode(ffxivRace, ffxivClan, ffxivGender);
+                _plugin.PluginLog.Info($"[PSD Preview] True FFXIV Model RaceCode resolved to: {trueRaceCode}");
+
+                string topPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
+                string botPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_dwn.mdl";
+
+                Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+                _plugin.PluginLog.Info($"[PSD Preview] Collection ID: {collectionId}");
+
+                LoadModelIntoSlot("Top", topPath, collectionId);
+                LoadModelIntoSlot("Bottom", botPath, collectionId);
+
+                PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collectionId, ffxivGender, ffxivRace, _plugin);
+                bool isGen3 = _topModelDiskPath.ToLower().Contains("gen3") || _topModelDiskPath.ToLower().Contains("tfgen3");
+                bool isBibo = _topModelDiskPath.ToLower().Contains("bibo") || _topModelDiskPath.ToLower().Contains("b+");
+
+                string baseTexPath = null;
+                string normTexPath = null;
+                if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
+                {
+                    baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
+                    normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
+                }
+                else if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
+                {
+                    baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
+                    normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
+                }
+
+                _activeBaseTexturePng = TexToTempPng(baseTexPath);
+                _activeNormalTexturePng = TexToTempPng(normTexPath);
+
+                UpdatePreviewTextures();
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error(ex, "Failed to load player models for PSD 3D preview");
+            }
+        }
+
+        private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
+        {
+            try
+            {
+                _plugin.PluginLog.Info($"[PSD Preview] Loading slot '{slot}' with GamePath: {path}");
+                
+                // Try resolving via Penumbra first
+                string diskPath = path;
+                try 
+                {
+                    PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collectionId, path, out string resolvedPath);
+                    if (!string.IsNullOrEmpty(resolvedPath))
+                    {
+                        diskPath = resolvedPath;
+                        _plugin.PluginLog.Info($"[PSD Preview] Penumbra resolved '{path}' -> '{diskPath}'");
+                    }
+                    else
+                    {
+                        _plugin.PluginLog.Info($"[PSD Preview] Penumbra did not resolve '{path}'. Returning original.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _plugin.PluginLog.Error(ex, $"[PSD Preview] Penumbra IPC ResolvePath failed for '{path}'");
+                }
+
+                System.Collections.Generic.List<ExtractedMesh> meshes = null;
+
+                if (diskPath != path && System.IO.File.Exists(diskPath))
+                {
+                    _plugin.PluginLog.Info($"[PSD Preview] Reading external file from disk: {diskPath}");
+                    meshes = MdlParser.ParseFromDisk(diskPath, out var loadStatus);
+                    _plugin.PluginLog.Info($"[PSD Preview] Disk parse status: {loadStatus}");
+                }
+                else
+                {
+                    _plugin.PluginLog.Warning($"[PSD Preview] Penumbra did not resolve a custom disk path for {path}. Skipping Lumina as requested.");
+                }
+
+                if (slot == "Top") _topModelDiskPath = diskPath;
+                if (slot == "Bottom") _botModelDiskPath = diskPath;
+
+                if (meshes != null && meshes.Count > 0)
+                {
+                    _plugin.PluginLog.Info($"[PSD Preview] Successfully loaded {meshes.Count} meshes into slot '{slot}'");
+                    _renderer.LoadMeshes(slot, meshes);
+                }
+                else
+                {
+                    _plugin.PluginLog.Warning($"[PSD Preview] No meshes parsed for '{slot}'. Falling back to dummy cube.");
+                    // Fall back to dummy cube if missing
+                    _renderer.LoadMeshes(slot, MdlParser.GetDummyCube());
+                }
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error(ex, $"[PSD Preview] Unhandled exception loading slot '{slot}'");
+            }
+        }
+
+        private string TexToTempPng(string texPath)
+        {
+            if (string.IsNullOrEmpty(texPath) || !File.Exists(texPath)) return null;
+            if (texPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return texPath;
+            
+            try
+            {
+                string outPath = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(texPath) + "_base.png");
+                if (File.Exists(outPath)) return outPath;
+                using (var stream = new FileStream(texPath, FileMode.Open, FileAccess.Read))
+                {
+                    var bitmap = FFXIVLooseTextureCompiler.ImageProcessing.TexIO.TexToBitmap(stream);
+                    if (bitmap != null)
+                    {
+                        bitmap.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                        return outPath;
+                    }
+                }
+            }
+            catch (Exception ex) { _plugin.PluginLog.Error(ex, $"Failed to convert tex to png: {texPath}"); }
+            return null;
+        }
+
+        private void CompositeLayers(int overrideTypeIndex, string activeBaseTexPng, string outPngPath, bool isGen3, bool isBibo)
+        {
+            using var composite = new MagickImage(MagickColors.Transparent, 1024, 1024);
+            if (!string.IsNullOrEmpty(activeBaseTexPng) && File.Exists(activeBaseTexPng))
+            {
+                using var baseImg = new MagickImage(activeBaseTexPng);
+                composite.Resize(baseImg.Width, baseImg.Height);
+                composite.Composite(baseImg, CompositeOperator.Over);
+            }
+
+            foreach (var layer in Layers)
+            {
+                if (layer.Selected && layer.OverrideTypeIndex == overrideTypeIndex && layer.BodyPartIndex == 0) // Body only for Top/Bottom slots
+                {
+                    string inputPng = layer.PngPath;
+                    bool convertToGen3 = isGen3 && layer.BodyTypeIndex == 1; // Bibo+ -> Gen3
+                    bool convertToBibo = isBibo && layer.BodyTypeIndex == 2; // Gen3 -> Bibo+
+                    
+                    if (convertToGen3 || convertToBibo)
+                    {
+                        string convertedPath = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(layer.PngPath) + (convertToGen3 ? "_gen3" : "_bibo") + ".png");
+                        if (!File.Exists(convertedPath))
+                        {
+                            if (convertToGen3) FFXIVLooseTextureCompiler.FastUVTransfer.BiboToGen3(inputPng, convertedPath);
+                            if (convertToBibo) FFXIVLooseTextureCompiler.FastUVTransfer.Gen3ToBibo(inputPng, convertedPath);
+                        }
+                        inputPng = convertedPath;
+                    }
+
+                    if (File.Exists(inputPng))
+                    {
+                        using var overlay = new MagickImage(inputPng);
+                        composite.Composite(overlay, CompositeOperator.Over);
+                    }
+                }
+            }
+
+            composite.Write(outPngPath);
+        }
+
+        public void UpdatePreviewTextures()
+        {
+            if (!_rendererInitialized || _renderer == null) return;
+            _isPreviewUpdating = true;
+            Task.Run(() => {
+                try
+                {
+                    bool isGen3 = _topModelDiskPath.ToLower().Contains("gen3") || _topModelDiskPath.ToLower().Contains("tfgen3");
+                    bool isBibo = _topModelDiskPath.ToLower().Contains("bibo") || _topModelDiskPath.ToLower().Contains("b+");
+
+                    string outBasePng = Path.Combine(_tempDir, "preview_base.png");
+                    string outNormPng = Path.Combine(_tempDir, "preview_norm.png");
+
+                    CompositeLayers(0, _activeBaseTexturePng, outBasePng, isGen3, isBibo);
+                    CompositeLayers(1, _activeNormalTexturePng, outNormPng, isGen3, isBibo);
+
+                    if (File.Exists(outBasePng))
+                    {
+                        using var bitmap = new System.Drawing.Bitmap(outBasePng);
+                        int w = bitmap.Width;
+                        int h = bitmap.Height;
+                        byte[] pixels = new byte[w * h * 4];
+                        var rect = new System.Drawing.Rectangle(0, 0, w, h);
+                        var data = bitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        unsafe
+                        {
+                            byte* ptr = (byte*)data.Scan0;
+                            for (int y = 0; y < h; y++)
+                            {
+                                byte* row = ptr + (y * data.Stride);
+                                for (int x = 0; x < w; x++)
+                                {
+                                    int sIdx = x * 4;
+                                    int dIdx = (y * w + x) * 4;
+                                    pixels[dIdx + 0] = row[sIdx + 2]; // R
+                                    pixels[dIdx + 1] = row[sIdx + 1]; // G
+                                    pixels[dIdx + 2] = row[sIdx + 0]; // B
+                                    pixels[dIdx + 3] = row[sIdx + 3]; // A
+                                }
+                            }
+                        }
+                        bitmap.UnlockBits(data);
+                        _renderer.LoadTexture("Top", pixels, w, h);
+                        _renderer.LoadTexture("Bottom", pixels, w, h);
+                    }
+                }
+                catch (Exception ex) { _plugin.PluginLog.Error(ex, "Failed to update preview textures"); }
+                finally { _isPreviewUpdating = false; }
+            });
         }
 
         private void FinalizeImport()

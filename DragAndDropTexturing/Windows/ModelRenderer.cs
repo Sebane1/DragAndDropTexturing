@@ -16,6 +16,7 @@ namespace DragAndDropTexturing.Windows
         private ID3D11Texture2D _depthStencilTexture;
         private ID3D11DepthStencilView _depthStencilView;
         private ID3D11DepthStencilState _depthStencilState;
+        private ID3D11RasterizerState _rasterizerState;
 
         public IntPtr ShaderResourceViewHandle => _shaderResourceView?.NativePointer ?? IntPtr.Zero;
 
@@ -98,22 +99,55 @@ namespace DragAndDropTexturing.Windows
                 DepthFunc = ComparisonFunction.Less
             };
             _depthStencilState = _device.CreateDepthStencilState(dsStateDesc);
+
+            _rasterizerState?.Dispose();
+            var rsDesc = new RasterizerDescription
+            {
+                FillMode = FillMode.Solid,
+                CullMode = CullMode.Back,
+                FrontCounterClockwise = true,
+                DepthBias = 0,
+                DepthBiasClamp = 0.0f,
+                SlopeScaledDepthBias = 0.0f,
+                DepthClipEnable = true,
+                ScissorEnable = false,
+                MultisampleEnable = false,
+                AntialiasedLineEnable = false
+            };
+            _rasterizerState = _device.CreateRasterizerState(rsDesc);
         }
 
-        private ID3D11Buffer _vertexBuffer;
-        private ID3D11Buffer _indexBuffer;
         private ID3D11VertexShader _vertexShader;
         private ID3D11PixelShader _pixelShader;
         private ID3D11InputLayout _inputLayout;
         private ID3D11Buffer _constantBuffer;
-        private int _indexCount = 0;
-
-        // Texture resources
-        private ID3D11Texture2D _modelTexture;
-        private ID3D11ShaderResourceView _modelTextureSRV;
-        private ID3D11SamplerState _samplerState;
-        private bool _hasTexture = false;
         private ID3D11Buffer _psConstantBuffer;
+
+        public class RenderModel : IDisposable
+        {
+            public ID3D11Buffer VertexBuffer { get; set; }
+            public ID3D11Buffer IndexBuffer { get; set; }
+            public int IndexCount { get; set; }
+            
+            public ID3D11Texture2D Texture { get; set; }
+            public ID3D11ShaderResourceView TextureSRV { get; set; }
+            public ID3D11SamplerState SamplerState { get; set; }
+            public bool HasTexture { get; set; } = false;
+
+            public Vector3 BoundsMin { get; set; } = new Vector3(float.MaxValue);
+            public Vector3 BoundsMax { get; set; } = new Vector3(float.MinValue);
+
+            public void Dispose()
+            {
+                VertexBuffer?.Dispose();
+                IndexBuffer?.Dispose();
+                Texture?.Dispose();
+                TextureSRV?.Dispose();
+                SamplerState?.Dispose();
+            }
+        }
+
+        private Dictionary<string, RenderModel> _models = new Dictionary<string, RenderModel>();
 
         private struct Vertex
         {
@@ -169,17 +203,36 @@ float4 PS(PS_IN input) : SV_TARGET
     return float4(normalColor, 1.0f);
 }";
 
-        public void LoadMeshes(List<ExtractedMesh> meshes)
+        private void RecalculateBounds()
         {
-            if (_device == null || meshes.Count == 0) return;
+            _boundsMin = new Vector3(float.MaxValue);
+            _boundsMax = new Vector3(float.MinValue);
+            foreach (var model in _models.Values)
+            {
+                _boundsMin = Vector3.Min(_boundsMin, model.BoundsMin);
+                _boundsMax = Vector3.Max(_boundsMax, model.BoundsMax);
+            }
+            if (_boundsMin.X > _boundsMax.X) // No models
+            {
+                _boundsMin = Vector3.Zero;
+                _boundsMax = Vector3.Zero;
+            }
+            _boundsCenter = (_boundsMin + _boundsMax) * 0.5f;
+            _boundsRadius = Vector3.Distance(_boundsMin, _boundsMax) * 0.5f;
+            if (_boundsRadius < 0.001f) _boundsRadius = 1.0f;
+            
+            _meshLoaded = _models.Count > 0;
+        }
 
-            // Combine all meshes into a single vertex/index buffer
+        public void LoadMeshes(string slot, List<ExtractedMesh> meshes)
+        {
+            if (_device == null || meshes == null || meshes.Count == 0) return;
+
             var allVertices = new List<Vertex>();
             var allIndices = new List<ushort>();
 
-            // Track bounding box across all meshes
-            _boundsMin = new Vector3(float.MaxValue);
-            _boundsMax = new Vector3(float.MinValue);
+            var bMin = new Vector3(float.MaxValue);
+            var bMax = new Vector3(float.MinValue);
 
             foreach (var mesh in meshes)
             {
@@ -195,8 +248,8 @@ float4 PS(PS_IN input) : SV_TARGET
                         UV = mesh.UVs.Count > i ? mesh.UVs[i] : Vector2.Zero
                     });
 
-                    _boundsMin = Vector3.Min(_boundsMin, pos);
-                    _boundsMax = Vector3.Max(_boundsMax, pos);
+                    bMin = Vector3.Min(bMin, pos);
+                    bMax = Vector3.Max(bMax, pos);
                 }
 
                 foreach (var idx in mesh.Indices)
@@ -205,17 +258,23 @@ float4 PS(PS_IN input) : SV_TARGET
                 }
             }
 
-            _boundsCenter = (_boundsMin + _boundsMax) * 0.5f;
-            _boundsRadius = Vector3.Distance(_boundsMin, _boundsMax) * 0.5f;
-            if (_boundsRadius < 0.001f) _boundsRadius = 1.0f;
+            if (!_models.TryGetValue(slot, out var model))
+            {
+                model = new RenderModel();
+                _models[slot] = model;
+            }
 
-            _indexCount = allIndices.Count;
+            model.BoundsMin = bMin;
+            model.BoundsMax = bMax;
+            model.IndexCount = allIndices.Count;
 
-            _vertexBuffer?.Dispose();
-            _vertexBuffer = _device.CreateBuffer(allVertices.ToArray(), BindFlags.VertexBuffer);
+            model.VertexBuffer?.Dispose();
+            model.VertexBuffer = _device.CreateBuffer(allVertices.ToArray(), BindFlags.VertexBuffer);
 
-            _indexBuffer?.Dispose();
-            _indexBuffer = _device.CreateBuffer(allIndices.ToArray(), BindFlags.IndexBuffer);
+            model.IndexBuffer?.Dispose();
+            model.IndexBuffer = _device.CreateBuffer(allIndices.ToArray(), BindFlags.IndexBuffer);
+
+            RecalculateBounds();
             if (_vertexShader == null)
             {
                 try
@@ -339,15 +398,16 @@ float4 PS(PS_IN input) : SV_TARGET
                 _context.ClearRenderTargetView(_renderTargetView, new Vortice.Mathematics.Color4(0.15f, 0.15f, 0.15f, 1.0f));
                 _context.ClearDepthStencilView(_depthStencilView, DepthStencilClearFlags.Depth, 1.0f, 0);
 
-                // Set Viewport
+                // Set Viewport and Rasterizer
                 _context.RSSetViewport(new Vortice.Mathematics.Viewport(0, 0, Width, Height));
+                _context.RSSetState(_rasterizerState);
 
-                if (_meshLoaded && _indexCount > 0 && _vertexBuffer != null && _indexBuffer != null)
+                if (_meshLoaded)
                 {
                     // Orbital camera: compute eye position from spherical coordinates
                     float camDist = _boundsRadius * 2.5f * _cameraDistance;
-                    float farPlane = camDist + _boundsRadius * 10f;
-                    float nearPlane = Math.Max(camDist * 0.001f, 0.001f);
+                    float farPlane = Math.Max(camDist + _boundsRadius * 10f, 100f);
+                    float nearPlane = Math.Max(_boundsRadius * 0.01f, 0.01f);
 
                     float cosPitch = MathF.Cos(_cameraPitch);
                     float sinPitch = MathF.Sin(_cameraPitch);
@@ -382,29 +442,36 @@ float4 PS(PS_IN input) : SV_TARGET
 
                     _context.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
                     _context.IASetInputLayout(_inputLayout);
-                    _context.IASetVertexBuffer(0, _vertexBuffer, 32); // 32 bytes stride
-                    _context.IASetIndexBuffer(_indexBuffer, Format.R16_UInt, 0);
-
+                    
                     _context.VSSetShader(_vertexShader);
                     _context.VSSetConstantBuffer(0, _constantBuffer);
                     _context.PSSetShader(_pixelShader);
-
-                    // Bind texture if loaded
-                    if (_hasTexture && _modelTextureSRV != null && _samplerState != null)
-                    {
-                        _context.PSSetShaderResource(0, _modelTextureSRV);
-                        _context.PSSetSampler(0, _samplerState);
-                        // Set pixel shader flags: hasTexture = 1.0
-                        _context.UpdateSubresource(new Vector4(1, 0, 0, 0), _psConstantBuffer);
-                    }
-                    else
-                    {
-                        _context.PSSetShaderResource(0, (ID3D11ShaderResourceView)null);
-                        _context.UpdateSubresource(new Vector4(0, 0, 0, 0), _psConstantBuffer);
-                    }
                     _context.PSSetConstantBuffer(1, _psConstantBuffer);
 
-                    _context.DrawIndexed(_indexCount, 0, 0);
+                    // Render each model slot
+                    foreach (var model in _models.Values)
+                    {
+                        if (model.IndexCount == 0 || model.VertexBuffer == null || model.IndexBuffer == null) continue;
+
+                        _context.IASetVertexBuffer(0, model.VertexBuffer, 32); // 32 bytes stride
+                        _context.IASetIndexBuffer(model.IndexBuffer, Format.R16_UInt, 0);
+
+                        // Bind texture if loaded
+                        if (model.HasTexture && model.TextureSRV != null && model.SamplerState != null)
+                        {
+                            _context.PSSetShaderResource(0, model.TextureSRV);
+                            _context.PSSetSampler(0, model.SamplerState);
+                            // Set pixel shader flags: hasTexture = 1.0
+                            _context.UpdateSubresource(new Vector4(1, 0, 0, 0), _psConstantBuffer);
+                        }
+                        else
+                        {
+                            _context.PSSetShaderResource(0, (ID3D11ShaderResourceView)null);
+                            _context.UpdateSubresource(new Vector4(0, 0, 0, 0), _psConstantBuffer);
+                        }
+
+                        _context.DrawIndexed(model.IndexCount, 0, 0);
+                    }
 
                     // Unbind texture to avoid state leaking into FFXIV
                     _context.PSSetShaderResource(0, (ID3D11ShaderResourceView)null);
@@ -412,6 +479,7 @@ float4 PS(PS_IN input) : SV_TARGET
                 
                 // Unbind to prevent issues with FFXIV
                 _context.OMSetRenderTargets((ID3D11RenderTargetView)null, (ID3D11DepthStencilView)null);
+                _context.RSSetState(null);
             }
             catch (Exception ex)
             {
@@ -420,15 +488,16 @@ float4 PS(PS_IN input) : SV_TARGET
         }
 
         /// <summary>
-        /// Load RGBA pixel data as a diffuse texture for the model.
+        /// Load RGBA pixel data as a diffuse texture for a specific model slot.
         /// </summary>
-        public void LoadTexture(byte[] rgbaPixels, int width, int height)
+        public void LoadTexture(string slot, byte[] rgbaPixels, int width, int height)
         {
             if (_device == null || rgbaPixels == null || rgbaPixels.Length < width * height * 4) return;
+            if (!_models.TryGetValue(slot, out var model)) return; // Model must exist
 
-            _modelTexture?.Dispose();
-            _modelTextureSRV?.Dispose();
-            _samplerState?.Dispose();
+            model.Texture?.Dispose();
+            model.TextureSRV?.Dispose();
+            model.SamplerState?.Dispose();
 
             var texDesc = new Texture2DDescription
             {
@@ -448,11 +517,11 @@ float4 PS(PS_IN input) : SV_TARGET
                 fixed (byte* pPixels = rgbaPixels)
                 {
                     var subData = new SubresourceData((IntPtr)pPixels, width * 4);
-                    _modelTexture = _device.CreateTexture2D(texDesc, new[] { subData });
+                    model.Texture = _device.CreateTexture2D(texDesc, new[] { subData });
                 }
             }
 
-            _modelTextureSRV = _device.CreateShaderResourceView(_modelTexture);
+            model.TextureSRV = _device.CreateShaderResourceView(model.Texture);
 
             var samplerDesc = new SamplerDescription
             {
@@ -464,42 +533,46 @@ float4 PS(PS_IN input) : SV_TARGET
                 MinLOD = 0,
                 MaxLOD = float.MaxValue
             };
-            _samplerState = _device.CreateSamplerState(samplerDesc);
+            model.SamplerState = _device.CreateSamplerState(samplerDesc);
 
-            _hasTexture = true;
+            model.HasTexture = true;
         }
 
-        /// <summary>Remove the currently loaded texture, reverting to normal-colored shading.</summary>
-        public void ClearTexture()
+        /// <summary>Remove the currently loaded texture for a slot, reverting to normal-colored shading.</summary>
+        public void ClearTexture(string slot)
         {
-            _modelTexture?.Dispose();
-            _modelTextureSRV?.Dispose();
-            _samplerState?.Dispose();
-            _modelTexture = null;
-            _modelTextureSRV = null;
-            _samplerState = null;
-            _hasTexture = false;
+            if (_models.TryGetValue(slot, out var model))
+            {
+                model.Texture?.Dispose();
+                model.TextureSRV?.Dispose();
+                model.SamplerState?.Dispose();
+                model.Texture = null;
+                model.TextureSRV = null;
+                model.SamplerState = null;
+                model.HasTexture = false;
+            }
         }
 
-        public bool HasTexture => _hasTexture;
+        public bool HasTexture(string slot) => _models.TryGetValue(slot, out var m) && m.HasTexture;
 
         public void Dispose()
         {
-            _vertexBuffer?.Dispose();
-            _indexBuffer?.Dispose();
+            foreach (var model in _models.Values)
+            {
+                model.Dispose();
+            }
+            _models.Clear();
+
             _vertexShader?.Dispose();
             _pixelShader?.Dispose();
             _inputLayout?.Dispose();
             _constantBuffer?.Dispose();
             _psConstantBuffer?.Dispose();
 
-            _modelTexture?.Dispose();
-            _modelTextureSRV?.Dispose();
-            _samplerState?.Dispose();
-
             _depthStencilView?.Dispose();
             _depthStencilTexture?.Dispose();
             _depthStencilState?.Dispose();
+            _rasterizerState?.Dispose();
 
             _renderTargetView?.Dispose();
             _shaderResourceView?.Dispose();

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Numerics;
+using System.Collections.Generic;
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
 
@@ -11,10 +12,21 @@ namespace DragAndDropTexturing.Windows
         private ModelRenderer _renderer;
         private bool _rendererInitialized = false;
         private string _errorMessage = null;
-        private string _modelPath = "chara/human/c0101/obj/face/f0001/model/c0101f0001_fac.mdl";
-        private string _loadStatus = "";
-        private string _texturePath = "";
-        private string _textureStatus = "";
+        private class SlotData
+        {
+            public string Name;
+            public string ModelPath = "";
+            public string TexturePath = "";
+            public string LoadStatus = "";
+            public string TextureStatus = "";
+        }
+
+        private List<SlotData> _slots = new List<SlotData>
+        {
+            new SlotData { Name = "Head", ModelPath = "chara/human/c0101/obj/face/f0001/model/c0101f0001_fac.mdl" },
+            new SlotData { Name = "Top", ModelPath = "chara/human/c0101/obj/body/b0001/model/c0101b0001_top.mdl" },
+            new SlotData { Name = "Bottom", ModelPath = "chara/human/c0101/obj/body/b0001/model/c0101b0001_dwn.mdl" }
+        };
 
         // Mouse state for camera controls
         private Vector2 _lastMousePos = Vector2.Zero;
@@ -27,9 +39,9 @@ namespace DragAndDropTexturing.Windows
             SizeCondition = ImGuiCond.FirstUseEver;
         }
 
-        private void LoadModel(string path, bool fromDisk)
+        private void LoadModel(SlotData slot, bool fromDisk)
         {
-            _loadStatus = "";
+            slot.LoadStatus = "";
             try
             {
                 System.Collections.Generic.List<ExtractedMesh> meshes;
@@ -37,13 +49,13 @@ namespace DragAndDropTexturing.Windows
                 if (fromDisk)
                 {
                     // Bypass Lumina entirely for disk files — read raw bytes ourselves
-                    if (!System.IO.File.Exists(path))
+                    if (!System.IO.File.Exists(slot.ModelPath))
                     {
-                        _loadStatus = "File not found on disk.";
+                        slot.LoadStatus = "File not found on disk.";
                         return;
                     }
-                    meshes = MdlParser.ParseFromDisk(path, out var diskStatus);
-                    _loadStatus = diskStatus;
+                    meshes = MdlParser.ParseFromDisk(slot.ModelPath, out var diskStatus);
+                    slot.LoadStatus = diskStatus;
                 }
                 else
                 {
@@ -51,7 +63,7 @@ namespace DragAndDropTexturing.Windows
                     Lumina.Data.Files.MdlFile mdlFile = null;
                     try
                     {
-                        mdlFile = Plugin.DataManager.GetFile<Lumina.Data.Files.MdlFile>(path);
+                        mdlFile = Plugin.DataManager.GetFile<Lumina.Data.Files.MdlFile>(slot.ModelPath);
                     }
                     catch (Exception)
                     {
@@ -65,25 +77,25 @@ namespace DragAndDropTexturing.Windows
                     else
                     {
                         meshes = MdlParser.GetDummyCube();
-                        _loadStatus = "Lumina MDL parse failed (Dawntrail format). Showing test cube.";
+                        slot.LoadStatus = "Lumina MDL parse failed (Dawntrail format). Showing test cube.";
                     }
                 }
 
                 if (meshes.Count > 0)
                 {
-                    _renderer.LoadMeshes(meshes);
+                    _renderer.LoadMeshes(slot.Name, meshes);
                     _renderer.ResetCamera();
-                    if (string.IsNullOrEmpty(_loadStatus))
-                        _loadStatus = $"Loaded {meshes.Count} meshes successfully.";
+                    if (string.IsNullOrEmpty(slot.LoadStatus))
+                        slot.LoadStatus = $"Loaded {meshes.Count} meshes successfully.";
                 }
                 else
                 {
-                    _loadStatus = "No mesh data available.";
+                    slot.LoadStatus = "No mesh data available.";
                 }
             }
             catch (Exception ex)
             {
-                _loadStatus = "Error: " + ex.ToString();
+                slot.LoadStatus = "Error: " + ex.ToString();
             }
         }
 
@@ -112,56 +124,58 @@ namespace DragAndDropTexturing.Windows
             var region = ImGui.GetContentRegionAvail();
             
             // UI to load models
-            ImGui.InputText("Model Path", ref _modelPath, 1024);
-            if (ImGui.Button("Load Game Path"))
+            foreach (var slot in _slots)
             {
-                LoadModel(_modelPath, false);
+                if (ImGui.CollapsingHeader(slot.Name + " Slot", ImGuiTreeNodeFlags.DefaultOpen))
+                {
+                    ImGui.InputText($"Model Path##{slot.Name}", ref slot.ModelPath, 1024);
+                    if (ImGui.Button($"Load Game Path##{slot.Name}")) LoadModel(slot, false);
+                    ImGui.SameLine();
+                    if (ImGui.Button($"Load From Disk##{slot.Name}")) LoadModel(slot, true);
+
+                    if (!string.IsNullOrEmpty(slot.LoadStatus)) ImGui.TextWrapped(slot.LoadStatus);
+
+                    ImGui.InputText($"Texture Path##{slot.Name}", ref slot.TexturePath, 1024);
+                    if (ImGui.Button($"Load Texture##{slot.Name}")) LoadTextureFromDisk(slot);
+                    ImGui.SameLine();
+                    if (ImGui.Button($"Clear Texture##{slot.Name}"))
+                    {
+                        _renderer?.ClearTexture(slot.Name);
+                        slot.TextureStatus = "Texture cleared.";
+                    }
+
+                    if (slot.Name == "Top")
+                    {
+                        ImGui.SameLine();
+                        if (ImGui.Button($"Load to Top & Bottom##{slot.Name}"))
+                        {
+                            LoadTextureFromDisk(slot);
+                            var bottomSlot = _slots.Find(s => s.Name == "Bottom");
+                            if (bottomSlot != null)
+                            {
+                                bottomSlot.TexturePath = slot.TexturePath;
+                                LoadTextureFromDisk(bottomSlot);
+                            }
+                        }
+                    }
+
+                    if (_renderer != null && _renderer.HasTexture(slot.Name))
+                    {
+                        ImGui.SameLine();
+                        ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f), "[Textured]");
+                    }
+
+                    if (!string.IsNullOrEmpty(slot.TextureStatus)) ImGui.TextWrapped(slot.TextureStatus);
+                }
             }
-            ImGui.SameLine();
-            if (ImGui.Button("Load From Disk"))
-            {
-                LoadModel(_modelPath, true);
-            }
-            ImGui.SameLine();
-            if (ImGui.Button("Reset Camera"))
-            {
-                _renderer?.ResetCamera();
-            }
+
+            ImGui.Spacing();
+            if (ImGui.Button("Reset Camera")) _renderer?.ResetCamera();
             if (_renderer != null)
             {
                 ImGui.SameLine();
                 bool ortho = _renderer.UseOrthographic;
-                if (ImGui.Button(ortho ? "Orthographic" : "Perspective"))
-                {
-                    _renderer.UseOrthographic = !ortho;
-                }
-            }
-
-            // Texture loading row
-            ImGui.InputText("Texture Path", ref _texturePath, 1024);
-            if (ImGui.Button("Load Texture"))
-            {
-                LoadTextureFromDisk(_texturePath);
-            }
-            ImGui.SameLine();
-            if (ImGui.Button("Clear Texture"))
-            {
-                _renderer?.ClearTexture();
-                _textureStatus = "Texture cleared.";
-            }
-            if (_renderer != null && _renderer.HasTexture)
-            {
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f), "[Textured]");
-            }
-            if (!string.IsNullOrEmpty(_textureStatus))
-            {
-                ImGui.TextWrapped(_textureStatus);
-            }
-
-            if (!string.IsNullOrEmpty(_loadStatus))
-            {
-                ImGui.TextWrapped(_loadStatus);
+                if (ImGui.Button(ortho ? "Orthographic" : "Perspective")) _renderer.UseOrthographic = !ortho;
             }
 
             ImGui.Spacing();
@@ -252,41 +266,31 @@ namespace DragAndDropTexturing.Windows
             // Help text
             ImGui.TextDisabled("LMB: Rotate | MMB/RMB: Pan | Scroll: Zoom | Reset Camera button to reset");
         }
-        private void LoadTextureFromDisk(string path)
+        private void LoadTextureFromDisk(SlotData slot)
         {
-            _textureStatus = "";
+            slot.TextureStatus = "";
             try
             {
-                if (!File.Exists(path))
+                if (!File.Exists(slot.TexturePath))
                 {
-                    _textureStatus = "Texture file not found.";
+                    slot.TextureStatus = "Texture file not found.";
                     return;
                 }
 
-                string ext = Path.GetExtension(path).ToLowerInvariant();
+                string ext = Path.GetExtension(slot.TexturePath).ToLowerInvariant();
                 byte[] rgbaPixels;
                 int texWidth, texHeight;
 
                 if (ext == ".tex")
                 {
-                    // FFXIV .tex format — read via Lumina's TexFile structure
-                    var texData = File.ReadAllBytes(path);
-                    var texFile = new Lumina.Data.Files.TexFile();
-                    // Manually load the tex file from raw bytes
-                    using var ms = new MemoryStream(texData);
-                    using var reader = new BinaryReader(ms);
-
-                    // TexFile header: Type(4), Format(4), Width(2), Height(2), Layers(2), MipLevels(2), ...
-                    // Then mip offset table, then pixel data
-                    // For simplicity, use Lumina's built-in RGBA converter via reflection or just
-                    // load as standard image if available
-                    _textureStatus = ".tex loading: Use PNG/BMP/DDS export from TexTools for now.";
+                    var texData = File.ReadAllBytes(slot.TexturePath);
+                    slot.TextureStatus = ".tex loading: Use PNG/BMP/DDS export from TexTools for now.";
                     return;
                 }
                 else
                 {
                     // Standard image formats via System.Drawing
-                    using var bitmap = new System.Drawing.Bitmap(path);
+                    using var bitmap = new System.Drawing.Bitmap(slot.TexturePath);
                     texWidth = bitmap.Width;
                     texHeight = bitmap.Height;
                     rgbaPixels = new byte[texWidth * texHeight * 4];
@@ -318,12 +322,12 @@ namespace DragAndDropTexturing.Windows
                     bitmap.UnlockBits(bmpData);
                 }
 
-                _renderer.LoadTexture(rgbaPixels, texWidth, texHeight);
-                _textureStatus = $"Texture loaded: {texWidth}×{texHeight} from {Path.GetFileName(path)}";
+                _renderer.LoadTexture(slot.Name, rgbaPixels, texWidth, texHeight);
+                slot.TextureStatus = $"Texture loaded: {texWidth}×{texHeight} from {Path.GetFileName(slot.TexturePath)}";
             }
             catch (Exception ex)
             {
-                _textureStatus = "Texture load error: " + ex.Message;
+                slot.TextureStatus = "Texture load error: " + ex.Message;
             }
         }
 
