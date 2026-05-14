@@ -369,6 +369,51 @@ float4 PS(PS_IN input) : SV_TARGET
                 }
             }
             
+            // Dilation pass to fix UV seams/creases (Edge Padding)
+            int dilationPasses = 2;
+            for (int pass = 0; pass < dilationPasses; pass++)
+            {
+                float[] newPosData = (float[])posData.Clone();
+                float[] newNormData = (float[])normData.Clone();
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        int idx = (y * width + x) * 4;
+                        if (posData[idx + 3] < 0.5f) // Empty pixel
+                        {
+                            // Look for valid neighbor
+                            int[] offsetsX = { -1, 1, 0, 0, -1, 1, -1, 1 };
+                            int[] offsetsY = { 0, 0, -1, 1, -1, -1, 1, 1 };
+                            for (int n = 0; n < 8; n++)
+                            {
+                                int nx = x + offsetsX[n];
+                                int ny = y + offsetsY[n];
+                                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                                {
+                                    int nIdx = (ny * width + nx) * 4;
+                                    if (posData[nIdx + 3] > 0.5f)
+                                    {
+                                        newPosData[idx] = posData[nIdx];
+                                        newPosData[idx + 1] = posData[nIdx + 1];
+                                        newPosData[idx + 2] = posData[nIdx + 2];
+                                        newPosData[idx + 3] = 1.0f; // Mark as filled
+
+                                        newNormData[idx] = normData[nIdx];
+                                        newNormData[idx + 1] = normData[nIdx + 1];
+                                        newNormData[idx + 2] = normData[nIdx + 2];
+                                        newNormData[idx + 3] = 1.0f;
+                                        break; // Found a valid neighbor, stop searching
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                posData = newPosData;
+                normData = newNormData;
+            }
+
             _positionMapTex?.Dispose();
             PositionMapSRV?.Dispose();
             _normalMapTex?.Dispose();
