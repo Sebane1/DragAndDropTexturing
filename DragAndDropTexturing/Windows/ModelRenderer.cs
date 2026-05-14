@@ -331,11 +331,14 @@ float4 PS(PS_IN input) : SV_TARGET
                             float w1 = EdgeFunction(p2, p0, p);
                             float w2 = EdgeFunction(p0, p1, p);
                             
-                            if (w0 >= 0 && w1 >= 0 && w2 >= 0)
+                            bool inside = (w0 >= -0.001f && w1 >= -0.001f && w2 >= -0.001f) || (w0 <= 0.001f && w1 <= 0.001f && w2 <= 0.001f);
+                            if (inside)
                             {
-                                float area = w0 + w1 + w2;
+                                float area = Math.Abs(w0) + Math.Abs(w1) + Math.Abs(w2);
                                 if (area == 0) continue;
-                                w0 /= area; w1 /= area; w2 /= area;
+                                w0 = Math.Abs(w0) / area;
+                                w1 = Math.Abs(w1) / area;
+                                w2 = Math.Abs(w2) / area;
 
                                 Vector3 pos = v0.Position * w0 + v1.Position * w1 + v2.Position * w2;
                                 Vector3 norm = v0.Normal * w0 + v1.Normal * w1 + v2.Normal * w2;
@@ -610,6 +613,12 @@ float4 PS(PS_IN input) : SV_TARGET
                             // Interpolate UV
                             float w = 1.0f - u - v;
                             uvHit = v0.UV * w + v1.UV * u + v2.UV * v;
+                            worldPos = rayOrigin + rayDir * t;
+                            
+                            // Interpolate Normal
+                            Vector3 interpolatedNormal = v0.Normal * w + v1.Normal * u + v2.Normal * v;
+                            float nLen = interpolatedNormal.Length();
+                            worldNormal = nLen > 0.0001f ? interpolatedNormal / nLen : Vector3.UnitZ;
                         }
                     }
                 }
@@ -991,12 +1000,22 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
         private const string StampShaderCode = @"
 cbuffer StampParams : register(b0)
 {
-    float2 Position; // Top-left UV
-    float2 Scale;    // UV size
+    float2 UVPosition;
+    float2 UVScale;
+    float3 DecalCenter;
+    float DecalDepth;
+    float3 DecalNormal;
+    float DecalRadius;
+    float3 DecalTangent;
+    int Is3D;
+    float3 DecalBitangent;
+    float Padding1;
 };
 Texture2D<float4> StampTex : register(t0);
 SamplerState StampSampler : register(s0);
 RWTexture2D<float4> PaintLayer : register(u0);
+Texture2D<float4> PositionMap : register(t1);
+Texture2D<float4> NormalMap : register(t2);
 
 [numthreads(16, 16, 1)]
 void CSStamp(uint3 id : SV_DispatchThreadID)
@@ -1006,19 +1025,52 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
     if (id.x >= w || id.y >= h) return;
 
     float2 uv = float2(id.x, id.y) / float2(w, h);
+    float4 stamp = float4(0,0,0,0);
     
-    if (uv.x >= Position.x && uv.x <= Position.x + Scale.x &&
-        uv.y >= Position.y && uv.y <= Position.y + Scale.y)
+    if (Is3D > 0)
     {
-        float2 localUv = (uv - Position) / Scale;
-        float4 stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
-        
+        float4 posData = PositionMap[id.xy];
+        if (posData.a > 0.5f)
+        {
+            float3 pos = posData.xyz;
+            float3 norm = NormalMap[id.xy].xyz;
+            
+            float3 offset = pos - DecalCenter;
+            float z = dot(offset, DecalNormal);
+            if (abs(z) <= DecalDepth)
+            {
+                float x = dot(offset, DecalTangent);
+                float y = dot(offset, DecalBitangent);
+                if (abs(x) <= DecalRadius && abs(y) <= DecalRadius)
+                {
+                    float2 localUv = float2(x / DecalRadius * 0.5f + 0.5f, -y / DecalRadius * 0.5f + 0.5f);
+                    stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
+                }
+            }
+            // Debug: Draw a red dot exactly at the center
+            if (length(offset) < 0.02f)
+            {
+                stamp = float4(1, 0, 0, 1);
+            }
+        }
+    }
+    else
+    {
+        if (uv.x >= UVPosition.x && uv.x <= UVPosition.x + UVScale.x &&
+            uv.y >= UVPosition.y && uv.y <= UVPosition.y + UVScale.y)
+        {
+            float2 localUv = (uv - UVPosition) / UVScale;
+            stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
+        }
+    }
+    
+    if (stamp.a > 0.001f)
+    {
         float4 existing = PaintLayer[id.xy];
         float outA = stamp.a + existing.a * (1.0f - stamp.a);
         float3 outRGB = (outA > 0.001f)
             ? (stamp.rgb * stamp.a + existing.rgb * existing.a * (1.0f - stamp.a)) / outA
             : float3(0,0,0);
-        
         PaintLayer[id.xy] = float4(outRGB, outA);
     }
 }";
