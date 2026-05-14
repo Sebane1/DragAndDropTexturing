@@ -99,7 +99,7 @@ namespace RoleplayingVoice
             string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
             string sourceUV = "";
             if (fileName.Contains("bibo") || fileName.Contains("b+")) sourceUV = "bibo";
-            else if (fileName.Contains("gen3") || fileName.Contains("eve")) sourceUV = "gen3";
+            else if (fileName.Contains("gen3") || System.Text.RegularExpressions.Regex.IsMatch(fileName, @"(^|[^a-z])eve([^a-z]|$)")) sourceUV = "gen3";
             else if (fileName.Contains("tbse")) sourceUV = "tbse";
             else if (fileName.Contains("gen2") || fileName.Contains("body") || fileName.Contains("mata")) sourceUV = "gen2";
 
@@ -1803,7 +1803,7 @@ namespace RoleplayingVoice
             string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
             if (gender != 0) {
                 if (fileName.Contains("bibo") || fileName.Contains("b+")) return 1;
-                if (fileName.Contains("gen3") || fileName.Contains("eve") || fileName.Contains("exqb") || fileName.Contains("pythia") || fileName.Contains("gaia")) return 2;
+                if (fileName.Contains("gen3") || System.Text.RegularExpressions.Regex.IsMatch(fileName, @"(^|[^a-z])eve([^a-z]|$)") || fileName.Contains("exqb") || fileName.Contains("pythia") || fileName.Contains("gaia")) return 2;
             }
             if (gender != 1) {
                 if (fileName.Contains("tbse")) return 3;

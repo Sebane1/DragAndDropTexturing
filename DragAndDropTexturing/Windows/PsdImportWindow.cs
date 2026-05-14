@@ -434,7 +434,7 @@ namespace DragAndDropTexturing.Windows
                 FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = prevOverrideMode;
 
                 string lowerPath = _topModelDiskPath.ToLower();
-                bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || lowerPath.Contains("eve") || lowerPath.Contains("gaia");
+                bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia");
                 bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+");
 
                 if (!isGen3 && !isBibo)

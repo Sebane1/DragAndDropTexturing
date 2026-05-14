@@ -369,6 +369,16 @@ public class MainWindow : Window, IDisposable
                         i--;
                         changed = true;
                     }
+
+                    // Edit button — opens the Texture Painter with this layer loaded
+                    if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                    {
+                        ImGui.SameLine();
+                        if (ImGui.Button("Edit##" + key + i))
+                        {
+                            Plugin.TexturePaintingWindow.OpenForEditing(path);
+                        }
+                    }
                 }
 
                 if (ImGui.Button("Add New Layer (Open Painter)##" + key))

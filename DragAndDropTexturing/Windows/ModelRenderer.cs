@@ -52,17 +52,21 @@ namespace DragAndDropTexturing.Windows
         [StructLayout(LayoutKind.Sequential)]
         private struct BrushParams
         {
-            public Vector2 Center;
-            public Vector2 PrevCenter;
-            public float Radius;
-            public float Hardness;
-            public int HasPrev;
-            public int BlendMode;
-            public int ShapeMode;
-            public int Padding1;
-            public int Padding2;
-            public int Padding3;
-            public Vector4 Color;
+            public Vector2 Center;       // 8 bytes
+            public Vector2 PrevCenter;   // 8 bytes
+            public float Radius;         // 4
+            public float Hardness;       // 4
+            public int HasPrev;          // 4
+            public int BlendMode;        // 4  (0=Normal, 1=Eraser, 2=Multiply, 3=Screen, 4=Overlay, 5=SoftLight)
+            public int ShapeMode;        // 4
+            public float Flow;           // 4  (per-dab alpha multiplier, 0-1)
+            public float Angle;          // 4  (rotation in radians)
+            public float NoiseScale;     // 4  (grain frequency, 0 = off)
+            public float NoiseAmount;    // 4  (how much noise modulates alpha, 0-1)  offset 48
+            public float Seed;           // 4  (random seed for noise)                 offset 52
+            public float Padding_A;      // 4  alignment padding                       offset 56
+            public float Padding_B;      // 4  alignment padding                       offset 60
+            public Vector4 Color;        // 16                                         offset 64
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -212,6 +216,7 @@ namespace DragAndDropTexturing.Windows
         }
 
         private Dictionary<string, RenderModel> _models = new Dictionary<string, RenderModel>();
+        public HashSet<string> HiddenSlots { get; } = new HashSet<string>();
 
         public struct Vertex
         {
@@ -776,8 +781,10 @@ float4 PS(PS_IN input) : SV_TARGET
                     _context.PSSetConstantBuffer(1, _psConstantBuffer);
 
                     // Render each model slot
-                    foreach (var model in _models.Values)
+                    foreach (var kvp in _models)
                     {
+                        var model = kvp.Value;
+                        if (HiddenSlots.Contains(kvp.Key)) continue;
                         if (model.IndexCount == 0 || model.VertexBuffer == null || model.IndexBuffer == null) continue;
 
                         _context.IASetVertexBuffer(0, model.VertexBuffer, 32); // 32 bytes stride
@@ -948,14 +955,38 @@ cbuffer BrushParams : register(b0)
     float Radius;
     float Hardness;
     int HasPrev;
-    int BlendMode;
-    int ShapeMode;
-    int Padding1;
-    int Padding2;
-    int Padding3;
+    int BlendMode;     // 0=Normal, 1=Eraser, 2=Multiply, 3=Screen, 4=Overlay, 5=SoftLight
+    int ShapeMode;     // 0=Circle, 1=Square (kept for struct alignment)
+    float Flow;        // per-dab alpha multiplier
+    float Angle;       // rotation in radians
+    float NoiseScale;  // grain frequency, 0 = off
+    float NoiseAmount; // how much noise modulates alpha, 0-1
+    float Seed;        // random seed for noise
+    float Padding_A;   // alignment padding
+    float Padding_B;   // alignment padding
     float4 Color;
 };
 RWTexture2D<float4> PaintLayer : register(u0);
+
+// ── GPU hash noise (no textures needed) ──
+float hash21(float2 p)
+{
+    p = frac(p * float2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return frac(p.x * p.y);
+}
+
+float valueNoise(float2 p)
+{
+    float2 i = floor(p);
+    float2 f = frac(p);
+    f = f * f * (3.0 - 2.0 * f); // smoothstep interpolation
+    float a = hash21(i);
+    float b = hash21(i + float2(1,0));
+    float c = hash21(i + float2(0,1));
+    float d = hash21(i + float2(1,1));
+    return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+}
 
 float distToSegment(float2 p, float2 a, float2 b)
 {
@@ -966,6 +997,24 @@ float distToSegment(float2 p, float2 a, float2 b)
     return length(p - closest);
 }
 
+// ── Blend mode helpers ──
+float3 blendMultiply(float3 base, float3 blend) { return base * blend; }
+float3 blendScreen(float3 base, float3 blend) { return 1.0 - (1.0 - base) * (1.0 - blend); }
+float3 blendOverlay(float3 base, float3 blend)
+{
+    return lerp(
+        2.0 * base * blend,
+        1.0 - 2.0 * (1.0 - base) * (1.0 - blend),
+        step(0.5, base));
+}
+float3 blendSoftLight(float3 base, float3 blend)
+{
+    return lerp(
+        2.0 * base * blend + base * base * (1.0 - 2.0 * blend),
+        sqrt(base) * (2.0 * blend - 1.0) + 2.0 * base * (1.0 - blend),
+        step(0.5, blend));
+}
+
 [numthreads(16, 16, 1)]
 void CSPaint(uint3 id : SV_DispatchThreadID)
 {
@@ -973,45 +1022,60 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
     PaintLayer.GetDimensions(w, h);
     if (id.x >= w || id.y >= h) return;
 
-    if (ShapeMode == 2) // Fill Tool
+    // ── Fill Tool ──
+    if (ShapeMode == 2) // Fill
     {
         PaintLayer[id.xy] = Color;
         return;
     }
 
     float2 pixel = float2(id.x, id.y) + 0.5f;
+
+    // ── Apply rotation: transform pixel into brush-local space ──
+    float2 localPixel = pixel - Center;
+    if (abs(Angle) > 0.001f)
+    {
+        float cs = cos(-Angle);
+        float sn = sin(-Angle);
+        localPixel = float2(localPixel.x * cs - localPixel.y * sn,
+                            localPixel.x * sn + localPixel.y * cs);
+    }
+
+    // ── Distance computation ──
     float dist = 0.0f;
     
+    // For rotated square brush we use Chebyshev distance in rotated space
     if (ShapeMode == 1) // Square
     {
-        if (HasPrev > 0)
-        {
-            float2 ab = PrevCenter - Center;
-            float2 ap = pixel - Center;
-            float t = saturate(dot(ap, ab) / max(dot(ab, ab), 0.0001f));
-            float2 closest = Center + ab * t;
-            float2 d = abs(pixel - closest);
-            dist = max(d.x, d.y);
-        }
-        else
-        {
-            float2 d = abs(pixel - Center);
-            dist = max(d.x, d.y);
-        }
+        float2 d = abs(localPixel);
+        dist = max(d.x, d.y);
     }
-    else // Circle
+    else
     {
+        // Circle mode
         if (HasPrev > 0)
             dist = distToSegment(pixel, PrevCenter, Center);
         else
-            dist = length(pixel - Center);
+            dist = length(localPixel);
     }
 
     if (dist <= Radius)
     {
+        // ── Edge falloff ──
         float softEdge = Radius * (1.0f - saturate(Hardness));
-        float edge = (ShapeMode == 1) ? step(dist, Radius) : smoothstep(Radius, max(0.0001f, Radius - softEdge), dist);
-        float alpha = Color.a * edge;
+        float edge = (softEdge < 0.01f)
+            ? step(dist, Radius)
+            : smoothstep(Radius, Radius - softEdge, dist);
+
+        // ── Noise / texture grain modulation ──
+        float noiseMod = 1.0f;
+        if (NoiseScale > 0.001f)
+        {
+            float n = valueNoise(pixel * NoiseScale + Seed);
+            noiseMod = lerp(1.0f, n, NoiseAmount);
+        }
+
+        float alpha = Color.a * edge * Flow * noiseMod;
         float4 existing = PaintLayer[id.xy];
         
         if (BlendMode == 1) // Eraser
@@ -1019,11 +1083,23 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
             float outA = saturate(existing.a - alpha);
             PaintLayer[id.xy] = float4(existing.rgb, outA);
         }
-        else // Normal Blending
+        else
         {
+            // Determine blended color
+            float3 brushRGB = Color.rgb;
+            if (BlendMode == 2) // Multiply
+                brushRGB = blendMultiply(existing.rgb, Color.rgb);
+            else if (BlendMode == 3) // Screen
+                brushRGB = blendScreen(existing.rgb, Color.rgb);
+            else if (BlendMode == 4) // Overlay
+                brushRGB = blendOverlay(existing.rgb, Color.rgb);
+            else if (BlendMode == 5) // Soft Light
+                brushRGB = blendSoftLight(existing.rgb, Color.rgb);
+            // else BlendMode == 0: Normal — brushRGB stays as Color.rgb
+
             float outA = alpha + existing.a * (1.0f - alpha);
             float3 outRGB = (outA > 0.001f)
-                ? (Color.rgb * alpha + existing.rgb * existing.a * (1.0f - alpha)) / outA
+                ? (brushRGB * alpha + existing.rgb * existing.a * (1.0f - alpha)) / outA
                 : float3(0,0,0);
             PaintLayer[id.xy] = float4(outRGB, outA);
         }
@@ -1241,7 +1317,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _gpuBaseSRV = _device.CreateShaderResourceView(_gpuBaseTex);
         }
 
-        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, float hardness, Vector4 color, int blendMode = 0, int shapeMode = 0)
+        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, float hardness, Vector4 color, int blendMode = 0, int shapeMode = 0, float flow = 1.0f, float angle = 0f, float noiseScale = 0f, float noiseAmount = 0f, float seed = 0f)
         {
             if (!_gpuPaintReady || _context == null) return;
 
@@ -1256,27 +1332,69 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 HasPrev = uvPrev.HasValue ? 1 : 0,
                 BlendMode = blendMode,
                 ShapeMode = shapeMode,
-                Padding1 = 0,
-                Padding2 = 0,
-                Padding3 = 0,
+                Flow = flow,
+                Angle = angle,
+                NoiseScale = noiseScale,
+                NoiseAmount = noiseAmount,
+                Seed = seed,
                 Color = color
             };
 
             _context.UpdateSubresource(brushParams, _brushCB);
 
-            // Save current CS state
             _context.CSSetShader(_paintBrushCS);
             _context.CSSetConstantBuffer(0, _brushCB);
             _context.CSSetUnorderedAccessView(0, _gpuPaintUAV);
 
-            // Dispatch over the affected region (full texture for simplicity, GPU handles it fast)
             int groupsX = (_paintTexWidth + 15) / 16;
             int groupsY = (_paintTexHeight + 15) / 16;
             _context.Dispatch(groupsX, groupsY, 1);
 
-            // Unbind
             _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
             _context.CSSetShader(null);
+        }
+
+        /// <summary>
+        /// Uploads RGBA byte pixel data into the GPU paint layer, replacing its current content.
+        /// The input must match the paint texture dimensions (PaintTexWidth x PaintTexHeight).
+        /// </summary>
+        public void LoadPaintLayerFromRgba(byte[] rgbaPixels, int width, int height)
+        {
+            if (!_gpuPaintReady || _context == null || _gpuPaintTex == null) return;
+            if (width != _paintTexWidth || height != _paintTexHeight) return;
+
+            // Convert byte RGBA to float RGBA (paint texture is R32G32B32A32_Float)
+            float[] floatPixels = new float[width * height * 4];
+            for (int i = 0; i < width * height; i++)
+            {
+                int bi = i * 4;
+                floatPixels[bi + 0] = rgbaPixels[bi + 0] / 255f; // R
+                floatPixels[bi + 1] = rgbaPixels[bi + 1] / 255f; // G
+                floatPixels[bi + 2] = rgbaPixels[bi + 2] / 255f; // B
+                floatPixels[bi + 3] = rgbaPixels[bi + 3] / 255f; // A
+            }
+
+            // Create a staging texture, copy data in, then copy to paint texture
+            var stagingDesc = new Texture2DDescription
+            {
+                Width = width, Height = height,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+
+            unsafe
+            {
+                fixed (float* ptr = floatPixels)
+                {
+                    var subData = new SubresourceData((IntPtr)ptr, width * 16); // 16 bytes per pixel (4 floats)
+                    using var staging = _device.CreateTexture2D(stagingDesc, new[] { subData });
+                    _context.CopyResource(_gpuPaintTex, staging);
+                }
+            }
         }
 
         public void GpuStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, bool is3D = false, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)

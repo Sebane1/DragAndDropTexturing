@@ -45,11 +45,60 @@ namespace DragAndDropTexturing.Windows
 
         private float _brushHardness = 0.5f;
         private float _brushOpacity = 1.0f;
+        private float _brushFlow = 1.0f;
+        private float _brushSpacing = 0.15f;      // % of brush diameter between dabs
+        private float _brushScatter = 0.0f;        // perpendicular scatter 0-1
+        private float _brushAngle = 0.0f;          // rotation in degrees (displayed), stored as radians internally
+        private float _brushNoiseScale = 0.0f;     // texture grain frequency
+        private float _brushNoiseAmount = 0.0f;    // texture grain strength 0-1
+        private float _brushSizeJitter = 0.0f;     // random size variation per dab 0-1
+        private int _brushBlendMode = 0;           // 0=Normal, 1=Eraser, 2=Multiply, 3=Screen, 4=Overlay, 5=SoftLight
+        private float _strokeSeed = 0f;            // re-seeded per stroke for noise variation
+        private float _strokeDistance = 0f;        // accumulated distance for spacing
+        private static readonly Random _rng = new Random();
+
         private enum PaintTool { Brush, Eraser, Fill, Eyedropper }
         private enum PaintShape { Circle, Square }
 
         private PaintTool _activeTool = PaintTool.Brush;
         private PaintShape _activeShape = PaintShape.Circle;
+
+        // ── Brush Presets ──
+        private int _activePresetIndex = 0;
+        private static readonly string[] BlendModeNames = new[] { "Normal", "Eraser", "Multiply", "Screen", "Overlay", "Soft Light" };
+
+        private struct BrushPreset
+        {
+            public string Name;
+            public float Size;
+            public float Hardness;
+            public float Opacity;
+            public float Flow;
+            public float Spacing;
+            public float Scatter;
+            public float Angle;
+            public float NoiseScale;
+            public float NoiseAmount;
+            public float SizeJitter;
+            public int BlendMode;
+            public PaintShape Shape;
+        }
+
+        private static readonly BrushPreset[] Presets = new[]
+        {
+            new BrushPreset { Name = "Hard Round",   Size = 10f, Hardness = 1.0f, Opacity = 1.0f, Flow = 1.0f,  Spacing = 0.05f, Scatter = 0f,    Angle = 0f, NoiseScale = 0f,   NoiseAmount = 0f,   SizeJitter = 0f,   BlendMode = 0, Shape = PaintShape.Circle },
+            new BrushPreset { Name = "Soft Round",   Size = 15f, Hardness = 0.3f, Opacity = 1.0f, Flow = 0.8f,  Spacing = 0.10f, Scatter = 0f,    Angle = 0f, NoiseScale = 0f,   NoiseAmount = 0f,   SizeJitter = 0f,   BlendMode = 0, Shape = PaintShape.Circle },
+            new BrushPreset { Name = "Airbrush",     Size = 25f, Hardness = 0.1f, Opacity = 0.6f, Flow = 0.15f, Spacing = 0.05f, Scatter = 0f,    Angle = 0f, NoiseScale = 0f,   NoiseAmount = 0f,   SizeJitter = 0f,   BlendMode = 0, Shape = PaintShape.Circle },
+            new BrushPreset { Name = "Pencil",       Size = 3f,  Hardness = 0.9f, Opacity = 1.0f, Flow = 1.0f,  Spacing = 0.02f, Scatter = 0f,    Angle = 0f, NoiseScale = 0f,   NoiseAmount = 0f,   SizeJitter = 0f,   BlendMode = 0, Shape = PaintShape.Circle },
+            new BrushPreset { Name = "Chalk",        Size = 12f, Hardness = 0.7f, Opacity = 0.8f, Flow = 0.6f,  Spacing = 0.25f, Scatter = 0.2f,  Angle = 0f, NoiseScale = 0.08f, NoiseAmount = 0.7f, SizeJitter = 0.15f, BlendMode = 0, Shape = PaintShape.Square },
+            new BrushPreset { Name = "Splatter",     Size = 20f, Hardness = 0.8f, Opacity = 0.9f, Flow = 1.0f,  Spacing = 0.50f, Scatter = 1.0f,  Angle = 0f, NoiseScale = 0.05f, NoiseAmount = 0.5f, SizeJitter = 0.5f,  BlendMode = 0, Shape = PaintShape.Circle },
+            new BrushPreset { Name = "Marker",       Size = 8f,  Hardness = 0.5f, Opacity = 0.7f, Flow = 0.4f,  Spacing = 0.08f, Scatter = 0f,    Angle = 0f, NoiseScale = 0f,   NoiseAmount = 0f,   SizeJitter = 0f,   BlendMode = 0, Shape = PaintShape.Square },
+            new BrushPreset { Name = "Stipple",      Size = 6f,  Hardness = 1.0f, Opacity = 1.0f, Flow = 1.0f,  Spacing = 0.60f, Scatter = 0.5f,  Angle = 0f, NoiseScale = 0.12f, NoiseAmount = 0.8f, SizeJitter = 0.3f,  BlendMode = 0, Shape = PaintShape.Circle },
+        };
+        private bool _showAdvancedBrush = false;
+        private bool _hideExtraMeshes = true;
+        private string _editSourcePath = null;  // When non-null, we're editing an existing layer file
+        private bool _editLayerLoaded = false;   // Whether we've loaded the source into the paint layer
 
         private class FloatingLayer : IDisposable
         {
@@ -74,6 +123,16 @@ namespace DragAndDropTexturing.Windows
         private int _dragHandle = -1;
         private string _importPath = "";
 
+        // ── ImGui File Browser State ──
+        private bool _showFileBrowser = false;
+        private string _browserCurrentDir = "";
+        private string _browserSelectedFile = "";
+        private string[] _browserDirs = Array.Empty<string>();
+        private string[] _browserFiles = Array.Empty<string>();
+        private int _browserSelectedIndex = -1;
+        private static readonly HashSet<string> _imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif" };
+
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
         {
             _plugin = plugin;
@@ -97,7 +156,20 @@ namespace DragAndDropTexturing.Windows
             _activeNormalTexturePng = "";
             _isGen3Preview = false;
             _isBiboPreview = false;
+            _isTbsePreview = false;
+            _editLayerLoaded = _editSourcePath != null ? false : true; // Need to load if editing
             _needsComposite = true;
+        }
+
+        /// <summary>
+        /// Opens the painter in edit mode, loading the specified image file as the initial paint layer content.
+        /// Committing will overwrite this file instead of creating a new one.
+        /// </summary>
+        public void OpenForEditing(string filePath)
+        {
+            _editSourcePath = filePath;
+            _editLayerLoaded = false;
+            IsOpen = true;
         }
 
         public override void Draw()
@@ -117,6 +189,26 @@ namespace DragAndDropTexturing.Windows
             ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.5f);
 
             // Left side controls
+            // ── Preset Selector ──
+            ImGui.Text("Brush Preset:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(140);
+            if (ImGui.BeginCombo("##BrushPreset", Presets[_activePresetIndex].Name))
+            {
+                for (int i = 0; i < Presets.Length; i++)
+                {
+                    bool isSelected = (i == _activePresetIndex);
+                    if (ImGui.Selectable(Presets[i].Name, isSelected))
+                    {
+                        _activePresetIndex = i;
+                        ApplyPreset(Presets[i]);
+                    }
+                    if (isSelected) ImGui.SetItemDefaultFocus();
+                }
+                ImGui.EndCombo();
+            }
+
+            // ── Tools ──
             ImGui.Text("Tools:");
             ImGui.SameLine();
             if (ImGui.RadioButton("Brush", _activeTool == PaintTool.Brush)) _activeTool = PaintTool.Brush;
@@ -126,29 +218,79 @@ namespace DragAndDropTexturing.Windows
             if (ImGui.RadioButton("Fill", _activeTool == PaintTool.Fill)) _activeTool = PaintTool.Fill;
             ImGui.SameLine();
             if (ImGui.RadioButton("Eyedropper", _activeTool == PaintTool.Eyedropper)) _activeTool = PaintTool.Eyedropper;
-            
+
+            // ── Shape + Blend Mode ──
             ImGui.Text("Shape:");
             ImGui.SameLine();
             if (ImGui.RadioButton("Circle", _activeShape == PaintShape.Circle)) _activeShape = PaintShape.Circle;
             ImGui.SameLine();
             if (ImGui.RadioButton("Square", _activeShape == PaintShape.Square)) _activeShape = PaintShape.Square;
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(100);
+            if (ImGui.BeginCombo("Blend", BlendModeNames[_brushBlendMode]))
+            {
+                for (int i = 0; i < BlendModeNames.Length; i++)
+                {
+                    if (ImGui.Selectable(BlendModeNames[i], i == _brushBlendMode))
+                        _brushBlendMode = i;
+                }
+                ImGui.EndCombo();
+            }
 
             ImGui.Separator();
 
+            // ── Primary Sliders ──
             ImGui.ColorEdit4("Brush Color", ref _paintColor, ImGuiColorEditFlags.NoInputs);
             ImGui.SameLine();
-            ImGui.SetNextItemWidth(100);
+            ImGui.SetNextItemWidth(80);
             ImGui.SliderFloat("Size", ref _brushSize, 1f, 50f, "%.1f");
             ImGui.SameLine();
-            ImGui.SetNextItemWidth(100);
+            ImGui.SetNextItemWidth(80);
             ImGui.SliderFloat("Hardness", ref _brushHardness, 0f, 1f, "%.2f");
             ImGui.SameLine();
-            ImGui.SetNextItemWidth(100);
+            ImGui.SetNextItemWidth(80);
             ImGui.SliderFloat("Opacity", ref _brushOpacity, 0f, 1f, "%.2f");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(80);
+            ImGui.SliderFloat("Flow", ref _brushFlow, 0.01f, 1f, "%.2f");
+
+            // ── Advanced Settings (collapsible) ──
+            if (ImGui.TreeNode("Advanced Brush Settings"))
+            {
+                ImGui.SetNextItemWidth(120);
+                ImGui.SliderFloat("Spacing (%)", ref _brushSpacing, 0.01f, 1f, "%.2f");
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(120);
+                ImGui.SliderFloat("Scatter", ref _brushScatter, 0f, 1f, "%.2f");
+
+                float angleDeg = _brushAngle * (180f / (float)Math.PI);
+                ImGui.SetNextItemWidth(120);
+                if (ImGui.SliderFloat("Angle", ref angleDeg, 0f, 360f, "%.0f°"))
+                    _brushAngle = angleDeg * ((float)Math.PI / 180f);
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(120);
+                ImGui.SliderFloat("Size Jitter", ref _brushSizeJitter, 0f, 1f, "%.2f");
+
+                ImGui.SetNextItemWidth(120);
+                ImGui.SliderFloat("Noise Scale", ref _brushNoiseScale, 0f, 0.3f, "%.3f");
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(120);
+                ImGui.SliderFloat("Noise Amount", ref _brushNoiseAmount, 0f, 1f, "%.2f");
+
+                ImGui.TreePop();
+            }
             
-            if (ImGui.Button("Commit Paint to Active Layers"))
+            string commitLabel = _editSourcePath != null
+                ? "Save & Close"
+                : "Commit Paint to Active Layers";
+            if (ImGui.Button(commitLabel))
             {
                 CommitPaintLayer();
+            }
+            if (_editSourcePath != null)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.5f, 1f, 0.5f, 1f), $"Editing: {Path.GetFileName(_editSourcePath)}");
             }
             ImGui.SameLine();
             if (ImGui.Button("Clear Paint"))
@@ -173,6 +315,17 @@ namespace DragAndDropTexturing.Windows
                 _needsComposite = true;
             }
             ImGui.EndDisabled();
+
+            // ── Mesh Visibility Toggle ──
+            ImGui.SameLine();
+            ImGui.Text("  ");
+            ImGui.SameLine();
+            bool hideExtras = _hideExtraMeshes;
+            if (ImGui.Checkbox("Hide Extra Meshes", ref hideExtras))
+            {
+                _hideExtraMeshes = hideExtras;
+                UpdateMeshVisibility();
+            }
 
             if (_floatingLayer != null)
             {
@@ -201,17 +354,130 @@ namespace DragAndDropTexturing.Windows
                 ImGui.Text("Import Image as Floating Layer:");
                 ImGui.InputText("##importpath", ref _importPath, 512);
                 ImGui.SameLine();
-                if (ImGui.Button("Load File"))
+                if (ImGui.Button("Load"))
                 {
                     string path = _importPath.Trim('\"', ' ', '\'');
                     if (File.Exists(path))
                     {
                         LoadFloatingImage(path);
                     }
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Browse..."))
+                {
+                    _showFileBrowser = true;
+                    if (string.IsNullOrEmpty(_browserCurrentDir))
+                    {
+                        _browserCurrentDir = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                        if (string.IsNullOrEmpty(_browserCurrentDir))
+                            _browserCurrentDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                    }
+                    RefreshBrowserEntries();
+                    ImGui.OpenPopup("ImageFileBrowser");
+                }
+
+                // ── ImGui File Browser Popup ──
+                ImGui.SetNextWindowSize(new Vector2(600, 400), ImGuiCond.FirstUseEver);
+                if (ImGui.BeginPopupModal("ImageFileBrowser", ref _showFileBrowser, ImGuiWindowFlags.NoScrollbar))
+                {
+                    // Navigation bar
+                    if (ImGui.Button("^ Up"))
+                    {
+                        var parent = Directory.GetParent(_browserCurrentDir);
+                        if (parent != null)
+                        {
+                            _browserCurrentDir = parent.FullName;
+                            RefreshBrowserEntries();
+                        }
+                    }
+                    ImGui.SameLine();
+                    ImGui.Text(_browserCurrentDir);
+
+                    ImGui.Separator();
+
+                    // File list
+                    ImGui.BeginChild("BrowserFileList", new Vector2(0, ImGui.GetContentRegionAvail().Y - 35), true);
+
+                    // Show drives if at root
+                    if (_browserDirs.Length == 0 && _browserFiles.Length == 0)
+                    {
+                        foreach (var drive in DriveInfo.GetDrives())
+                        {
+                            if (!drive.IsReady) continue;
+                            string label = $"{drive.Name}  ({drive.DriveType})";
+                            if (ImGui.Selectable(label, false, ImGuiSelectableFlags.AllowDoubleClick))
+                            {
+                                if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+                                {
+                                    _browserCurrentDir = drive.RootDirectory.FullName;
+                                    RefreshBrowserEntries();
+                                }
+                            }
+                        }
+                    }
                     else
                     {
-                        _plugin.PluginLog.Error($"[TexturePainter] File does not exist: {path}");
+                        // Directories
+                        for (int i = 0; i < _browserDirs.Length; i++)
+                        {
+                            string dirName = Path.GetFileName(_browserDirs[i]);
+                            if (string.IsNullOrEmpty(dirName)) dirName = _browserDirs[i];
+                            if (ImGui.Selectable("[DIR] " + dirName, false, ImGuiSelectableFlags.AllowDoubleClick))
+                            {
+                                if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+                                {
+                                    _browserCurrentDir = _browserDirs[i];
+                                    RefreshBrowserEntries();
+                                    _browserSelectedFile = "";
+                                    _browserSelectedIndex = -1;
+                                }
+                            }
+                        }
+
+                        // Image files
+                        for (int i = 0; i < _browserFiles.Length; i++)
+                        {
+                            string fileName = Path.GetFileName(_browserFiles[i]);
+                            bool isSelected = (i == _browserSelectedIndex);
+                            if (ImGui.Selectable(fileName, isSelected, ImGuiSelectableFlags.AllowDoubleClick))
+                            {
+                                _browserSelectedIndex = i;
+                                _browserSelectedFile = _browserFiles[i];
+
+                                if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+                                {
+                                    _importPath = _browserSelectedFile;
+                                    LoadFloatingImage(_browserSelectedFile);
+                                    _showFileBrowser = false;
+                                    ImGui.CloseCurrentPopup();
+                                }
+                            }
+                        }
                     }
+                    ImGui.EndChild();
+
+                    // Bottom bar
+                    ImGui.Text("Selected: " + (string.IsNullOrEmpty(_browserSelectedFile) ? "(none)" : Path.GetFileName(_browserSelectedFile)));
+                    ImGui.SameLine();
+                    float buttonWidth = 80;
+                    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - buttonWidth * 2 - 20);
+                    ImGui.BeginDisabled(string.IsNullOrEmpty(_browserSelectedFile));
+                    if (ImGui.Button("Open", new Vector2(buttonWidth, 0)))
+                    {
+                        _importPath = _browserSelectedFile;
+                        LoadFloatingImage(_browserSelectedFile);
+                        _showFileBrowser = false;
+                        ImGui.CloseCurrentPopup();
+                    }
+                    ImGui.EndDisabled();
+                    ImGui.SameLine();
+                    if (ImGui.Button("Cancel", new Vector2(buttonWidth, 0)))
+                    {
+                        _showFileBrowser = false;
+                        ImGui.CloseCurrentPopup();
+                    }
+
+                    ImGui.EndPopup();
                 }
             }
 
@@ -494,6 +760,64 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
+        private void RefreshBrowserEntries()
+        {
+            _browserSelectedIndex = -1;
+            _browserSelectedFile = "";
+            try
+            {
+                if (!Directory.Exists(_browserCurrentDir))
+                {
+                    _browserDirs = Array.Empty<string>();
+                    _browserFiles = Array.Empty<string>();
+                    return;
+                }
+                _browserDirs = Directory.GetDirectories(_browserCurrentDir)
+                    .OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                _browserFiles = Directory.GetFiles(_browserCurrentDir)
+                    .Where(f => _imageExtensions.Contains(Path.GetExtension(f)))
+                    .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
+            catch
+            {
+                // Access denied or other IO error — just show empty
+                _browserDirs = Array.Empty<string>();
+                _browserFiles = Array.Empty<string>();
+            }
+        }
+
+        private void ApplyPreset(BrushPreset p)
+        {
+            _brushSize = p.Size;
+            _brushHardness = p.Hardness;
+            _brushOpacity = p.Opacity;
+            _brushFlow = p.Flow;
+            _brushSpacing = p.Spacing;
+            _brushScatter = p.Scatter;
+            _brushAngle = p.Angle;
+            _brushNoiseScale = p.NoiseScale;
+            _brushNoiseAmount = p.NoiseAmount;
+            _brushSizeJitter = p.SizeJitter;
+            _brushBlendMode = p.BlendMode;
+            _activeShape = p.Shape;
+        }
+
+        private void UpdateMeshVisibility()
+        {
+            if (_renderer == null) return;
+            _renderer.HiddenSlots.Clear();
+            if (_hideExtraMeshes)
+            {
+                foreach (var slot in _renderer.GetAllSlotNames())
+                {
+                    if (!_primarySlots.Contains(slot))
+                        _renderer.HiddenSlots.Add(slot);
+                }
+            }
+        }
+
         private void PaintAtUV(Vector2 uvHit)
         {
             if (_renderer == null || !_gpuPaintInitialized) return;
@@ -510,11 +834,82 @@ namespace DragAndDropTexturing.Windows
             if (prev.HasValue && Vector2.Distance(uvHit, prev.Value) > 0.1f)
                 prev = null;
             
-            int blendMode = _activeTool == PaintTool.Eraser ? 1 : 0;
+            int blendMode = _activeTool == PaintTool.Eraser ? 1 : _brushBlendMode;
             int shapeMode = _activeTool == PaintTool.Fill ? 2 : (_activeShape == PaintShape.Square ? 1 : 0);
-
             float finalAlpha = _paintColor.W * _brushOpacity;
-            _renderer.GpuPaintStroke(uvHit, prev, _brushSize, _brushHardness, new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha), blendMode, shapeMode);
+
+            // Seed noise per stroke (reset when mouse is first pressed)
+            if (!prev.HasValue)
+            {
+                _strokeSeed = (float)(_rng.NextDouble() * 1000.0);
+                _strokeDistance = 0f;
+            }
+
+            // ── CPU-side dab loop with spacing ──
+            float diameter = _brushSize * 2f;
+            float spacingStep = Math.Max(diameter * _brushSpacing, 0.5f);
+            // Convert spacing from pixel to UV space (approximate)
+            float texSize = Math.Max(_renderer.PaintTexWidth, _renderer.PaintTexHeight);
+            float spacingUV = spacingStep / texSize;
+
+            if (prev.HasValue)
+            {
+                Vector2 delta = uvHit - prev.Value;
+                float segLen = delta.Length();
+                if (segLen < 0.0001f)
+                {
+                    _lastUvHit = uvHit;
+                    return;
+                }
+                Vector2 dir = delta / segLen;
+                // Perpendicular for scatter
+                Vector2 perp = new Vector2(-dir.Y, dir.X);
+
+                float t = 0f;
+                while (t <= segLen)
+                {
+                    Vector2 dabPos = prev.Value + dir * t;
+
+                    // Scatter offset
+                    if (_brushScatter > 0.001f)
+                    {
+                        float scatterOffset = ((float)_rng.NextDouble() * 2f - 1f) * _brushScatter * _brushSize / texSize;
+                        dabPos += perp * scatterOffset;
+                    }
+
+                    // Size jitter
+                    float dabRadius = _brushSize;
+                    if (_brushSizeJitter > 0.001f)
+                    {
+                        float jitter = 1f - _brushSizeJitter * (float)_rng.NextDouble();
+                        dabRadius *= jitter;
+                    }
+
+                    float dabSeed = _strokeSeed + _strokeDistance;
+                    _renderer.GpuPaintStroke(
+                        dabPos, null, dabRadius, _brushHardness,
+                        new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
+                        blendMode, shapeMode, _brushFlow, _brushAngle,
+                        _brushNoiseScale, _brushNoiseAmount, dabSeed);
+
+                    t += spacingUV;
+                    _strokeDistance += spacingStep;
+                }
+            }
+            else
+            {
+                // First dab of a new stroke
+                float dabRadius = _brushSize;
+                if (_brushSizeJitter > 0.001f)
+                    dabRadius *= (1f - _brushSizeJitter * (float)_rng.NextDouble());
+
+                _renderer.GpuPaintStroke(
+                    uvHit, null, dabRadius, _brushHardness,
+                    new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
+                    blendMode, shapeMode, _brushFlow, _brushAngle,
+                    _brushNoiseScale, _brushNoiseAmount, _strokeSeed);
+            }
+
             _lastUvHit = uvHit;
             _needsComposite = true;
         }
@@ -522,14 +917,25 @@ namespace DragAndDropTexturing.Windows
         private void CommitPaintLayer()
         {
             if (_renderer == null || !_gpuPaintInitialized) return;
-            
-            string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
-            if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
-            
-            string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "vanilla";
-            string outPath = Path.Combine(importDir, $"{bodyTag}_base_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
-            
-            _plugin.PluginLog.Info($"[Texture Painter] CommitPaintLayer starting. BodyTag={bodyTag}, OutPath={outPath}");
+
+            bool isEditMode = !string.IsNullOrEmpty(_editSourcePath);
+            string outPath;
+
+            if (isEditMode)
+            {
+                // Edit mode: overwrite the source file
+                outPath = _editSourcePath;
+                _plugin.PluginLog.Info($"[Texture Painter] Edit mode — will overwrite: {outPath}");
+            }
+            else
+            {
+                // New layer mode: create a new file
+                string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
+                if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
+                string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "vanilla";
+                outPath = Path.Combine(importDir, $"{bodyTag}_base_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
+                _plugin.PluginLog.Info($"[Texture Painter] New layer mode. BodyTag={bodyTag}, OutPath={outPath}");
+            }
             
             // Read paint layer back from GPU and save as PNG
             byte[] pixels = _renderer.ReadbackPaintLayer();
@@ -553,11 +959,23 @@ namespace DragAndDropTexturing.Windows
                     var characterGameObject = targetChar as Dalamud.Game.ClientState.Objects.Types.ICharacter;
                     if (characterGameObject != null)
                     {
-                        _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with BodyDragPart.Body");
-                        _plugin.DragAndDropTextures.InjectFilesAndRebuild(
-                            new List<string> { outPath }, 
-                            new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject), 
-                            PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                        if (isEditMode)
+                        {
+                            // Edit mode: rebuild all categories since the file was updated in-place
+                            _plugin.PluginLog.Info($"[Texture Painter] Edit mode — triggering full rebuild for '{targetChar.Name.TextValue}'");
+                            _plugin.DragAndDropTextures.InjectFilesAndRebuild(
+                                new List<string> { outPath },
+                                new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
+                                PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                        }
+                        else
+                        {
+                            _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with BodyDragPart.Body");
+                            _plugin.DragAndDropTextures.InjectFilesAndRebuild(
+                                new List<string> { outPath },
+                                new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
+                                PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                        }
                     }
                     else
                     {
@@ -572,6 +990,7 @@ namespace DragAndDropTexturing.Windows
             
             _renderer.GpuClearPaint();
             _needsComposite = true;
+            _editSourcePath = null;
             IsOpen = false;
         }
 
@@ -638,6 +1057,7 @@ private void LoadPlayerModels()
 
                 LoadModelIntoSlot("Top", topPath, collectionId);
                 LoadModelIntoSlot("Bottom", botPath, collectionId);
+                UpdateMeshVisibility();
 
                 bool prevOverrideMode = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode;
                 FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = true;
@@ -645,8 +1065,10 @@ private void LoadPlayerModels()
                 FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = prevOverrideMode;
 
                 string lowerPath = _topModelDiskPath.ToLower();
-                bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || lowerPath.Contains("eve") || lowerPath.Contains("gaia");
-                bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body");
+                bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") 
+                || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia");
+                bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") 
+               || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe");
                 bool isTbse = lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody");
 
                 if (!isGen3 && !isBibo && !isTbse)
@@ -948,6 +1370,39 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                 // Upload the base texture to GPU
                 _renderer.SetBaseTexture(data.Scan0, w, h);
                 _cachedBaseBitmap.UnlockBits(data);
+
+                // Load existing layer into paint layer if editing
+                if (!_editLayerLoaded && _editSourcePath != null && File.Exists(_editSourcePath))
+                {
+                    try
+                    {
+                        using var editBmp = new System.Drawing.Bitmap(_editSourcePath);
+                        // Resize to match paint texture if needed
+                        using var resized = new System.Drawing.Bitmap(editBmp, w, h);
+                        var editRect = new System.Drawing.Rectangle(0, 0, w, h);
+                        var editData = resized.LockBits(editRect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        byte[] rgba = new byte[w * h * 4];
+                        unsafe
+                        {
+                            byte* src = (byte*)editData.Scan0;
+                            for (int i = 0; i < rgba.Length; i += 4)
+                            {
+                                rgba[i + 0] = src[i + 2]; // R (from BGRA B)
+                                rgba[i + 1] = src[i + 1]; // G
+                                rgba[i + 2] = src[i + 0]; // B (from BGRA R)
+                                rgba[i + 3] = src[i + 3]; // A
+                            }
+                        }
+                        resized.UnlockBits(editData);
+                        _renderer.LoadPaintLayerFromRgba(rgba, w, h);
+                        _plugin.PluginLog.Info($"[Texture Painter] Loaded edit source into paint layer: {_editSourcePath}");
+                    }
+                    catch (Exception editEx)
+                    {
+                        _plugin.PluginLog.Error(editEx, $"[Texture Painter] Failed to load edit source: {_editSourcePath}");
+                    }
+                    _editLayerLoaded = true;
+                }
                 
                 // Initial composite
                 _renderer.GpuComposite(_primarySlotArray);
