@@ -272,12 +272,12 @@ namespace DragAndDropTexturing.Windows
                     if (isHovered || isActive)
                     {
                         var mousePos = ImGui.GetMousePos();
-                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                        if (isHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                         {
                             _renderer.PushUndoSnapshot();
                         }
                         
-                        if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                        if (isActive)
                         {
                             Vector2 localMousePos = mousePos - cursorPos;
                             if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal, _primarySlots))
@@ -376,13 +376,16 @@ namespace DragAndDropTexturing.Windows
                         }
                     }
 
-                    if (ImGui.IsItemHovered() || ImGui.IsItemActive())
+                    bool isHovered2D = ImGui.IsItemHovered();
+                    bool isActive2D = ImGui.IsItemActive();
+                    
+                    if (isHovered2D || isActive2D)
                     {
                         var mousePos = ImGui.GetMousePos();
                         Vector2 localMousePos = mousePos - cursorPos;
                         Vector2 uv = new Vector2(localMousePos.X / canvasSize, localMousePos.Y / canvasSize);
 
-                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                        if (isHovered2D && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                         {
                             if (_floatingLayer != null)
                             {
@@ -402,7 +405,7 @@ namespace DragAndDropTexturing.Windows
                             if (_dragHandle == -1) _renderer.PushUndoSnapshot();
                         }
                         
-                        if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                        if (isActive2D)
                         {
                             if (_dragHandle == 0 && _floatingLayer != null)
                             {
