@@ -8,37 +8,14 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Bindings.ImGui;
-using PsdSharp;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
-using ImageMagick;
-using Point = SixLabors.ImageSharp.Point;
+using PenumbraAndGlamourerHelpers;
 
 namespace DragAndDropTexturing.Windows
 {
-    public class PsdImportLayer
-    {
-        public string OriginalName;
-        public string PngPath;
-        public bool Selected = true;
-        public int BodyPartIndex = 0; // 0=body, 1=face, 2=eyes, 3=eyebrows
-        public int OverrideTypeIndex = 0; // 0=Base, 1=Normal
-        public int BodyTypeIndex = 0; // 0=None, 1=bibo, 2=gen3, 3=tbse, 4=otopop, 5=vanilla
-        public Dalamud.Interface.Textures.ISharedImmediateTexture PreviewTexture;
-        public bool IsPreviewLoading = false;
-    }
-
-    public class PsdImportWindow : Window, IDisposable
+    public class TexturePaintingWindow : Window, IDisposable
     {
         private readonly Plugin _plugin;
         private string _tempDir;
-        private string _importDir;
-        private bool _isProcessing = false;
-        private float _progress = 0f;
-        private string _statusText = "";
-        private Action<List<string>> _onComplete;
-        private Func<List<string>, Task> _onCompleteAsync;
         
         private ModelRenderer _renderer;
         private bool _rendererInitialized = false;
@@ -55,31 +32,36 @@ namespace DragAndDropTexturing.Windows
         private bool _isGen3Preview = false;
         private bool _isBiboPreview = false;
 
-        public List<PsdImportLayer> Layers = new();
-        private readonly string[] _bodyParts = { "body", "face", "eyes", "eyebrows" };
-        private readonly string[] _overrideTypes = { "Base", "Normal" };
-        private readonly string[] _bodyTypes = { "None", "Bibo+", "Gen3", "TBSE", "Otopop", "Vanilla" };
+        private System.Drawing.Bitmap _paintLayer;
+        private System.Drawing.Graphics _paintGraphics;
+        private System.Drawing.SolidBrush _paintBrush;
+        private float _brushSize = 10f;
+        private System.Numerics.Vector4 _paintColor = new System.Numerics.Vector4(1, 0, 0, 1);
+        private int _paintStrokeCount = 0;
+        private Vector2? _lastUvHit = null;
+        private Dalamud.Interface.Textures.ISharedImmediateTexture _canvasTexture;
+        private string _canvasTexturePath;
 
-        public PsdImportWindow(Plugin plugin) : base("PSD Import Manager", ImGuiWindowFlags.NoScrollbar)
+        public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
         {
             _plugin = plugin;
-            Size = new Vector2(800, 400);
+            Size = new Vector2(1000, 600);
             SizeCondition = ImGuiCond.FirstUseEver;
-            SizeConstraints = new WindowSizeConstraints
-            {
-                MinimumSize = new Vector2(800, 400),
-                MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
-            };
         }
 
-        public void StartImport(string psdPath, Func<List<string>, Task> onComplete = null)
+        public override void OnOpen()
         {
-            _onCompleteAsync = onComplete;
-            Layers.Clear();
-            _isProcessing = true;
-            _progress = 0f;
-            _statusText = "Loading PSD...";
-            IsOpen = true;
+            _tempDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Paint_Temp");
+            _canvasTexturePath = Path.Combine(_tempDir, "canvas_preview.png");
+            Directory.CreateDirectory(_tempDir);
+            
+            if (_paintLayer == null)
+            {
+                _paintLayer = new System.Drawing.Bitmap(1024, 1024, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                _paintGraphics = System.Drawing.Graphics.FromImage(_paintLayer);
+                _paintGraphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                _paintBrush = new System.Drawing.SolidBrush(System.Drawing.Color.Red);
+            }
 
             _rendererInitialized = false;
             _renderer?.Dispose();
@@ -91,96 +73,8 @@ namespace DragAndDropTexturing.Windows
             _activeNormalTexturePng = "";
             _isGen3Preview = false;
             _isBiboPreview = false;
-            _previewDirty = false;
-
-            _tempDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "PSD_Temp");
-            _importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
-
-            Task.Run(() => ProcessPsd(psdPath));
-        }
-
-        private void ProcessPsd(string psdPath)
-        {
-            try
-            {
-                if (!Directory.Exists(_tempDir)) Directory.CreateDirectory(_tempDir);
-                // Clean temp dir
-                foreach (var f in Directory.GetFiles(_tempDir, "*.png")) File.Delete(f);
-
-                using var collection = new MagickImageCollection(psdPath);
-                
-                int startIndex = collection.Count > 1 ? 1 : 0;
-                int totalLayers = collection.Count - startIndex;
-                int currentLayer = 0;
-                
-                uint compositeWidth = collection[0].Width;
-                uint compositeHeight = collection[0].Height;
-
-                for (int i = startIndex; i < collection.Count; i++)
-                {
-                    currentLayer++;
-                    var layer = collection[i];
-                    string layerName = layer.GetAttribute("label") ?? $"Layer_{i}";
-
-                    _progress = (float)currentLayer / totalLayers;
-                    _statusText = $"Extracting layer: {layerName}";
-
-                    if (layer.Width <= 1 || layer.Height <= 1)
-                        continue; // Skip empty layers or folders
-
-                    try
-                    {
-                        using var fullImg = new MagickImage(MagickColors.Transparent, compositeWidth, compositeHeight);
-                        int xOffset = layer.Page != null ? layer.Page.X : 0;
-                        int yOffset = layer.Page != null ? layer.Page.Y : 0;
-                        
-                        fullImg.Composite(layer, xOffset, yOffset, CompositeOperator.Over);
-
-                        string safeName = string.Join("_", layerName.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_");
-                        string outPath = Path.Combine(_tempDir, $"{safeName}.png");
-                        fullImg.Write(outPath, MagickFormat.Png);
-
-                        var importLayer = new PsdImportLayer
-                        {
-                            OriginalName = layerName,
-                            PngPath = outPath,
-                            Selected = true
-                        };
-
-                        // Auto-detect Body Part
-                        string lowerName = layerName.ToLower();
-                        if (lowerName.Contains("face")) importLayer.BodyPartIndex = 1;
-                        else if (lowerName.Contains("eye")) importLayer.BodyPartIndex = 2;
-                        else if (lowerName.Contains("eyebrow") || lowerName.Contains("lash")) importLayer.BodyPartIndex = 3;
-
-                        // Auto-detect Map Type
-                        if (lowerName.Contains("norm") || lowerName.Contains("bump")) importLayer.OverrideTypeIndex = 1;
-
-                        // Auto-detect Body Type
-                        if (lowerName.Contains("bibo") || lowerName.Contains("b+")) importLayer.BodyTypeIndex = 1;
-                        else if (lowerName.Contains("gen3")) importLayer.BodyTypeIndex = 2;
-                        else if (lowerName.Contains("tbse")) importLayer.BodyTypeIndex = 3;
-                        else if (lowerName.Contains("otopop")) importLayer.BodyTypeIndex = 4;
-                        else if (lowerName.Contains("vanilla") || lowerName.Contains("gen2")) importLayer.BodyTypeIndex = 5;
-
-                        Layers.Add(importLayer);
-                    }
-                    catch (Exception ex)
-                    {
-                        _plugin.PluginLog.Error($"Failed to extract PSD layer {layerName}: {ex.Message}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _plugin.PluginLog.Error($"Failed to process PSD {psdPath}: {ex.Message}");
-                _statusText = "Error processing PSD!";
-            }
-            finally
-            {
-                _isProcessing = false;
-                _statusText = "Ready to import.";
-            }
+            _previewDirty = true;
+            _canvasTexture = null;
         }
 
         public override void Draw()
@@ -196,114 +90,27 @@ namespace DragAndDropTexturing.Windows
             }
             catch { }
 
-            if (_isProcessing)
+            ImGui.Columns(2, "PaintLayout", false);
+            ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.5f);
+
+            // Left side controls
+            ImGui.ColorEdit4("Brush Color", ref _paintColor, ImGuiColorEditFlags.NoInputs);
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(100);
+            ImGui.SliderFloat("Size", ref _brushSize, 1f, 50f, "%.1f");
+            
+            if (ImGui.Button("Commit Paint to Active Character Overlays"))
             {
-                ImGui.Text(_statusText);
-                ImGui.ProgressBar(_progress, new Vector2(-1, 0));
-                return;
+                CommitPaintLayer();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Clear Paint"))
+            {
+                _paintGraphics.Clear(System.Drawing.Color.Transparent);
+                _previewDirty = true;
             }
 
-            if (Layers.Count == 0)
-            {
-                ImGui.Text("No valid image layers found in PSD.");
-                if (ImGui.Button("Close")) IsOpen = false;
-                return;
-            }
-
-            ImGui.Columns(2, "PsdLayout", false);
-            ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.65f);
-
-            ImGui.Text("Select layers to import:");
             ImGui.Separator();
-
-            ImGui.BeginChild("PsdLayersList", new Vector2(0, ImGui.GetContentRegionAvail().Y - 40), true);
-            foreach (var layer in Layers)
-            {
-                ImGui.PushID(layer.OriginalName);
-                
-                bool selected = layer.Selected;
-                if (ImGui.Checkbox("##Select", ref selected))
-                {
-                    layer.Selected = selected;
-                    _previewDirty = true;
-                }
-                
-                ImGui.SameLine();
-                ImGui.Text(layer.OriginalName);
-
-                ImGui.SameLine(250);
-                ImGui.SetNextItemWidth(100);
-                int part = layer.BodyPartIndex;
-                if (ImGui.Combo("##BodyPart", ref part, _bodyParts, _bodyParts.Length))
-                {
-                    layer.BodyPartIndex = part;
-                    _previewDirty = true;
-                }
-
-                ImGui.SameLine();
-                ImGui.SetNextItemWidth(80);
-                int type = layer.OverrideTypeIndex;
-                if (ImGui.Combo("##OverrideType", ref type, _overrideTypes, _overrideTypes.Length))
-                {
-                    layer.OverrideTypeIndex = type;
-                    _previewDirty = true;
-                }
-
-                if (layer.BodyPartIndex == 0)
-                {
-                    ImGui.SameLine();
-                    ImGui.SetNextItemWidth(80);
-                    int bType = layer.BodyTypeIndex;
-                    if (ImGui.Combo("##BodyType", ref bType, _bodyTypes, _bodyTypes.Length))
-                    {
-                        layer.BodyTypeIndex = bType;
-                        _previewDirty = true;
-                    }
-                }
-
-                if (layer.Selected)
-                {
-                    // Load texture if needed
-                    if (layer.PreviewTexture == null && !layer.IsPreviewLoading && File.Exists(layer.PngPath))
-                    {
-                        layer.IsPreviewLoading = true;
-                        Task.Run(async () =>
-                        {
-                            try
-                            {
-                                var tex = Plugin.TextureProvider.GetFromFile(layer.PngPath);
-                                layer.PreviewTexture = tex;
-                            }
-                            catch { }
-                            layer.IsPreviewLoading = false;
-                        });
-                    }
-
-                        var wrap = layer.PreviewTexture?.GetWrapOrDefault();
-                        if (wrap != null)
-                        {
-                            ImGui.SameLine();
-                            ImGui.Image(wrap.Handle, new Vector2(80, 80));
-                        }
-                }
-
-                ImGui.PopID();
-                ImGui.Separator();
-            }
-            ImGui.EndChild();
-
-            if (ImGui.Button("Finalize & Import Selected", new Vector2(-1, 30)))
-            {
-                FinalizeImport();
-            }
-
-            if (_previewDirty && !_isPreviewUpdating)
-            {
-                _previewDirty = false;
-                UpdatePreviewTextures();
-            }
-
-            ImGui.NextColumn();
 
             // Right column: 3D Preview
             if (_renderer != null)
@@ -322,14 +129,35 @@ namespace DragAndDropTexturing.Windows
                     var drawList = ImGui.GetWindowDrawList();
                     drawList.AddImage(new ImTextureID(_renderer.ShaderResourceViewHandle), cursorPos, cursorPos + region);
 
-                    ImGui.InvisibleButton("##viewportPsd", region);
+                    ImGui.InvisibleButton("##viewport3d", region);
                     bool isHovered = ImGui.IsItemHovered();
                     bool isActive = ImGui.IsItemActive();
 
                     if (isHovered || isActive)
                     {
                         var mousePos = ImGui.GetMousePos();
-                        if (ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+                        
+                        if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                        {
+                            Vector2 localMousePos = mousePos - cursorPos;
+                            if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot))
+                            {
+                                PaintAtUV(uvHit);
+                                _paintStrokeCount++;
+                                if (_paintStrokeCount % 5 == 0) _previewDirty = true;
+                            }
+                        }
+                        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+                        {
+                            _lastUvHit = null;
+                            _previewDirty = true;
+                        }
+                        else
+                        {
+                            _lastUvHit = null;
+                        }
+
+                        if (ImGui.IsMouseDragging(ImGuiMouseButton.Middle) || ImGui.IsMouseDragging(ImGuiMouseButton.Right))
                         {
                             if (!_isDragging)
                             {
@@ -337,39 +165,125 @@ namespace DragAndDropTexturing.Windows
                                 _lastMousePos = mousePos;
                             }
                             var delta = mousePos - _lastMousePos;
-                            _renderer.RotateCamera(delta.X * 0.005f, delta.Y * 0.005f);
+                            _renderer.PanCamera(delta.X, delta.Y);
                             _lastMousePos = mousePos;
                         }
                         else _isDragging = false;
 
-                        if (ImGui.IsMouseDragging(ImGuiMouseButton.Middle) || ImGui.IsMouseDragging(ImGuiMouseButton.Right))
-                        {
-                            if (!_isPanning)
-                            {
-                                _isPanning = true;
-                                _lastMousePos = mousePos;
-                            }
-                            var delta = mousePos - _lastMousePos;
-                            _renderer.PanCamera(delta.X, delta.Y);
-                            _lastMousePos = mousePos;
-                        }
-                        else _isPanning = false;
-
                         float wheel = ImGui.GetIO().MouseWheel;
                         if (wheel != 0) _renderer.ZoomCamera(wheel);
                     }
-                    else
+                }
+            }
+
+            ImGui.NextColumn();
+
+            // 2D Canvas View
+            ImGui.Text("2D UV Canvas");
+            ImGui.Separator();
+            
+            var canvasRegion = ImGui.GetContentRegionAvail();
+            float canvasSize = Math.Min(canvasRegion.X, canvasRegion.Y);
+            
+            if (_canvasTexture != null)
+            {
+                var wrap = _canvasTexture.GetWrapOrDefault();
+                if (wrap != null)
+                {
+                    var cursorPos = ImGui.GetCursorScreenPos();
+                    ImGui.Image(wrap.Handle, new Vector2(canvasSize, canvasSize));
+                    
+                    if (ImGui.IsItemHovered() && ImGui.IsMouseDown(ImGuiMouseButton.Left))
                     {
-                        _isDragging = false;
-                        _isPanning = false;
+                        var mousePos = ImGui.GetMousePos();
+                        Vector2 localMousePos = mousePos - cursorPos;
+                        Vector2 uv = new Vector2(localMousePos.X / canvasSize, localMousePos.Y / canvasSize);
+                        if (uv.X >= 0 && uv.X <= 1 && uv.Y >= 0 && uv.Y <= 1)
+                        {
+                            PaintAtUV(uv);
+                            _paintStrokeCount++;
+                            if (_paintStrokeCount % 5 == 0) _previewDirty = true;
+                        }
+                    }
+                    else if (ImGui.IsItemHovered() && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+                    {
+                        _lastUvHit = null;
+                        _previewDirty = true;
                     }
                 }
             }
 
             ImGui.Columns(1);
+
+            if (_previewDirty && !_isPreviewUpdating)
+            {
+                _previewDirty = false;
+                UpdatePreviewTextures();
+            }
         }
 
-        private void LoadPlayerModels()
+        private void PaintAtUV(Vector2 uvHit)
+        {
+            if (_paintGraphics == null || _paintBrush == null) return;
+            
+            _paintBrush.Color = System.Drawing.Color.FromArgb((int)(_paintColor.W * 255), (int)(_paintColor.X * 255), (int)(_paintColor.Y * 255), (int)(_paintColor.Z * 255));
+            float x = uvHit.X * 1024;
+            float y = uvHit.Y * 1024;
+            
+            if (_lastUvHit.HasValue)
+            {
+                float lastX = _lastUvHit.Value.X * 1024;
+                float lastY = _lastUvHit.Value.Y * 1024;
+                if (Vector2.Distance(uvHit, _lastUvHit.Value) < 0.1f)
+                {
+                    using (var pen = new System.Drawing.Pen(_paintBrush, _brushSize))
+                    {
+                        pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                        pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                        _paintGraphics.DrawLine(pen, lastX, lastY, x, y);
+                    }
+                }
+            }
+            _paintGraphics.FillEllipse(_paintBrush, x - _brushSize / 2f, y - _brushSize / 2f, _brushSize, _brushSize);
+            _lastUvHit = uvHit;
+        }
+
+        private void CommitPaintLayer()
+        {
+            if (_paintLayer == null) return;
+            
+            string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
+            if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
+            
+            string outPath = Path.Combine(importDir, $"PaintedUV_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
+            _paintLayer.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+            
+            var targetChar = _plugin.SafeGameObjectManager.LocalPlayer;
+            if (targetChar != null && _plugin.DragAndDropTextures != null)
+            {
+                var characterGameObject = targetChar as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                if (characterGameObject != null)
+                {
+                    _plugin.DragAndDropTextures.InjectFilesAndRebuild(
+                        new List<string> { outPath }, 
+                        new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject), 
+                        PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                }
+            }
+            
+            _paintGraphics.Clear(System.Drawing.Color.Transparent);
+            _previewDirty = true;
+            IsOpen = false;
+        }
+
+        public void Dispose()
+        {
+            _paintLayer?.Dispose();
+            _paintGraphics?.Dispose();
+            _paintBrush?.Dispose();
+            _renderer?.Dispose();
+        }
+private void LoadPlayerModels()
         {
             try
             {
@@ -540,7 +454,7 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
-        private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
+private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
         {
             try
             {
@@ -604,7 +518,7 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
-        private string TexToTempPng(string texPath, out bool isBlack)
+private string TexToTempPng(string texPath, out bool isBlack)
         {
             isBlack = false;
             if (string.IsNullOrEmpty(texPath) || !File.Exists(texPath)) return null;
@@ -642,7 +556,7 @@ namespace DragAndDropTexturing.Windows
             return null;
         }
 
-        private bool IsImageBlack(System.Drawing.Bitmap bitmap)
+private bool IsImageBlack(System.Drawing.Bitmap bitmap)
         {
             var data = bitmap.LockBits(new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             int bytes = Math.Abs(data.Stride) * bitmap.Height;
@@ -663,7 +577,7 @@ namespace DragAndDropTexturing.Windows
             return true;
         }
 
-        private string ExtractVanillaTexViaLumina(string internalGamePath)
+private string ExtractVanillaTexViaLumina(string internalGamePath)
         {
             try
             {
@@ -694,7 +608,8 @@ namespace DragAndDropTexturing.Windows
             return null;
         }
 
-        private System.Drawing.Bitmap CompositeLayersToBitmap(int overrideTypeIndex, string activeBaseTexPng, bool isGen3, bool isBibo)
+
+        private System.Drawing.Bitmap CompositeLayersToBitmap(string activeBaseTexPng)
         {
             System.Drawing.Bitmap baseBitmap = null;
             int width = 1024, height = 1024;
@@ -718,31 +633,9 @@ namespace DragAndDropTexturing.Windows
                 baseBitmap.Dispose();
             }
 
-            foreach (var layer in Layers)
+            if (_paintLayer != null)
             {
-                if (layer.Selected && layer.OverrideTypeIndex == overrideTypeIndex && layer.BodyPartIndex == 0) // Body only for Top/Bottom slots
-                {
-                    string inputPng = layer.PngPath;
-                    bool convertToGen3 = isGen3 && layer.BodyTypeIndex == 1; // Bibo+ -> Gen3
-                    bool convertToBibo = isBibo && layer.BodyTypeIndex == 2; // Gen3 -> Bibo+
-                    
-                    if (convertToGen3 || convertToBibo)
-                    {
-                        string convertedPath = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(layer.PngPath) + (convertToGen3 ? "_gen3" : "_bibo") + ".png");
-                        if (!File.Exists(convertedPath))
-                        {
-                            if (convertToGen3) FFXIVLooseTextureCompiler.FastUVTransfer.BiboToGen3(inputPng, convertedPath);
-                            if (convertToBibo) FFXIVLooseTextureCompiler.FastUVTransfer.Gen3ToBibo(inputPng, convertedPath);
-                        }
-                        inputPng = convertedPath;
-                    }
-
-                    if (File.Exists(inputPng))
-                    {
-                        using var overlay = new System.Drawing.Bitmap(inputPng);
-                        g.DrawImage(overlay, 0, 0, width, height);
-                    }
-                }
+                g.DrawImage(_paintLayer, 0, 0, width, height);
             }
 
             return composite;
@@ -755,8 +648,12 @@ namespace DragAndDropTexturing.Windows
             Task.Run(() => {
                 try
                 {
-                    using var bitmap = CompositeLayersToBitmap(0, _activeBaseTexturePng, _isGen3Preview, _isBiboPreview);
+                    using var bitmap = CompositeLayersToBitmap(_activeBaseTexturePng);
                     
+                    // Save to canvas path for 2D ImGui display
+                    bitmap.Save(_canvasTexturePath, System.Drawing.Imaging.ImageFormat.Png);
+                    _canvasTexture = Plugin.TextureProvider.GetFromFile(_canvasTexturePath);
+
                     int w = bitmap.Width;
                     int h = bitmap.Height;
                     byte[] pixels = new byte[w * h * 4];
@@ -787,65 +684,6 @@ namespace DragAndDropTexturing.Windows
                 catch (Exception ex) { _plugin.PluginLog.Error(ex, "Failed to update preview textures"); }
                 finally { _isPreviewUpdating = false; }
             });
-        }
-
-        private void FinalizeImport()
-        {
-            if (!Directory.Exists(_importDir)) Directory.CreateDirectory(_importDir);
-
-            List<string> extractedFiles = new();
-            foreach (var layer in Layers.Where(l => l.Selected))
-            {
-                try
-                {
-                    if (File.Exists(layer.PngPath))
-                    {
-                        string targetPart = _bodyParts[layer.BodyPartIndex];
-                        string targetType = _overrideTypes[layer.OverrideTypeIndex].ToLower();
-                        string bodyTypeStr = (layer.BodyPartIndex == 0 && layer.BodyTypeIndex > 0) ? _bodyTypes[layer.BodyTypeIndex].ToLower().Replace("+", "") + "_" : "";
-                        
-                        string finalName = $"{bodyTypeStr}{targetPart}_{targetType}_{layer.OriginalName}.png";
-                        // Sanitize filename
-                        finalName = string.Join("_", finalName.Split(Path.GetInvalidFileNameChars()));
-                        
-                        string destPath = Path.Combine(_importDir, finalName);
-                        File.Copy(layer.PngPath, destPath, true);
-                        extractedFiles.Add(destPath);
-                        _plugin.PluginLog.Information($"Imported PSD layer: {destPath}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _plugin.PluginLog.Error($"Error importing {layer.OriginalName}: {ex.Message}");
-                }
-            }
-            
-            // Clean up previews
-            foreach (var layer in Layers)
-            {
-                layer.PreviewTexture = null;
-            }
-            
-            if (_onCompleteAsync != null)
-            {
-                _isProcessing = true;
-                _statusText = "Compiling and injecting textures... Please wait.";
-                Task.Run(async () =>
-                {
-                    await _onCompleteAsync.Invoke(extractedFiles);
-                    IsOpen = false;
-                    _isProcessing = false;
-                });
-            }
-            else
-            {
-                IsOpen = false;
-            }
-        }
-
-        public void Dispose()
-        {
-            Layers.Clear();
         }
     }
 }

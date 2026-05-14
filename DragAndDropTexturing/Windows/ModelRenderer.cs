@@ -125,6 +125,8 @@ namespace DragAndDropTexturing.Windows
 
         public class RenderModel : IDisposable
         {
+            public Vertex[] Vertices { get; set; }
+            public ushort[] Indices { get; set; }
             public ID3D11Buffer VertexBuffer { get; set; }
             public ID3D11Buffer IndexBuffer { get; set; }
             public int IndexCount { get; set; }
@@ -149,7 +151,7 @@ namespace DragAndDropTexturing.Windows
 
         private Dictionary<string, RenderModel> _models = new Dictionary<string, RenderModel>();
 
-        private struct Vertex
+        public struct Vertex
         {
             public Vector3 Position;
             public Vector3 Normal;
@@ -267,12 +269,14 @@ float4 PS(PS_IN input) : SV_TARGET
             model.BoundsMin = bMin;
             model.BoundsMax = bMax;
             model.IndexCount = allIndices.Count;
+            model.Vertices = allVertices.ToArray();
+            model.Indices = allIndices.ToArray();
 
             model.VertexBuffer?.Dispose();
-            model.VertexBuffer = _device.CreateBuffer(allVertices.ToArray(), BindFlags.VertexBuffer);
+            model.VertexBuffer = _device.CreateBuffer(model.Vertices, BindFlags.VertexBuffer);
 
             model.IndexBuffer?.Dispose();
-            model.IndexBuffer = _device.CreateBuffer(allIndices.ToArray(), BindFlags.IndexBuffer);
+            model.IndexBuffer = _device.CreateBuffer(model.Indices, BindFlags.IndexBuffer);
 
             RecalculateBounds();
             if (_vertexShader == null)
@@ -384,6 +388,89 @@ float4 PS(PS_IN input) : SV_TARGET
             _cameraPan = Vector3.Zero;
         }
 
+        private Matrix4x4 _lastWvp;
+
+        public bool Raycast(Vector2 screenPos, out Vector2 uvHit, out string hitSlot)
+        {
+            uvHit = Vector2.Zero;
+            hitSlot = null;
+            if (_models.Count == 0 || Width == 0 || Height == 0) return false;
+
+            // Convert screen pos to NDC
+            float ndcX = (2.0f * screenPos.X) / Width - 1.0f;
+            float ndcY = 1.0f - (2.0f * screenPos.Y) / Height;
+
+            if (!Matrix4x4.Invert(_lastWvp, out Matrix4x4 invWvp)) return false;
+
+            Vector4 nearPoint = Vector4.Transform(new Vector4(ndcX, ndcY, 0.0f, 1.0f), invWvp);
+            Vector4 farPoint = Vector4.Transform(new Vector4(ndcX, ndcY, 1.0f, 1.0f), invWvp);
+
+            nearPoint /= nearPoint.W;
+            farPoint /= farPoint.W;
+
+            Vector3 rayOrigin = new Vector3(nearPoint.X, nearPoint.Y, nearPoint.Z);
+            Vector3 rayDir = Vector3.Normalize(new Vector3(farPoint.X, farPoint.Y, farPoint.Z) - rayOrigin);
+
+            float closestT = float.MaxValue;
+            bool hit = false;
+
+            foreach (var kvp in _models)
+            {
+                var model = kvp.Value;
+                if (model.Vertices == null || model.Indices == null) continue;
+
+                for (int i = 0; i < model.Indices.Length; i += 3)
+                {
+                    var v0 = model.Vertices[model.Indices[i]];
+                    var v1 = model.Vertices[model.Indices[i + 1]];
+                    var v2 = model.Vertices[model.Indices[i + 2]];
+
+                    if (RayIntersectsTriangle(rayOrigin, rayDir, v0.Position, v1.Position, v2.Position, out float t, out float u, out float v))
+                    {
+                        if (t < closestT && t > 0)
+                        {
+                            closestT = t;
+                            hitSlot = kvp.Key;
+                            hit = true;
+                            
+                            // Interpolate UV
+                            float w = 1.0f - u - v;
+                            uvHit = v0.UV * w + v1.UV * u + v2.UV * v;
+                        }
+                    }
+                }
+            }
+
+            return hit;
+        }
+
+        private bool RayIntersectsTriangle(Vector3 rayOrigin, Vector3 rayDir, Vector3 v0, Vector3 v1, Vector3 v2, out float t, out float u, out float v)
+        {
+            t = 0; u = 0; v = 0;
+            const float EPSILON = 0.0000001f;
+            Vector3 edge1 = v1 - v0;
+            Vector3 edge2 = v2 - v0;
+            Vector3 h = Vector3.Cross(rayDir, edge2);
+            float a = Vector3.Dot(edge1, h);
+
+            if (a > -EPSILON && a < EPSILON)
+                return false;
+
+            float f = 1.0f / a;
+            Vector3 s = rayOrigin - v0;
+            u = f * Vector3.Dot(s, h);
+            if (u < 0.0f || u > 1.0f)
+                return false;
+
+            Vector3 q = Vector3.Cross(s, edge1);
+            v = f * Vector3.Dot(rayDir, q);
+            if (v < 0.0f || u + v > 1.0f)
+                return false;
+
+            t = f * Vector3.Dot(edge2, q);
+            return t > EPSILON;
+        }
+
         public void Render()
         {
             if (_context == null || _renderTargetView == null) return;
@@ -437,8 +524,9 @@ float4 PS(PS_IN input) : SV_TARGET
                         proj = Matrix4x4.CreatePerspectiveFieldOfView((float)Math.PI / 4f, (float)Width / Height, nearPlane, farPlane);
                     }
                     
-                    var wvp = Matrix4x4.Transpose(centerOffset * view * proj);
-                    _context.UpdateSubresource(wvp, _constantBuffer);
+                    var wvp = centerOffset * view * proj;
+                    _lastWvp = wvp; // Store for raycasting
+                    _context.UpdateSubresource(Matrix4x4.Transpose(wvp), _constantBuffer);
 
                     _context.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
                     _context.IASetInputLayout(_inputLayout);

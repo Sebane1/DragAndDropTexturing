@@ -93,6 +93,12 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.MdlPreviewWindow.IsOpen = !Plugin.MdlPreviewWindow.IsOpen;
         }
+        
+        ImGui.SameLine();
+        if (ImGui.Button("Open 3D Texture Painter"))
+        {
+            Plugin.TexturePaintingWindow.IsOpen = !Plugin.TexturePaintingWindow.IsOpen;
+        }
 
         ImGui.Spacing();
         bool enableStacking = Plugin.Configuration.EnableTextureStacking;
