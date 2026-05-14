@@ -100,7 +100,7 @@ namespace DragAndDropTexturing.Windows
         };
         private bool _showAdvancedBrush = false;
         private bool _hideExtraMeshes = true;
-        private string _editSourcePath = null;  // When non-null, we're editing an existing layer file
+        public string EditSourcePath { get; private set; } = null;  // When non-null, we're editing an existing layer file
         private bool _editLayerLoaded = false;   // Whether we've loaded the source into the paint layer
 
         private class FloatingLayer : IDisposable
@@ -143,6 +143,15 @@ namespace DragAndDropTexturing.Windows
             SizeCondition = ImGuiCond.FirstUseEver;
         }
 
+        public override void OnClose()
+        {
+            base.OnClose();
+            _plugin.WindowSystem.RemoveWindow(this);
+            _plugin.TexturePaintingWindows.Remove(this);
+            // Defer disposal slightly if needed, but Dalamud handles removed windows safely.
+            Dispose();
+        }
+
         public override void OnOpen()
         {
             _tempDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Paint_Temp");
@@ -160,7 +169,7 @@ namespace DragAndDropTexturing.Windows
             _isGen3Preview = false;
             _isBiboPreview = false;
             _isTbsePreview = false;
-            _editLayerLoaded = _editSourcePath != null ? false : true; // Need to load if editing
+            _editLayerLoaded = EditSourcePath != null ? false : true; // Need to load if editing
             _needsComposite = true;
         }
 
@@ -170,7 +179,7 @@ namespace DragAndDropTexturing.Windows
         /// </summary>
         public void OpenForEditing(string filePath)
         {
-            _editSourcePath = filePath;
+            EditSourcePath = filePath;
             _editLayerLoaded = false;
             IsOpen = true;
         }
@@ -286,17 +295,17 @@ namespace DragAndDropTexturing.Windows
                 ImGui.TreePop();
             }
             
-            string commitLabel = _editSourcePath != null
+            string commitLabel = EditSourcePath != null
                 ? "Save & Close"
                 : "Commit Paint to Active Layers";
             if (ImGui.Button(commitLabel))
             {
                 CommitPaintLayer();
             }
-            if (_editSourcePath != null)
+            if (EditSourcePath != null)
             {
                 ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.5f, 1f, 0.5f, 1f), $"Editing: {Path.GetFileName(_editSourcePath)}");
+                ImGui.TextColored(new Vector4(0.5f, 1f, 0.5f, 1f), $"Editing: {Path.GetFileName(EditSourcePath)}");
             }
             ImGui.SameLine();
             if (ImGui.Button("Clear Paint"))
@@ -968,13 +977,13 @@ namespace DragAndDropTexturing.Windows
         {
             if (_renderer == null || !_gpuPaintInitialized) return;
 
-            bool isEditMode = !string.IsNullOrEmpty(_editSourcePath);
+            bool isEditMode = !string.IsNullOrEmpty(EditSourcePath);
             string outPath;
 
             if (isEditMode)
             {
                 // Edit mode: overwrite the source file
-                outPath = _editSourcePath;
+                outPath = EditSourcePath;
                 _plugin.PluginLog.Info($"[Texture Painter] Edit mode — will overwrite: {outPath}");
             }
             else
@@ -1040,7 +1049,7 @@ namespace DragAndDropTexturing.Windows
             
             _renderer.GpuClearPaint();
             _needsComposite = true;
-            _editSourcePath = null;
+            EditSourcePath = null;
             IsOpen = false;
         }
 
@@ -1422,11 +1431,11 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                 _cachedBaseBitmap.UnlockBits(data);
 
                 // Load existing layer into paint layer if editing
-                if (!_editLayerLoaded && _editSourcePath != null && File.Exists(_editSourcePath))
+                if (!_editLayerLoaded && EditSourcePath != null && File.Exists(EditSourcePath))
                 {
                     try
                     {
-                        using var editBmp = new System.Drawing.Bitmap(_editSourcePath);
+                        using var editBmp = new System.Drawing.Bitmap(EditSourcePath);
                         // Resize to match paint texture if needed
                         using var resized = new System.Drawing.Bitmap(editBmp, w, h);
                         var editRect = new System.Drawing.Rectangle(0, 0, w, h);
@@ -1445,11 +1454,11 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                         }
                         resized.UnlockBits(editData);
                         _renderer.LoadPaintLayerFromRgba(rgba, w, h);
-                        _plugin.PluginLog.Info($"[Texture Painter] Loaded edit source into paint layer: {_editSourcePath}");
+                        _plugin.PluginLog.Info($"[Texture Painter] Loaded edit source into paint layer: {EditSourcePath}");
                     }
                     catch (Exception editEx)
                     {
-                        _plugin.PluginLog.Error(editEx, $"[Texture Painter] Failed to load edit source: {_editSourcePath}");
+                        _plugin.PluginLog.Error(editEx, $"[Texture Painter] Failed to load edit source: {EditSourcePath}");
                     }
                     _editLayerLoaded = true;
                 }

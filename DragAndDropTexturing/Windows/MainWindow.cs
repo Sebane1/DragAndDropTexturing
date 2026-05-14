@@ -265,7 +265,7 @@ public class MainWindow : Window, IDisposable
                 ImGui.Spacing();
                 if (ImGui.Button("Open Texture Painter"))
                 {
-                    Plugin.TexturePaintingWindow.IsOpen = true;
+                    Plugin.OpenPaintWindow();
                 }
                 return;
             }
@@ -376,14 +376,14 @@ public class MainWindow : Window, IDisposable
                         ImGui.SameLine();
                         if (ImGui.Button("Edit##" + key + i))
                         {
-                            Plugin.TexturePaintingWindow.OpenForEditing(path);
+                            Plugin.OpenPaintWindow(path);
                         }
                     }
                 }
 
                 if (ImGui.Button("Add New Layer (Open Painter)##" + key))
                 {
-                    Plugin.TexturePaintingWindow.IsOpen = true;
+                    Plugin.OpenPaintWindow();
                 }
 
                 if (changed)

@@ -46,7 +46,37 @@ public sealed class Plugin : IDalamudPlugin
     private MainWindow MainWindow { get; init; }
     public PsdImportWindow PsdImportWindow { get; init; }
     public MdlPreviewWindow MdlPreviewWindow { get; init; }
-    public TexturePaintingWindow TexturePaintingWindow { get; init; }
+    public List<TexturePaintingWindow> TexturePaintingWindows { get; init; } = new();
+
+    public void OpenPaintWindow(string editPath = null)
+    {
+        if (editPath != null)
+        {
+            foreach (var existingWindow in TexturePaintingWindows)
+            {
+                if (string.Equals(existingWindow.EditSourcePath, editPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    existingWindow.IsOpen = true;
+                    existingWindow.BringToFront();
+                    return;
+                }
+            }
+        }
+
+        var window = new TexturePaintingWindow(this);
+        if (editPath != null)
+        {
+            window.WindowName = $"Texture Painter - {Path.GetFileName(editPath)}###PaintWindow_{Guid.NewGuid()}";
+            window.OpenForEditing(editPath);
+        }
+        else
+        {
+            window.WindowName = $"Texture Painter###PaintWindow_{Guid.NewGuid()}";
+            window.IsOpen = true;
+        }
+        TexturePaintingWindows.Add(window);
+        WindowSystem.AddWindow(window);
+    }
     internal DragAndDropTextureWindow? DragAndDropTextures { get; private set; }
     public IChatGui Chat { get => _chat; set => _chat = value; }
     public ThreadSafeGameObjectManager SafeGameObjectManager { get => _safeGameObjectManager; set => _safeGameObjectManager = value; }
@@ -79,8 +109,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(PsdImportWindow);
         MdlPreviewWindow = new MdlPreviewWindow();
         WindowSystem.AddWindow(MdlPreviewWindow);
-        TexturePaintingWindow = new TexturePaintingWindow(this);
-        WindowSystem.AddWindow(TexturePaintingWindow);
+        // Painting windows are now spawned dynamically via OpenPaintWindow()
         _safeGameObjectManager = new ThreadSafeGameObjectManager(clientState, objectTable, framework, pluginLog);
         _pluginLog = pluginLog;
         BackupTexturePaths.OverrideMode = Configuration.UsePriorityBodyMod;
@@ -127,7 +156,11 @@ public sealed class Plugin : IDalamudPlugin
         DragAndDropTextures?.Dispose();
         MainWindow?.Dispose();
         PsdImportWindow?.Dispose();
-        TexturePaintingWindow?.Dispose();
+        foreach (var window in TexturePaintingWindows)
+        {
+            window.Dispose();
+        }
+        TexturePaintingWindows.Clear();
         CommandManager.RemoveHandler(CommandName);
     }
 
