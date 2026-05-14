@@ -37,6 +37,7 @@ namespace DragAndDropTexturing.Windows
         private ID3D11ComputeShader _stampCS;
         private ID3D11Buffer _brushCB;
         private ID3D11Buffer _stampCB;
+        private ID3D11SamplerState _stampSampler;
         private int _paintTexWidth, _paintTexHeight;
         private bool _gpuPaintReady;
 
@@ -1200,6 +1201,20 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             // Clear the paint layer to transparent by dispatching a zero-fill
             GpuClearPaint();
 
+            if (_stampSampler == null)
+            {
+                _stampSampler = _device.CreateSamplerState(new SamplerDescription
+                {
+                    Filter = Filter.MinMagMipLinear,
+                    AddressU = TextureAddressMode.Clamp,
+                    AddressV = TextureAddressMode.Clamp,
+                    AddressW = TextureAddressMode.Clamp,
+                    ComparisonFunc = ComparisonFunction.Never,
+                    MinLOD = 0,
+                    MaxLOD = float.MaxValue
+                });
+            }
+
             _gpuPaintReady = true;
             BakeUVMaps();
         }
@@ -1285,24 +1300,12 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
             _context.UpdateSubresource(stampParams, _stampCB);
 
-            // Create a temporary sampler
-            using var sampler = _device.CreateSamplerState(new SamplerDescription
-            {
-                Filter = Filter.MinMagMipLinear,
-                AddressU = TextureAddressMode.Clamp,
-                AddressV = TextureAddressMode.Clamp,
-                AddressW = TextureAddressMode.Clamp,
-                ComparisonFunc = ComparisonFunction.Never,
-                MinLOD = 0,
-                MaxLOD = float.MaxValue
-            });
-
             _context.CSSetShader(_stampCS);
             _context.CSSetConstantBuffer(0, _stampCB);
             _context.CSSetShaderResource(0, stampSrv);
             _context.CSSetShaderResource(1, PositionMapSRV);
             _context.CSSetShaderResource(2, NormalMapSRV);
-            _context.CSSetSampler(0, sampler);
+            _context.CSSetSampler(0, _stampSampler);
             _context.CSSetUnorderedAccessView(0, _gpuPaintUAV);
 
             int groupsX = (_paintTexWidth + 15) / 16;
@@ -1313,6 +1316,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
             _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
             _context.CSSetShaderResource(2, (ID3D11ShaderResourceView)null);
+            _context.CSSetSampler(0, (ID3D11SamplerState)null);
             _context.CSSetShader(null);
         }
 
@@ -1337,23 +1341,12 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
             _context.UpdateSubresource(stampParams, _stampCB);
 
-            using var sampler = _device.CreateSamplerState(new SamplerDescription
-            {
-                Filter = Filter.MinMagMipLinear,
-                AddressU = TextureAddressMode.Clamp,
-                AddressV = TextureAddressMode.Clamp,
-                AddressW = TextureAddressMode.Clamp,
-                ComparisonFunc = ComparisonFunction.Never,
-                MinLOD = 0,
-                MaxLOD = float.MaxValue
-            });
-
             _context.CSSetShader(_stampCS);
             _context.CSSetConstantBuffer(0, _stampCB);
             _context.CSSetShaderResource(0, stampSrv);
             _context.CSSetShaderResource(1, PositionMapSRV);
             _context.CSSetShaderResource(2, NormalMapSRV);
-            _context.CSSetSampler(0, sampler);
+            _context.CSSetSampler(0, _stampSampler);
             _context.CSSetUnorderedAccessView(0, _gpuCompositeUAV); // Preview goes onto Composite texture
 
             int groupsX = (_paintTexWidth + 15) / 16;
@@ -1364,6 +1357,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
             _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
             _context.CSSetShaderResource(2, (ID3D11ShaderResourceView)null);
+            _context.CSSetSampler(0, (ID3D11SamplerState)null);
             _context.CSSetShader(null);
         }
 
@@ -1635,6 +1629,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _stampCS?.Dispose(); _stampCS = null;
             _brushCB?.Dispose(); _brushCB = null;
             _stampCB?.Dispose(); _stampCB = null;
+            _stampSampler?.Dispose(); _stampSampler = null;
         }
 
         public void Dispose()
