@@ -42,6 +42,14 @@ namespace DragAndDropTexturing.Windows
         private static readonly HashSet<string> _primarySlots = new HashSet<string> { "Top", "Bottom" };
         private static readonly string[] _primarySlotArray = new[] { "Top", "Bottom" };
 
+        private float _brushHardness = 0.5f;
+        private float _brushOpacity = 1.0f;
+        private enum PaintTool { Brush, Eraser, Fill, Eyedropper }
+        private enum PaintShape { Circle, Square }
+
+        private PaintTool _activeTool = PaintTool.Brush;
+        private PaintShape _activeShape = PaintShape.Circle;
+
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
         {
             _plugin = plugin;
@@ -85,10 +93,34 @@ namespace DragAndDropTexturing.Windows
             ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.5f);
 
             // Left side controls
+            ImGui.Text("Tools:");
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Brush", _activeTool == PaintTool.Brush)) _activeTool = PaintTool.Brush;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Eraser", _activeTool == PaintTool.Eraser)) _activeTool = PaintTool.Eraser;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Fill", _activeTool == PaintTool.Fill)) _activeTool = PaintTool.Fill;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Eyedropper", _activeTool == PaintTool.Eyedropper)) _activeTool = PaintTool.Eyedropper;
+            
+            ImGui.Text("Shape:");
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Circle", _activeShape == PaintShape.Circle)) _activeShape = PaintShape.Circle;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Square", _activeShape == PaintShape.Square)) _activeShape = PaintShape.Square;
+
+            ImGui.Separator();
+
             ImGui.ColorEdit4("Brush Color", ref _paintColor, ImGuiColorEditFlags.NoInputs);
             ImGui.SameLine();
             ImGui.SetNextItemWidth(100);
             ImGui.SliderFloat("Size", ref _brushSize, 1f, 50f, "%.1f");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(100);
+            ImGui.SliderFloat("Hardness", ref _brushHardness, 0f, 1f, "%.2f");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(100);
+            ImGui.SliderFloat("Opacity", ref _brushOpacity, 0f, 1f, "%.2f");
             
             if (ImGui.Button("Commit Paint to Active Character Overlays"))
             {
@@ -97,9 +129,26 @@ namespace DragAndDropTexturing.Windows
             ImGui.SameLine();
             if (ImGui.Button("Clear Paint"))
             {
+                _renderer?.PushUndoSnapshot();
                 _renderer?.GpuClearPaint();
                 _needsComposite = true;
             }
+            ImGui.SameLine();
+            ImGui.BeginDisabled(_renderer == null || !_renderer.CanUndo);
+            if (ImGui.Button("Undo"))
+            {
+                _renderer?.Undo();
+                _needsComposite = true;
+            }
+            ImGui.EndDisabled();
+            ImGui.SameLine();
+            ImGui.BeginDisabled(_renderer == null || !_renderer.CanRedo);
+            if (ImGui.Button("Redo"))
+            {
+                _renderer?.Redo();
+                _needsComposite = true;
+            }
+            ImGui.EndDisabled();
 
             ImGui.Separator();
 
@@ -127,6 +176,10 @@ namespace DragAndDropTexturing.Windows
                     if (isHovered || isActive)
                     {
                         var mousePos = ImGui.GetMousePos();
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                        {
+                            _renderer.PushUndoSnapshot();
+                        }
                         
                         if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                         {
@@ -194,6 +247,11 @@ namespace DragAndDropTexturing.Windows
                     if (ImGui.IsItemHovered() || ImGui.IsItemActive())
                     {
                         var mousePos = ImGui.GetMousePos();
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                        {
+                            _renderer.PushUndoSnapshot();
+                        }
+                        
                         if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                         {
                             Vector2 localMousePos = mousePos - cursorPos;
@@ -226,12 +284,23 @@ namespace DragAndDropTexturing.Windows
         {
             if (_renderer == null || !_gpuPaintInitialized) return;
             
+            if (_activeTool == PaintTool.Eyedropper)
+            {
+                var color = _renderer.ReadCompositePixel(uvHit);
+                _paintColor = new Vector4(color.X, color.Y, color.Z, 1.0f);
+                return;
+            }
+
             // Break the stroke if the UV gap is too large (crossing UV island seams)
             Vector2? prev = _lastUvHit;
             if (prev.HasValue && Vector2.Distance(uvHit, prev.Value) > 0.1f)
                 prev = null;
             
-            _renderer.GpuPaintStroke(uvHit, prev, _brushSize, new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, _paintColor.W));
+            int blendMode = _activeTool == PaintTool.Eraser ? 1 : 0;
+            int shapeMode = _activeTool == PaintTool.Fill ? 2 : (_activeShape == PaintShape.Square ? 1 : 0);
+
+            float finalAlpha = _paintColor.W * _brushOpacity;
+            _renderer.GpuPaintStroke(uvHit, prev, _brushSize, _brushHardness, new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha), blendMode, shapeMode);
             _lastUvHit = uvHit;
             _needsComposite = true;
         }

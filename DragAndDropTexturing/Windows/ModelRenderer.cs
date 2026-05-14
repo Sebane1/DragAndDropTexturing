@@ -38,14 +38,27 @@ namespace DragAndDropTexturing.Windows
         private int _paintTexWidth, _paintTexHeight;
         private bool _gpuPaintReady;
 
+        // Undo / Redo system
+        private List<ID3D11Texture2D> _undoStack = new List<ID3D11Texture2D>();
+        private List<ID3D11Texture2D> _redoStack = new List<ID3D11Texture2D>();
+        private const int MaxUndoSteps = 10;
+
+        public bool CanUndo => _undoStack.Count > 0;
+        public bool CanRedo => _redoStack.Count > 0;
+
         [StructLayout(LayoutKind.Sequential)]
         private struct BrushParams
         {
             public Vector2 Center;
             public Vector2 PrevCenter;
             public float Radius;
+            public float Hardness;
             public int HasPrev;
-            public float Pad0, Pad1;
+            public int BlendMode;
+            public int ShapeMode;
+            public int Padding1;
+            public int Padding2;
+            public int Padding3;
             public Vector4 Color;
         }
 
@@ -741,8 +754,13 @@ cbuffer BrushParams : register(b0)
     float2 Center;
     float2 PrevCenter;
     float Radius;
+    float Hardness;
     int HasPrev;
-    float2 _pad;
+    int BlendMode;
+    int ShapeMode;
+    int Padding1;
+    int Padding2;
+    int Padding3;
     float4 Color;
 };
 RWTexture2D<float4> PaintLayer : register(u0);
@@ -763,23 +781,60 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
     PaintLayer.GetDimensions(w, h);
     if (id.x >= w || id.y >= h) return;
 
+    if (ShapeMode == 2) // Fill Tool
+    {
+        PaintLayer[id.xy] = Color;
+        return;
+    }
+
     float2 pixel = float2(id.x, id.y) + 0.5f;
-    float dist;
-    if (HasPrev > 0)
-        dist = distToSegment(pixel, PrevCenter, Center);
-    else
-        dist = length(pixel - Center);
+    float dist = 0.0f;
+    
+    if (ShapeMode == 1) // Square
+    {
+        if (HasPrev > 0)
+        {
+            float2 ab = PrevCenter - Center;
+            float2 ap = pixel - Center;
+            float t = saturate(dot(ap, ab) / max(dot(ab, ab), 0.0001f));
+            float2 closest = Center + ab * t;
+            float2 d = abs(pixel - closest);
+            dist = max(d.x, d.y);
+        }
+        else
+        {
+            float2 d = abs(pixel - Center);
+            dist = max(d.x, d.y);
+        }
+    }
+    else // Circle
+    {
+        if (HasPrev > 0)
+            dist = distToSegment(pixel, PrevCenter, Center);
+        else
+            dist = length(pixel - Center);
+    }
 
     if (dist <= Radius)
     {
-        float edge = smoothstep(Radius, Radius * 0.5f, dist);
+        float softEdge = Radius * (1.0f - saturate(Hardness));
+        float edge = (ShapeMode == 1) ? step(dist, Radius) : smoothstep(Radius, max(0.0001f, Radius - softEdge), dist);
         float alpha = Color.a * edge;
         float4 existing = PaintLayer[id.xy];
-        float outA = alpha + existing.a * (1.0f - alpha);
-        float3 outRGB = (outA > 0.001f)
-            ? (Color.rgb * alpha + existing.rgb * existing.a * (1.0f - alpha)) / outA
-            : float3(0,0,0);
-        PaintLayer[id.xy] = float4(outRGB, outA);
+        
+        if (BlendMode == 1) // Eraser
+        {
+            float outA = saturate(existing.a - alpha);
+            PaintLayer[id.xy] = float4(existing.rgb, outA);
+        }
+        else // Normal Blending
+        {
+            float outA = alpha + existing.a * (1.0f - alpha);
+            float3 outRGB = (outA > 0.001f)
+                ? (Color.rgb * alpha + existing.rgb * existing.a * (1.0f - alpha)) / outA
+                : float3(0,0,0);
+            PaintLayer[id.xy] = float4(outRGB, outA);
+        }
     }
 }";
 
@@ -889,7 +944,7 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
             _gpuBaseSRV = _device.CreateShaderResourceView(_gpuBaseTex);
         }
 
-        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, Vector4 color)
+        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, float hardness, Vector4 color, int blendMode = 0, int shapeMode = 0)
         {
             if (!_gpuPaintReady || _context == null) return;
 
@@ -900,7 +955,13 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
                     ? new Vector2(uvPrev.Value.X * _paintTexWidth, uvPrev.Value.Y * _paintTexHeight)
                     : Vector2.Zero,
                 Radius = radiusPixels,
+                Hardness = hardness,
                 HasPrev = uvPrev.HasValue ? 1 : 0,
+                BlendMode = blendMode,
+                ShapeMode = shapeMode,
+                Padding1 = 0,
+                Padding2 = 0,
+                Padding3 = 0,
                 Color = color
             };
 
@@ -1039,12 +1100,117 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
             }
         }
 
+        public Vector4 ReadCompositePixel(Vector2 uv)
+        {
+            if (!_gpuPaintReady || _gpuCompositeTex == null || _context == null) return Vector4.Zero;
+
+            int px = (int)(uv.X * _paintTexWidth);
+            int py = (int)(uv.Y * _paintTexHeight);
+            px = Math.Clamp(px, 0, _paintTexWidth - 1);
+            py = Math.Clamp(py, 0, _paintTexHeight - 1);
+
+            var box = new Vortice.Mathematics.Box(px, py, 0, px + 1, py + 1, 1);
+
+            var stagingDesc = new Texture2DDescription
+            {
+                Width = 1, Height = 1,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read
+            };
+
+            using var staging = _device.CreateTexture2D(stagingDesc);
+            _context.CopySubresourceRegion(staging, 0, 0, 0, 0, _gpuCompositeTex, 0, box);
+
+            var mapped = _context.Map(staging, 0, MapMode.Read);
+            Vector4 result = Vector4.Zero;
+            try
+            {
+                unsafe
+                {
+                    float* data = (float*)mapped.DataPointer;
+                    result = new Vector4(data[0], data[1], data[2], data[3]);
+                }
+            }
+            finally
+            {
+                _context.Unmap(staging, 0);
+            }
+            return result;
+        }
+
         public int PaintTexWidth => _paintTexWidth;
         public int PaintTexHeight => _paintTexHeight;
+
+        public void PushUndoSnapshot()
+        {
+            if (!_gpuPaintReady || _gpuPaintTex == null || _device == null || _context == null) return;
+            
+            // Clear redo stack on new action
+            foreach(var t in _redoStack) t.Dispose();
+            _redoStack.Clear();
+            
+            // Create a copy of the current paint texture
+            var desc = _gpuPaintTex.Description;
+            var snapshot = _device.CreateTexture2D(desc);
+            _context.CopyResource(snapshot, _gpuPaintTex);
+            
+            _undoStack.Add(snapshot);
+            
+            // Trim if over limit
+            if (_undoStack.Count > MaxUndoSteps)
+            {
+                _undoStack[0].Dispose();
+                _undoStack.RemoveAt(0);
+            }
+        }
+        
+        public void Undo()
+        {
+            if (!CanUndo || !_gpuPaintReady || _gpuPaintTex == null || _context == null) return;
+            
+            // Push current state to redo
+            var desc = _gpuPaintTex.Description;
+            var currentSnapshot = _device.CreateTexture2D(desc);
+            _context.CopyResource(currentSnapshot, _gpuPaintTex);
+            _redoStack.Add(currentSnapshot);
+            
+            // Pop from undo and apply
+            var undoTex = _undoStack[_undoStack.Count - 1];
+            _undoStack.RemoveAt(_undoStack.Count - 1);
+            
+            _context.CopyResource(_gpuPaintTex, undoTex);
+            undoTex.Dispose();
+        }
+        
+        public void Redo()
+        {
+            if (!CanRedo || !_gpuPaintReady || _gpuPaintTex == null || _context == null) return;
+            
+            // Push current state to undo
+            var desc = _gpuPaintTex.Description;
+            var currentSnapshot = _device.CreateTexture2D(desc);
+            _context.CopyResource(currentSnapshot, _gpuPaintTex);
+            _undoStack.Add(currentSnapshot);
+            
+            // Pop from redo and apply
+            var redoTex = _redoStack[_redoStack.Count - 1];
+            _redoStack.RemoveAt(_redoStack.Count - 1);
+            
+            _context.CopyResource(_gpuPaintTex, redoTex);
+            redoTex.Dispose();
+        }
 
         private void DisposeGpuPaint()
         {
             _gpuPaintReady = false;
+            foreach(var t in _undoStack) t.Dispose();
+            _undoStack.Clear();
+            foreach(var t in _redoStack) t.Dispose();
+            _redoStack.Clear();
             _gpuPaintUAV?.Dispose(); _gpuPaintUAV = null;
             _gpuPaintSRV?.Dispose(); _gpuPaintSRV = null;
             _gpuPaintTex?.Dispose(); _gpuPaintTex = null;
