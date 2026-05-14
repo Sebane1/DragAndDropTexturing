@@ -523,6 +523,14 @@ namespace DragAndDropTexturing.Windows
                             {
                                 if (_floatingLayer != null)
                                 {
+                                    if (ImGui.IsKeyDown(ImGuiKey.ModShift))
+                                    {
+                                        worldHit.X = 0f;
+                                        hitNormal.X = 0f;
+                                        if (hitNormal.LengthSquared() > 0.001f) hitNormal = Vector3.Normalize(hitNormal);
+                                        else hitNormal = Vector3.UnitZ;
+                                    }
+
                                     _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
                                     _floatingLayer.Is3DProjected = true;
                                     _floatingLayer.DecalCenter = worldHit;
@@ -569,6 +577,14 @@ namespace DragAndDropTexturing.Windows
                             {
                                 if (_floatingLayer != null)
                                 {
+                                    if (ImGui.IsKeyDown(ImGuiKey.ModShift))
+                                    {
+                                        worldHit.X = 0f;
+                                        hitNormal.X = 0f;
+                                        if (hitNormal.LengthSquared() > 0.001f) hitNormal = Vector3.Normalize(hitNormal);
+                                        else hitNormal = Vector3.UnitZ;
+                                    }
+
                                     _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
                                     _floatingLayer.Is3DProjected = true;
                                     _floatingLayer.DecalCenter = worldHit;
@@ -708,6 +724,10 @@ namespace DragAndDropTexturing.Windows
                             {
                                 var delta = ImGui.GetIO().MouseDelta;
                                 _floatingLayer.Position += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
+                                if (ImGui.IsKeyDown(ImGuiKey.ModShift))
+                                {
+                                    _floatingLayer.Position.X = 0.5f - (_floatingLayer.Scale.X / 2.0f);
+                                }
                                 _floatingLayer.Is3DProjected = false; // Move in 2D disabled 3D projection
                                 _needsComposite = true;
                             }
