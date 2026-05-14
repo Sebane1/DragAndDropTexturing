@@ -456,9 +456,16 @@ namespace DragAndDropTexturing.Windows
                                         uv = new Vector2(
                                             (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16()),
                                             (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16()));
-                                        reader.ReadUInt32(); // second UV pair
                                     }
-                                    else if (elem.type == 2 && ms.Position + 12 <= fileData.Length) // Float3??
+                                    else if (elem.type == 1 && ms.Position + 8 <= fileData.Length) // Float2
+                                    {
+                                        uv = new Vector2(reader.ReadSingle(), reader.ReadSingle());
+                                    }
+                                    else if (elem.type == 2 && ms.Position + 12 <= fileData.Length) // Float3
+                                    {
+                                        uv = new Vector2(reader.ReadSingle(), reader.ReadSingle());
+                                    }
+                                    else if (elem.type == 3 && ms.Position + 16 <= fileData.Length) // Float4
                                     {
                                         uv = new Vector2(reader.ReadSingle(), reader.ReadSingle());
                                     }
@@ -479,9 +486,33 @@ namespace DragAndDropTexturing.Windows
                 if (extractedMeshes.Count > 0)
                 {
                     int totalVerts = 0, totalIdx = 0;
-                    foreach (var em in extractedMeshes) { totalVerts += em.Positions.Count; totalIdx += em.Indices.Count; }
+                    int uvNonZero = 0;
+                    float uvMinX = float.MaxValue, uvMinY = float.MaxValue;
+                    float uvMaxX = float.MinValue, uvMaxY = float.MinValue;
+                    foreach (var em in extractedMeshes)
+                    {
+                        totalVerts += em.Positions.Count;
+                        totalIdx += em.Indices.Count;
+                        foreach (var uv in em.UVs)
+                        {
+                            if (uv.X != 0 || uv.Y != 0) uvNonZero++;
+                            if (uv.X < uvMinX) uvMinX = uv.X;
+                            if (uv.Y < uvMinY) uvMinY = uv.Y;
+                            if (uv.X > uvMaxX) uvMaxX = uv.X;
+                            if (uv.Y > uvMaxY) uvMaxY = uv.Y;
+                        }
+                    }
                     statusMessage = $"Loaded {extractedMeshes.Count} mesh(es) ({totalVerts} verts, {totalIdx / 3} tris) from disk. " +
-                                    $"[v{mdlVersion}, vtxOff=0x{vertexOffset[0]:X}, idxOff=0x{indexOffset[0]:X}]";
+                                    $"[v{mdlVersion}, vtxOff=0x{vertexOffset[0]:X}, idxOff=0x{indexOffset[0]:X}] " +
+                                    $"UVs: {uvNonZero}/{totalVerts} nonzero, range ({uvMinX:F3},{uvMinY:F3})-({uvMaxX:F3},{uvMaxY:F3})";
+                    // Append vertex declaration info for first mesh
+                    if (vertexDeclarations.Count > 0)
+                    {
+                        var declInfo = new System.Text.StringBuilder(" | VtxDecl[0]: ");
+                        foreach (var e in vertexDeclarations[0])
+                            declInfo.Append($"[s{e.stream} off{e.offset} t{e.type} u{e.usage}] ");
+                        statusMessage += declInfo.ToString();
+                    }
                     return extractedMeshes;
                 }
                 else
