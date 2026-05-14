@@ -81,6 +81,18 @@ namespace DragAndDropTexturing.Windows
             _statusText = "Loading PSD...";
             IsOpen = true;
 
+            _rendererInitialized = false;
+            _renderer?.Dispose();
+            _renderer = null;
+
+            _topModelDiskPath = "";
+            _botModelDiskPath = "";
+            _activeBaseTexturePng = "";
+            _activeNormalTexturePng = "";
+            _isGen3Preview = false;
+            _isBiboPreview = false;
+            _previewDirty = false;
+
             _tempDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "PSD_Temp");
             _importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
 
@@ -520,8 +532,12 @@ namespace DragAndDropTexturing.Windows
 
                 if (meshes != null && meshes.Count > 0)
                 {
-                    _plugin.PluginLog.Info($"[PSD Preview] Successfully loaded {meshes.Count} meshes into slot '{slot}'. Slicing to base mesh only.");
+                    _plugin.PluginLog.Info($"[PSD Preview] Successfully loaded {meshes.Count} meshes into slot '{slot}'. Slicing base to '{slot}', extras to '{slot}_N'.");
                     _renderer.LoadMeshes(slot, new System.Collections.Generic.List<ExtractedMesh> { meshes[0] });
+                    for (int i = 1; i < meshes.Count; i++)
+                    {
+                        _renderer.LoadMeshes($"{slot}_{i}", new System.Collections.Generic.List<ExtractedMesh> { meshes[i] });
+                    }
                 }
                 else
                 {
@@ -559,14 +575,28 @@ namespace DragAndDropTexturing.Windows
             return null;
         }
 
-        private void CompositeLayers(int overrideTypeIndex, string activeBaseTexPng, string outPngPath, bool isGen3, bool isBibo)
+        private System.Drawing.Bitmap CompositeLayersToBitmap(int overrideTypeIndex, string activeBaseTexPng, bool isGen3, bool isBibo)
         {
-            using var composite = new MagickImage(MagickColors.Transparent, 1024, 1024);
+            System.Drawing.Bitmap baseBitmap = null;
+            int width = 1024, height = 1024;
+            
             if (!string.IsNullOrEmpty(activeBaseTexPng) && File.Exists(activeBaseTexPng))
             {
-                using var baseImg = new MagickImage(activeBaseTexPng);
-                composite.Resize(baseImg.Width, baseImg.Height);
-                composite.Composite(baseImg, CompositeOperator.Over);
+                baseBitmap = new System.Drawing.Bitmap(activeBaseTexPng);
+                width = baseBitmap.Width;
+                height = baseBitmap.Height;
+            }
+
+            var composite = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using var g = System.Drawing.Graphics.FromImage(composite);
+            g.Clear(System.Drawing.Color.Transparent);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+
+            if (baseBitmap != null)
+            {
+                g.DrawImage(baseBitmap, 0, 0, width, height);
+                baseBitmap.Dispose();
             }
 
             foreach (var layer in Layers)
@@ -590,13 +620,13 @@ namespace DragAndDropTexturing.Windows
 
                     if (File.Exists(inputPng))
                     {
-                        using var overlay = new MagickImage(inputPng);
-                        composite.Composite(overlay, CompositeOperator.Over);
+                        using var overlay = new System.Drawing.Bitmap(inputPng);
+                        g.DrawImage(overlay, 0, 0, width, height);
                     }
                 }
             }
 
-            composite.Write(outPngPath);
+            return composite;
         }
 
         public void UpdatePreviewTextures()
@@ -606,41 +636,34 @@ namespace DragAndDropTexturing.Windows
             Task.Run(() => {
                 try
                 {
-                    string outBasePng = Path.Combine(_tempDir, "preview_base.png");
-                    string outNormPng = Path.Combine(_tempDir, "preview_norm.png");
-
-                    CompositeLayers(0, _activeBaseTexturePng, outBasePng, _isGen3Preview, _isBiboPreview);
-                    CompositeLayers(1, _activeNormalTexturePng, outNormPng, _isGen3Preview, _isBiboPreview);
-
-                    if (File.Exists(outBasePng))
+                    using var bitmap = CompositeLayersToBitmap(0, _activeBaseTexturePng, _isGen3Preview, _isBiboPreview);
+                    
+                    int w = bitmap.Width;
+                    int h = bitmap.Height;
+                    byte[] pixels = new byte[w * h * 4];
+                    var rect = new System.Drawing.Rectangle(0, 0, w, h);
+                    var data = bitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    unsafe
                     {
-                        using var bitmap = new System.Drawing.Bitmap(outBasePng);
-                        int w = bitmap.Width;
-                        int h = bitmap.Height;
-                        byte[] pixels = new byte[w * h * 4];
-                        var rect = new System.Drawing.Rectangle(0, 0, w, h);
-                        var data = bitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                        unsafe
+                        byte* ptr = (byte*)data.Scan0;
+                        for (int y = 0; y < h; y++)
                         {
-                            byte* ptr = (byte*)data.Scan0;
-                            for (int y = 0; y < h; y++)
+                            byte* row = ptr + (y * data.Stride);
+                            for (int x = 0; x < w; x++)
                             {
-                                byte* row = ptr + (y * data.Stride);
-                                for (int x = 0; x < w; x++)
-                                {
-                                    int sIdx = x * 4;
-                                    int dIdx = (y * w + x) * 4;
-                                    pixels[dIdx + 0] = row[sIdx + 2]; // R
-                                    pixels[dIdx + 1] = row[sIdx + 1]; // G
-                                    pixels[dIdx + 2] = row[sIdx + 0]; // B
-                                    pixels[dIdx + 3] = row[sIdx + 3]; // A
-                                }
+                                int sIdx = x * 4;
+                                int dIdx = (y * w + x) * 4;
+                                pixels[dIdx + 0] = row[sIdx + 2]; // R
+                                pixels[dIdx + 1] = row[sIdx + 1]; // G
+                                pixels[dIdx + 2] = row[sIdx + 0]; // B
+                                pixels[dIdx + 3] = row[sIdx + 3]; // A
                             }
                         }
-                        bitmap.UnlockBits(data);
-                        _renderer.LoadTexture("Top", pixels, w, h);
-                        _renderer.LoadTexture("Bottom", pixels, w, h);
                     }
+                    bitmap.UnlockBits(data);
+                    
+                    _renderer.LoadTexture("Top", pixels, w, h);
+                    _renderer.LoadTexture("Bottom", pixels, w, h);
                 }
                 catch (Exception ex) { _plugin.PluginLog.Error(ex, "Failed to update preview textures"); }
                 finally { _isPreviewUpdating = false; }
