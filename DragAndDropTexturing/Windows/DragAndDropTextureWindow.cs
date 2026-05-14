@@ -1781,7 +1781,7 @@ namespace RoleplayingVoice
             string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
             if (gender != 0) {
                 if (fileName.Contains("bibo") || fileName.Contains("b+")) return 1;
-                if (fileName.Contains("gen3") || fileName.Contains("eve")) return 2;
+                if (fileName.Contains("gen3") || fileName.Contains("eve") || fileName.Contains("exqb") || fileName.Contains("pythia") || fileName.Contains("gaia")) return 2;
             }
             if (gender != 1) {
                 if (fileName.Contains("tbse")) return 3;

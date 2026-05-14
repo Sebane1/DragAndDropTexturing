@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Numerics;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -420,7 +421,7 @@ float4 PS(PS_IN input) : SV_TARGET
 
         private Matrix4x4 _lastWvp;
 
-        public bool Raycast(Vector2 screenPos, out Vector2 uvHit, out string hitSlot)
+        public bool Raycast(Vector2 screenPos, out Vector2 uvHit, out string hitSlot, HashSet<string> allowedSlots = null)
         {
             uvHit = Vector2.Zero;
             hitSlot = null;
@@ -446,6 +447,9 @@ float4 PS(PS_IN input) : SV_TARGET
 
             foreach (var kvp in _models)
             {
+                // Skip sub-meshes if filtering is active
+                if (allowedSlots != null && !allowedSlots.Contains(kvp.Key)) continue;
+
                 var model = kvp.Value;
                 if (model.Vertices == null || model.Indices == null) continue;
 
@@ -722,6 +726,11 @@ float4 PS(PS_IN input) : SV_TARGET
                 return model.TextureSRV.NativePointer;
             }
             return IntPtr.Zero;
+        }
+
+        public string[] GetAllSlotNames()
+        {
+            return _models.Keys.ToArray();
         }
 
         // ─── GPU Paint Implementation ───────────────────────────────────────

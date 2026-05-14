@@ -89,6 +89,43 @@ public class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
 
+        ImGui.Separator();
+        ImGui.Text("Current Body Type Detection:");
+        var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+        if (localPlayer != null)
+        {
+            var character = localPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+            if (character != null)
+            {
+                var customization = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                int gender = customization.Customize.Gender.Value;
+                int bodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, gender, out string modName, Plugin);
+                
+                string bodyString = "Vanilla / Unknown";
+                if (bodyType == 1) bodyString = "Bibo+";
+                else if (bodyType == 2) bodyString = "Gen3 / Eve / Pythia";
+                else if (bodyType == 3) bodyString = "TBSE";
+
+                if (bodyType != -1)
+                    ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), $"Detected: {bodyString}");
+                else
+                    ImGui.TextColored(new Vector4(1.0f, 1.0f, 0.2f, 1.0f), "Detected: Vanilla (No body mod found)");
+                
+                if (!string.IsNullOrEmpty(modName))
+                {
+                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), $"Detected From Mod: {modName}");
+                }
+            }
+        }
+        else
+        {
+            ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), "Player not loaded.");
+        }
+        ImGui.Separator();
+        
+        ImGui.Spacing();
+
         if (ImGui.Button("Open 3D Model Preview (Experimental)"))
         {
             Plugin.MdlPreviewWindow.IsOpen = !Plugin.MdlPreviewWindow.IsOpen;

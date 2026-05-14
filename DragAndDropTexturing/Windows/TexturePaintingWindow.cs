@@ -39,6 +39,8 @@ namespace DragAndDropTexturing.Windows
         private bool _needsComposite = true;
         private System.Drawing.Bitmap _cachedBaseBitmap = null;
         private string _cachedBaseBitmapPath = "";
+        private static readonly HashSet<string> _primarySlots = new HashSet<string> { "Top", "Bottom" };
+        private static readonly string[] _primarySlotArray = new[] { "Top", "Bottom" };
 
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
         {
@@ -129,7 +131,7 @@ namespace DragAndDropTexturing.Windows
                         if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                         {
                             Vector2 localMousePos = mousePos - cursorPos;
-                            if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot))
+                            if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot, _primarySlots))
                             {
                                 PaintAtUV(uvHit);
                             }
@@ -215,7 +217,7 @@ namespace DragAndDropTexturing.Windows
             // GPU composite every frame (microseconds)
             if (_renderer != null && _gpuPaintInitialized && _needsComposite)
             {
-                _renderer.GpuComposite(new[] { "Top", "Bottom" });
+                _renderer.GpuComposite(_primarySlotArray);
                 _needsComposite = false;
             }
         }
@@ -223,7 +225,13 @@ namespace DragAndDropTexturing.Windows
         private void PaintAtUV(Vector2 uvHit)
         {
             if (_renderer == null || !_gpuPaintInitialized) return;
-            _renderer.GpuPaintStroke(uvHit, _lastUvHit, _brushSize, new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, _paintColor.W));
+            
+            // Break the stroke if the UV gap is too large (crossing UV island seams)
+            Vector2? prev = _lastUvHit;
+            if (prev.HasValue && Vector2.Distance(uvHit, prev.Value) > 0.1f)
+                prev = null;
+            
+            _renderer.GpuPaintStroke(uvHit, prev, _brushSize, new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, _paintColor.W));
             _lastUvHit = uvHit;
             _needsComposite = true;
         }
@@ -235,12 +243,16 @@ namespace DragAndDropTexturing.Windows
             string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
             if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
             
-            string outPath = Path.Combine(importDir, $"PaintedUV_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
+            string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : "vanilla";
+            string outPath = Path.Combine(importDir, $"{bodyTag}_base_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
+            
+            _plugin.PluginLog.Info($"[Texture Painter] CommitPaintLayer starting. BodyTag={bodyTag}, OutPath={outPath}");
             
             // Read paint layer back from GPU and save as PNG
             byte[] pixels = _renderer.ReadbackPaintLayer();
             if (pixels != null)
             {
+                _plugin.PluginLog.Info($"[Texture Painter] ReadbackPaintLayer returned {pixels.Length} bytes.");
                 int w = _renderer.PaintTexWidth;
                 int h = _renderer.PaintTexHeight;
                 using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -249,19 +261,30 @@ namespace DragAndDropTexturing.Windows
                 System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
                 bmp.UnlockBits(data);
                 bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
-            }
-            
-            var targetChar = _plugin.SafeGameObjectManager.LocalPlayer;
-            if (targetChar != null && _plugin.DragAndDropTextures != null)
-            {
-                var characterGameObject = targetChar as Dalamud.Game.ClientState.Objects.Types.ICharacter;
-                if (characterGameObject != null)
+                _plugin.PluginLog.Info($"[Texture Painter] Paint layer saved to: {outPath}");
+                
+                var targetChar = _plugin.SafeGameObjectManager.LocalPlayer;
+                _plugin.PluginLog.Info($"[Texture Painter] LocalPlayer={targetChar?.Name?.TextValue ?? "NULL"}, DragAndDropTextures={(_plugin.DragAndDropTextures != null ? "OK" : "NULL")}");
+                if (targetChar != null && _plugin.DragAndDropTextures != null)
                 {
-                    _plugin.DragAndDropTextures.InjectFilesAndRebuild(
-                        new List<string> { outPath }, 
-                        new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject), 
-                        PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                    var characterGameObject = targetChar as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                    if (characterGameObject != null)
+                    {
+                        _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with BodyDragPart.Body");
+                        _plugin.DragAndDropTextures.InjectFilesAndRebuild(
+                            new List<string> { outPath }, 
+                            new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject), 
+                            PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                    }
+                    else
+                    {
+                        _plugin.PluginLog.Error("[Texture Painter] LocalPlayer could not be cast to ICharacter!");
+                    }
                 }
+            }
+            else
+            {
+                _plugin.PluginLog.Error("[Texture Painter] ReadbackPaintLayer returned null!");
             }
             
             _renderer.GpuClearPaint();
@@ -628,7 +651,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                 _cachedBaseBitmap.UnlockBits(data);
                 
                 // Initial composite
-                _renderer.GpuComposite(new[] { "Top", "Bottom" });
+                _renderer.GpuComposite(_primarySlotArray);
                 _needsComposite = false;
             }
             catch (Exception ex)
