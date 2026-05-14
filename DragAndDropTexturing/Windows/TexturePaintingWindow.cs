@@ -57,6 +57,12 @@ namespace DragAndDropTexturing.Windows
             public int Height;
             public Vector2 Position = new Vector2(0f, 0f);
             public Vector2 Scale = new Vector2(0.5f, 0.5f);
+            
+            public bool Is3DProjected = false;
+            public Vector3 DecalCenter = Vector3.Zero;
+            public Vector3 DecalNormal = Vector3.UnitY;
+            public Vector3 DecalTangent = Vector3.UnitX;
+            public Vector3 DecalBitangent = Vector3.UnitZ;
 
             public void Dispose()
             {
@@ -173,7 +179,10 @@ namespace DragAndDropTexturing.Windows
                 if (ImGui.Button("Stamp Floating Layer"))
                 {
                     _renderer.PushUndoSnapshot();
-                    _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale);
+                    if (_floatingLayer.Is3DProjected)
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, true, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 1f);
+                    else
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale);
                     _needsComposite = true;
                     _floatingLayer.Dispose();
                     _floatingLayer = null;
@@ -239,11 +248,20 @@ namespace DragAndDropTexturing.Windows
                         if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                         {
                             Vector2 localMousePos = mousePos - cursorPos;
-                            if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot, _primarySlots))
+                            if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal, _primarySlots))
                             {
                                 if (_floatingLayer != null)
                                 {
                                     _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
+                                    _floatingLayer.Is3DProjected = true;
+                                    _floatingLayer.DecalCenter = worldHit;
+                                    _floatingLayer.DecalNormal = hitNormal;
+                                    
+                                    Vector3 up = Vector3.UnitY;
+                                    if (Math.Abs(Vector3.Dot(hitNormal, up)) > 0.99f) up = Vector3.UnitZ;
+                                    _floatingLayer.DecalTangent = Vector3.Normalize(Vector3.Cross(up, hitNormal));
+                                    _floatingLayer.DecalBitangent = Vector3.Cross(hitNormal, _floatingLayer.DecalTangent);
+                                    
                                     _needsComposite = true;
                                 }
                                 else
@@ -358,6 +376,8 @@ namespace DragAndDropTexturing.Windows
                             {
                                 var delta = ImGui.GetIO().MouseDelta;
                                 _floatingLayer.Position += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
+                                _floatingLayer.Is3DProjected = false; // Move in 2D disabled 3D projection
+                                _needsComposite = true;
                             }
                             else if (_dragHandle == 1 && _floatingLayer != null)
                             {
@@ -390,7 +410,10 @@ namespace DragAndDropTexturing.Windows
                 _renderer.GpuComposite(_primarySlotArray);
                 if (_floatingLayer != null && _floatingLayer.SRV != null)
                 {
-                    _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale);
+                    if (_floatingLayer.Is3DProjected)
+                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, true, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 1f);
+                    else
+                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale);
                 }
                 _needsComposite = false;
             }

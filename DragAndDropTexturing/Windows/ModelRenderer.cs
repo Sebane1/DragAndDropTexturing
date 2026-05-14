@@ -69,6 +69,14 @@ namespace DragAndDropTexturing.Windows
         {
             public Vector2 Position;
             public Vector2 Scale;
+            public Vector3 DecalCenter;
+            public float DecalDepth;
+            public Vector3 DecalNormal;
+            public float DecalRadius;
+            public Vector3 DecalTangent;
+            public int Is3D;
+            public Vector3 DecalBitangent;
+            public float Padding1;
         }
 
         public IntPtr ShaderResourceViewHandle => _shaderResourceView?.NativePointer ?? IntPtr.Zero;
@@ -279,6 +287,113 @@ float4 PS(PS_IN input) : SV_TARGET
             _meshLoaded = _models.Count > 0;
         }
 
+        
+        private ID3D11Texture2D _positionMapTex;
+        public ID3D11ShaderResourceView PositionMapSRV { get; private set; }
+        private ID3D11Texture2D _normalMapTex;
+        public ID3D11ShaderResourceView NormalMapSRV { get; private set; }
+
+        public unsafe void BakeUVMaps()
+        {
+            if (_device == null || _paintTexWidth <= 0 || _paintTexHeight <= 0) return;
+
+            int width = _paintTexWidth;
+            int height = _paintTexHeight;
+
+            float[] posData = new float[width * height * 4];
+            float[] normData = new float[width * height * 4];
+
+            foreach (var model in _models.Values)
+            {
+                if (model.Vertices == null || model.Indices == null) continue;
+
+                for (int i = 0; i < model.Indices.Length; i += 3)
+                {
+                    var v0 = model.Vertices[model.Indices[i]];
+                    var v1 = model.Vertices[model.Indices[i+1]];
+                    var v2 = model.Vertices[model.Indices[i+2]];
+
+                    Vector2 p0 = new Vector2(v0.UV.X * width, v0.UV.Y * height);
+                    Vector2 p1 = new Vector2(v1.UV.X * width, v1.UV.Y * height);
+                    Vector2 p2 = new Vector2(v2.UV.X * width, v2.UV.Y * height);
+
+                    int minX = (int)Math.Max(0, Math.Floor(Math.Min(p0.X, Math.Min(p1.X, p2.X))));
+                    int maxX = (int)Math.Min(width - 1, Math.Ceiling(Math.Max(p0.X, Math.Max(p1.X, p2.X))));
+                    int minY = (int)Math.Max(0, Math.Floor(Math.Min(p0.Y, Math.Min(p1.Y, p2.Y))));
+                    int maxY = (int)Math.Min(height - 1, Math.Ceiling(Math.Max(p0.Y, Math.Max(p1.Y, p2.Y))));
+
+                    for (int y = minY; y <= maxY; y++)
+                    {
+                        for (int x = minX; x <= maxX; x++)
+                        {
+                            Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+                            float w0 = EdgeFunction(p1, p2, p);
+                            float w1 = EdgeFunction(p2, p0, p);
+                            float w2 = EdgeFunction(p0, p1, p);
+                            
+                            if (w0 >= 0 && w1 >= 0 && w2 >= 0)
+                            {
+                                float area = w0 + w1 + w2;
+                                if (area == 0) continue;
+                                w0 /= area; w1 /= area; w2 /= area;
+
+                                Vector3 pos = v0.Position * w0 + v1.Position * w1 + v2.Position * w2;
+                                Vector3 norm = v0.Normal * w0 + v1.Normal * w1 + v2.Normal * w2;
+                                float nLen = norm.Length();
+                                if (nLen > 0.0001f) norm /= nLen;
+
+                                int idx = (y * width + x) * 4;
+                                posData[idx] = pos.X;
+                                posData[idx+1] = pos.Y;
+                                posData[idx+2] = pos.Z;
+                                posData[idx+3] = 1.0f;
+
+                                normData[idx] = norm.X;
+                                normData[idx+1] = norm.Y;
+                                normData[idx+2] = norm.Z;
+                                normData[idx+3] = 1.0f;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            _positionMapTex?.Dispose();
+            PositionMapSRV?.Dispose();
+            _normalMapTex?.Dispose();
+            NormalMapSRV?.Dispose();
+
+            fixed (float* pPos = posData)
+            fixed (float* pNorm = normData)
+            {
+                var texDesc = new Texture2DDescription
+                {
+                    Width = width,
+                    Height = height,
+                    MipLevels = 1,
+                    ArraySize = 1,
+                    Format = Format.R32G32B32A32_Float,
+                    SampleDescription = new SampleDescription(1, 0),
+                    Usage = ResourceUsage.Default,
+                    BindFlags = BindFlags.ShaderResource,
+                    CPUAccessFlags = CpuAccessFlags.None
+                };
+                
+                var posSubData = new SubresourceData((IntPtr)pPos, width * 16);
+                _positionMapTex = _device.CreateTexture2D(texDesc, new[] { posSubData });
+                PositionMapSRV = _device.CreateShaderResourceView(_positionMapTex);
+                
+                var normSubData = new SubresourceData((IntPtr)pNorm, width * 16);
+                _normalMapTex = _device.CreateTexture2D(texDesc, new[] { normSubData });
+                NormalMapSRV = _device.CreateShaderResourceView(_normalMapTex);
+            }
+        }
+        
+        private float EdgeFunction(Vector2 a, Vector2 b, Vector2 c)
+        {
+            return (c.X - a.X) * (b.Y - a.Y) - (c.Y - a.Y) * (b.X - a.X);
+        }
+
         public void LoadMeshes(string slot, List<ExtractedMesh> meshes)
         {
             if (_device == null || meshes == null || meshes.Count == 0) return;
@@ -332,6 +447,7 @@ float4 PS(PS_IN input) : SV_TARGET
             model.IndexBuffer = _device.CreateBuffer(model.Indices, BindFlags.IndexBuffer);
 
             RecalculateBounds();
+            BakeUVMaps();
             if (_vertexShader == null)
             {
                 try
@@ -443,10 +559,12 @@ float4 PS(PS_IN input) : SV_TARGET
 
         private Matrix4x4 _lastWvp;
 
-        public bool Raycast(Vector2 screenPos, out Vector2 uvHit, out string hitSlot, HashSet<string> allowedSlots = null)
+        public bool Raycast(Vector2 screenPos, out Vector2 uvHit, out string hitSlot, out Vector3 worldPos, out Vector3 worldNormal, HashSet<string> allowedSlots = null)
         {
             uvHit = Vector2.Zero;
             hitSlot = null;
+            worldPos = Vector3.Zero;
+            worldNormal = Vector3.Zero;
             if (_models.Count == 0 || Width == 0 || Height == 0) return false;
 
             // Convert screen pos to NDC
@@ -974,6 +1092,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             GpuClearPaint();
 
             _gpuPaintReady = true;
+            BakeUVMaps();
         }
 
         public void SetBaseTexture(IntPtr bgraPixels, int width, int height)
@@ -1036,14 +1155,23 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShader(null);
         }
 
-        public void GpuStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale)
+        public void GpuStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, bool is3D = false, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)
         {
             if (!_gpuPaintReady || _context == null || stampSrv == null) return;
+            if (is3D && (PositionMapSRV == null || NormalMapSRV == null)) return;
 
             var stampParams = new StampParams
             {
                 Position = position,
-                Scale = scale
+                Scale = scale,
+                DecalCenter = center,
+                DecalDepth = depth,
+                DecalNormal = normal,
+                DecalRadius = radius,
+                DecalTangent = tangent,
+                Is3D = is3D ? 1 : 0,
+                DecalBitangent = bitangent,
+                Padding1 = 0
             };
 
             _context.UpdateSubresource(stampParams, _stampCB);
@@ -1063,6 +1191,8 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShader(_stampCS);
             _context.CSSetConstantBuffer(0, _stampCB);
             _context.CSSetShaderResource(0, stampSrv);
+            _context.CSSetShaderResource(1, PositionMapSRV);
+            _context.CSSetShaderResource(2, NormalMapSRV);
             _context.CSSetSampler(0, sampler);
             _context.CSSetUnorderedAccessView(0, _gpuPaintUAV);
 
@@ -1072,17 +1202,28 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
             _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
             _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
+            _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
+            _context.CSSetShaderResource(2, (ID3D11ShaderResourceView)null);
             _context.CSSetShader(null);
         }
 
-        public void GpuPreviewStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale)
+        public void GpuPreviewStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, bool is3D = false, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)
         {
             if (!_gpuPaintReady || _context == null || stampSrv == null) return;
+            if (is3D && (PositionMapSRV == null || NormalMapSRV == null)) return;
 
             var stampParams = new StampParams
             {
                 Position = position,
-                Scale = scale
+                Scale = scale,
+                DecalCenter = center,
+                DecalDepth = depth,
+                DecalNormal = normal,
+                DecalRadius = radius,
+                DecalTangent = tangent,
+                Is3D = is3D ? 1 : 0,
+                DecalBitangent = bitangent,
+                Padding1 = 0
             };
 
             _context.UpdateSubresource(stampParams, _stampCB);
@@ -1101,6 +1242,8 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShader(_stampCS);
             _context.CSSetConstantBuffer(0, _stampCB);
             _context.CSSetShaderResource(0, stampSrv);
+            _context.CSSetShaderResource(1, PositionMapSRV);
+            _context.CSSetShaderResource(2, NormalMapSRV);
             _context.CSSetSampler(0, sampler);
             _context.CSSetUnorderedAccessView(0, _gpuCompositeUAV); // Preview goes onto Composite texture
 
@@ -1110,6 +1253,8 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
             _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
             _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
+            _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
+            _context.CSSetShaderResource(2, (ID3D11ShaderResourceView)null);
             _context.CSSetShader(null);
         }
 
@@ -1153,6 +1298,8 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             // Unbind
             _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
             _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
+            _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
+            _context.CSSetShaderResource(2, (ID3D11ShaderResourceView)null);
             _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
             _context.CSSetShader(null);
 
