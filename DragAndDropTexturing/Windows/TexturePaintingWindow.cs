@@ -241,7 +241,15 @@ namespace DragAndDropTexturing.Windows
                             Vector2 localMousePos = mousePos - cursorPos;
                             if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot, _primarySlots))
                             {
-                                PaintAtUV(uvHit);
+                                if (_floatingLayer != null)
+                                {
+                                    _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
+                                    _needsComposite = true;
+                                }
+                                else
+                                {
+                                    PaintAtUV(uvHit);
+                                }
                             }
                         }
                         else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
@@ -301,7 +309,6 @@ namespace DragAndDropTexturing.Windows
                         var drawList = ImGui.GetWindowDrawList();
                         Vector2 min = cursorPos + _floatingLayer.Position * canvasSize;
                         Vector2 max = min + _floatingLayer.Scale * canvasSize;
-                        drawList.AddImage(new ImTextureID(_floatingLayer.SRV.NativePointer), min, max);
                         drawList.AddRect(min, max, 0xFF00FF00); // Green box
                         drawList.AddCircleFilled(max, 5f, 0xFF00FF00); // Scale handle
                     }
@@ -381,6 +388,10 @@ namespace DragAndDropTexturing.Windows
             if (_renderer != null && _gpuPaintInitialized && _needsComposite)
             {
                 _renderer.GpuComposite(_primarySlotArray);
+                if (_floatingLayer != null && _floatingLayer.SRV != null)
+                {
+                    _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale);
+                }
                 _needsComposite = false;
             }
         }

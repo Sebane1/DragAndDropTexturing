@@ -1075,6 +1075,44 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShader(null);
         }
 
+        public void GpuPreviewStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale)
+        {
+            if (!_gpuPaintReady || _context == null || stampSrv == null) return;
+
+            var stampParams = new StampParams
+            {
+                Position = position,
+                Scale = scale
+            };
+
+            _context.UpdateSubresource(stampParams, _stampCB);
+
+            using var sampler = _device.CreateSamplerState(new SamplerDescription
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Clamp,
+                AddressV = TextureAddressMode.Clamp,
+                AddressW = TextureAddressMode.Clamp,
+                ComparisonFunc = ComparisonFunction.Never,
+                MinLOD = 0,
+                MaxLOD = float.MaxValue
+            });
+
+            _context.CSSetShader(_stampCS);
+            _context.CSSetConstantBuffer(0, _stampCB);
+            _context.CSSetShaderResource(0, stampSrv);
+            _context.CSSetSampler(0, sampler);
+            _context.CSSetUnorderedAccessView(0, _gpuCompositeUAV); // Preview goes onto Composite texture
+
+            int groupsX = (_paintTexWidth + 15) / 16;
+            int groupsY = (_paintTexHeight + 15) / 16;
+            _context.Dispatch(groupsX, groupsY, 1);
+
+            _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
+            _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
+            _context.CSSetShader(null);
+        }
+
         public ID3D11ShaderResourceView CreateSrvFromRgba(byte[] rgba, int width, int height)
         {
             if (_device == null || rgba == null) return null;
