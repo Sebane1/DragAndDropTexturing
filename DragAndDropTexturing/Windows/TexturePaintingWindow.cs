@@ -732,18 +732,34 @@ namespace DragAndDropTexturing.Windows
                             if (_dragHandle == 0 && _floatingLayer != null)
                             {
                                 var delta = ImGui.GetIO().MouseDelta;
+                                if (ImGui.IsKeyDown(ImGuiKey.ModShift)) delta.X = 0f;
                                 _floatingLayer.Position += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
-                                if (ImGui.IsKeyDown(ImGuiKey.ModShift))
-                                {
-                                    _floatingLayer.Position.X = 0.5f - (_floatingLayer.Scale.X / 2.0f);
-                                }
                                 _floatingLayer.Is3DProjected = false; // Move in 2D disabled 3D projection
                                 _needsComposite = true;
                             }
                             else if (_dragHandle == 1 && _floatingLayer != null)
                             {
                                 var delta = ImGui.GetIO().MouseDelta;
-                                _floatingLayer.Scale += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
+                                if (ImGui.IsKeyDown(ImGuiKey.ModShift))
+                                {
+                                    float aspect = (float)_floatingLayer.Width / _floatingLayer.Height;
+                                    float maxDelta = Math.Abs(delta.X) > Math.Abs(delta.Y) ? delta.X : delta.Y;
+
+                                    if (aspect >= 1.0f) 
+                                    {
+                                        _floatingLayer.Scale.X += maxDelta / canvasSize;
+                                        _floatingLayer.Scale.Y = _floatingLayer.Scale.X / aspect;
+                                    }
+                                    else 
+                                    {
+                                        _floatingLayer.Scale.Y += maxDelta / canvasSize;
+                                        _floatingLayer.Scale.X = _floatingLayer.Scale.Y * aspect;
+                                    }
+                                }
+                                else
+                                {
+                                    _floatingLayer.Scale += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
+                                }
                             }
                             else if (_dragHandle == -1)
                             {
