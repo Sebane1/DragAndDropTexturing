@@ -414,9 +414,21 @@ namespace DragAndDropTexturing.Windows
                 LoadModelIntoSlot("Top", topPath, collectionId);
                 LoadModelIntoSlot("Bottom", botPath, collectionId);
 
+                bool prevOverrideMode = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode;
+                FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = true;
                 PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collectionId, ffxivGender, ffxivRace, _plugin);
+                FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = prevOverrideMode;
+
                 bool isGen3 = _topModelDiskPath.ToLower().Contains("gen3") || _topModelDiskPath.ToLower().Contains("tfgen3");
                 bool isBibo = _topModelDiskPath.ToLower().Contains("bibo") || _topModelDiskPath.ToLower().Contains("b+");
+
+                if (!isGen3 && !isBibo)
+                {
+                    int bodyIndex = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string detectedName, _plugin);
+                    if (bodyIndex == 2) isGen3 = true;
+                    if (bodyIndex == 1) isBibo = true;
+                    _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3' or 'bibo'. Fallback detection returned: {detectedName} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : "Unknown")})");
+                }
 
                 string baseTexPath = null;
                 string normTexPath = null;
@@ -430,6 +442,22 @@ namespace DragAndDropTexturing.Windows
                     baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
                     normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
                 }
+                else
+                {
+                    if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
+                    {
+                        baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
+                        normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
+                        isBibo = true;
+                    }
+                    else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
+                    {
+                        baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
+                        normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
+                        isGen3 = true;
+                    }
+                }
+                _plugin.PluginLog.Info($"[PSD Preview] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
 
                 _activeBaseTexturePng = TexToTempPng(baseTexPath);
                 _activeNormalTexturePng = TexToTempPng(normTexPath);
@@ -486,8 +514,8 @@ namespace DragAndDropTexturing.Windows
 
                 if (meshes != null && meshes.Count > 0)
                 {
-                    _plugin.PluginLog.Info($"[PSD Preview] Successfully loaded {meshes.Count} meshes into slot '{slot}'");
-                    _renderer.LoadMeshes(slot, meshes);
+                    _plugin.PluginLog.Info($"[PSD Preview] Successfully loaded {meshes.Count} meshes into slot '{slot}'. Slicing to base mesh only.");
+                    _renderer.LoadMeshes(slot, new System.Collections.Generic.List<ExtractedMesh> { meshes[0] });
                 }
                 else
                 {
