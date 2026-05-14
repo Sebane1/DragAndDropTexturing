@@ -1047,14 +1047,21 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             
             float3 offset = pos - DecalCenter;
             float z = dot(offset, DecalNormal);
-            if (abs(z) <= DecalDepth && dot(norm, DecalNormal) > 0.0f)
+            
+            // z is negative when curving inward along the surface, positive when floating above the surface.
+            // We restrict positive z to 0.1 to prevent jumping across empty space (e.g. to the other leg)
+            if (z <= 0.1f && z >= -DecalDepth && dot(norm, DecalNormal) > 0.0f)
             {
-                float x = dot(offset, DecalTangent);
-                float y = dot(offset, DecalBitangent);
-                if (abs(x) <= DecalRadius && abs(y) <= DecalRadius)
+                // Spherical limit to prevent painting disconnected geometry that happens to fall in the cylinder
+                if (length(offset) <= DecalRadius * 1.5f)
                 {
-                    float2 localUv = float2(x / DecalRadius * 0.5f + 0.5f, -y / DecalRadius * 0.5f + 0.5f);
-                    stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
+                    float x = dot(offset, DecalTangent);
+                    float y = dot(offset, DecalBitangent);
+                    if (abs(x) <= DecalRadius && abs(y) <= DecalRadius)
+                    {
+                        float2 localUv = float2(x / DecalRadius * 0.5f + 0.5f, -y / DecalRadius * 0.5f + 0.5f);
+                        stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
+                    }
                 }
             }
         }
