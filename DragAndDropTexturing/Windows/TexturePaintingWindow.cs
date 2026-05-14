@@ -31,6 +31,7 @@ namespace DragAndDropTexturing.Windows
         private bool _isPreviewUpdating = false;
         private bool _isGen3Preview = false;
         private bool _isBiboPreview = false;
+        private bool _isTbsePreview = false;
 
         private float _brushSize = 10f;
         private System.Numerics.Vector4 _paintColor = new System.Numerics.Vector4(1, 0, 0, 1);
@@ -525,7 +526,7 @@ namespace DragAndDropTexturing.Windows
             string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
             if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
             
-            string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : "vanilla";
+            string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "vanilla";
             string outPath = Path.Combine(importDir, $"{bodyTag}_base_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
             
             _plugin.PluginLog.Info($"[Texture Painter] CommitPaintLayer starting. BodyTag={bodyTag}, OutPath={outPath}");
@@ -646,17 +647,20 @@ private void LoadPlayerModels()
                 string lowerPath = _topModelDiskPath.ToLower();
                 bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || lowerPath.Contains("eve") || lowerPath.Contains("gaia");
                 bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body");
+                bool isTbse = lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody");
 
-                if (!isGen3 && !isBibo)
+                if (!isGen3 && !isBibo && !isTbse)
                 {
                     int bodyIndex = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string detectedName, _plugin);
+                    if (bodyIndex == 3) isTbse = true;
                     if (bodyIndex == 2) isGen3 = true;
                     if (bodyIndex == 1) isBibo = true;
-                    _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3' or 'bibo'. Fallback detection returned: {detectedName} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : "Unknown")})");
+                    _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3', 'bibo', or 'tbse'. Fallback detection returned: {detectedName} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : isTbse ? "TBSE" : "Unknown")})");
                 }
 
                 _isGen3Preview = isGen3;
                 _isBiboPreview = isBibo;
+                _isTbsePreview = isTbse;
 
                 string baseTexPath = null;
                 string normTexPath = null;
@@ -669,6 +673,11 @@ private void LoadPlayerModels()
                 {
                     baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
                     normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
+                }
+                else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
+                {
+                    baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
+                    normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
                 }
                 else
                 {
@@ -683,6 +692,12 @@ private void LoadPlayerModels()
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
                         isGen3 = true;
+                    }
+                    else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
+                    {
+                        baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
+                        normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
+                        isTbse = true;
                     }
                 }
                 _plugin.PluginLog.Info($"[PSD Preview] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
@@ -702,6 +717,8 @@ private void LoadPlayerModels()
                         dlcBase = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
                     else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
                         dlcBase = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                    else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes.Count > 0)
+                        dlcBase = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
 
                     _activeBaseTexturePng = TexToTempPng(dlcBase, out baseIsBlack);
 
