@@ -88,6 +88,13 @@ public class MainWindow : Window, IDisposable
     private void DrawSettings()
     {
         ImGui.Spacing();
+
+        if (ImGui.Button("Open 3D Model Preview (Experimental)"))
+        {
+            Plugin.MdlPreviewWindow.IsOpen = !Plugin.MdlPreviewWindow.IsOpen;
+        }
+
+        ImGui.Spacing();
         bool enableStacking = Plugin.Configuration.EnableTextureStacking;
         if (ImGui.Checkbox("Enable Texture Stacking", ref enableStacking))
         {

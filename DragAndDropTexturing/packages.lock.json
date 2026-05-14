@@ -20,6 +20,15 @@
         "resolved": "2.8.0",
         "contentHash": "dCxycU+lA0qraE70ZoRvM4GQAPq/K+qL/bg6t/kxKPox5GWaiunKOTXNOG2hOvgEda5WtFy6e3c9OuIM6L3faQ=="
       },
+      "Magick.NET-Q8-AnyCPU": {
+        "type": "Direct",
+        "requested": "[14.4.0, )",
+        "resolved": "14.4.0",
+        "contentHash": "4f/6tga1izjCm29qGlPlTc7txquzd5cOgRFuCD6fh7tu+QS4Rd6gZpvRwrIb4e/Y0pE1JQyF2j4RRmQ23T8BLA==",
+        "dependencies": {
+          "Magick.NET.Core": "14.4.0"
+        }
+      },
       "Newtonsoft.Json": {
         "type": "Direct",
         "requested": "[13.0.3, )",
@@ -31,6 +40,38 @@
         "requested": "[5.15.1, )",
         "resolved": "5.15.1",
         "contentHash": "3ikk0zIOaLm2n3nZRQpW3xaRQ2cq/TOOEApNUjYXolqbyvCrZVGXhdQulcssNUbo0AMQ81l+cf7OfqRceeRBcg=="
+      },
+      "PsdSharp": {
+        "type": "Direct",
+        "requested": "[1.2.0, )",
+        "resolved": "1.2.0",
+        "contentHash": "fuzpBrAUfmhkG4KuBb2CQwOZ5Ni46I7sHcuwyGo+GqYGYOhfuwJu8C+rxDQ7nvCpgib3F99JZhewszipvQFwxQ=="
+      },
+      "Vortice.D3DCompiler": {
+        "type": "Direct",
+        "requested": "[3.5.0, )",
+        "resolved": "3.5.0",
+        "contentHash": "zPo545NXqrKbQf0EDK4jKmxe1KS4v9c+04eycFrfsokX/h0sZKkfmqcluXYzUh/F+5dv6kN9kUf7OTRO2mLqqQ==",
+        "dependencies": {
+          "SharpGen.Runtime": "2.1.2-beta",
+          "Vortice.DirectX": "3.5.0"
+        }
+      },
+      "Vortice.Direct3D11": {
+        "type": "Direct",
+        "requested": "[3.5.0, )",
+        "resolved": "3.5.0",
+        "contentHash": "TUVz5tml5tTlk1UpQgh/0cj74ehmlyzvQeGdVkdQGACth2v2t1d+/f84dqT/Trs/5O2WdIvXfYQe2yxALLR5mQ==",
+        "dependencies": {
+          "SharpGen.Runtime": "2.1.2-beta",
+          "Vortice.DXGI": "3.5.0"
+        }
+      },
+      "Vortice.Mathematics": {
+        "type": "Direct",
+        "requested": "[1.8.1, )",
+        "resolved": "1.9.0",
+        "contentHash": "L4z6tExsSgVIwqjBVXYHjbivJY4DKVD1513oDIBCTv2QtDdPurqj6UvHCPwiJolyZWyTbeEkgRKmkxI026ZcKA=="
       },
       "CoenM.ImageSharp.ImageHash": {
         "type": "Transitive",
@@ -61,6 +102,11 @@
           "Microsoft.Extensions.ObjectPool": "8.0.7"
         }
       },
+      "Magick.NET.Core": {
+        "type": "Transitive",
+        "resolved": "14.4.0",
+        "contentHash": "nmSA3LWK77rZlQ085RBqFLr67GVFyz4mAcuiVGQ9LcNwbxUm4Zcte4D9N+TxAyew6CXzoyHAG3i7NeDgpuztWw=="
+      },
       "Microsoft.Extensions.ObjectPool": {
         "type": "Transitive",
         "resolved": "8.0.7",
@@ -70,6 +116,19 @@
         "type": "Transitive",
         "resolved": "9.0.5",
         "contentHash": "D4OYNpmvAsF9MkaY2W8Jue2XuNHDhygvwzo019hs+lP85KaVnOlXmqsjDKr1dHb1DPxDnOKpe6mAgJN7S6ttwg=="
+      },
+      "SharpGen.Runtime": {
+        "type": "Transitive",
+        "resolved": "2.1.2-beta",
+        "contentHash": "nqZAjfEG1jX1ivvdZLsi6Pkt0DiOJyuOgRgldNFsmjXFPhxUbXQibofLSwuDZidL2kkmtTF8qLoRIeqeVdXgYw=="
+      },
+      "SharpGen.Runtime.COM": {
+        "type": "Transitive",
+        "resolved": "2.1.2-beta",
+        "contentHash": "HBCrb6HfnUWx9v5/GjJeBr5DuodZLnHlFQQYXPrQs1Hbe1c6Wd0uCXf+SJp4hW8fQNxjXEu0FgiyHGlA/SRzRw==",
+        "dependencies": {
+          "SharpGen.Runtime": "2.1.2-beta"
+        }
       },
       "SixLabors.Fonts": {
         "type": "Transitive",
@@ -96,6 +155,25 @@
         "contentHash": "T/6nqx0B7/uTe5JjBwrKZilLuwfhHLOVmNKlT/wr4A9Dna94mgTdz3lTfrdJ72QRx7IHCv/LzoJPmFSfK/N6WA==",
         "dependencies": {
           "Microsoft.Win32.SystemEvents": "9.0.5"
+        }
+      },
+      "Vortice.DirectX": {
+        "type": "Transitive",
+        "resolved": "3.5.0",
+        "contentHash": "LwyojEqRCaYgMoEqKsLnHWJ85wM237wFzZy/w57kvQPDsEd+zcqdwDYswOCEdizcLtDBzX/Xt4bbUPgFi8Kp4w==",
+        "dependencies": {
+          "SharpGen.Runtime": "2.1.2-beta",
+          "SharpGen.Runtime.COM": "2.1.2-beta",
+          "Vortice.Mathematics": "1.7.8"
+        }
+      },
+      "Vortice.DXGI": {
+        "type": "Transitive",
+        "resolved": "3.5.0",
+        "contentHash": "W1dHY13DbitLJDVAAD8+YiGddqzBP1m3wN3pfEmxYrrE+dGEV/31aaw8EV74GXYnJQZ2vWJCnc7LCFPR2YkBnw==",
+        "dependencies": {
+          "SharpGen.Runtime": "2.1.2-beta",
+          "Vortice.DirectX": "3.5.0"
         }
       },
       "loosetexturecompilercore": {
