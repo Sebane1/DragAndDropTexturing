@@ -52,6 +52,9 @@ namespace DragAndDropTexturing.Windows
         private float _brushNoiseScale = 0.0f;     // texture grain frequency
         private float _brushNoiseAmount = 0.0f;    // texture grain strength 0-1
         private float _brushSizeJitter = 0.0f;     // random size variation per dab 0-1
+        private float _brushSmoothing = 0.75f;     // stroke stabilizer
+        private Vector2 _smoothedMousePos = Vector2.Zero;
+        private bool _wasPaintingLastFrame = false;
         private int _brushBlendMode = 0;           // 0=Normal, 1=Eraser, 2=Multiply, 3=Screen, 4=Overlay, 5=SoftLight
         private float _strokeSeed = 0f;            // re-seeded per stroke for noise variation
         private float _strokeDistance = 0f;        // accumulated distance for spacing
@@ -276,6 +279,9 @@ namespace DragAndDropTexturing.Windows
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(120);
                 ImGui.SliderFloat("Noise Amount", ref _brushNoiseAmount, 0f, 1f, "%.2f");
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(120);
+                ImGui.SliderFloat("Smoothing", ref _brushSmoothing, 0f, 0.99f, "%.2f");
 
                 ImGui.TreePop();
             }
@@ -538,7 +544,19 @@ namespace DragAndDropTexturing.Windows
 
                     if (isHovered || isActive)
                     {
-                        var mousePos = ImGui.GetMousePos();
+                        var rawMousePos = ImGui.GetMousePos();
+                        if (isActive && ImGui.IsMouseDown(ImGuiMouseButton.Left) && _floatingLayer == null)
+                        {
+                            if (!_wasPaintingLastFrame) _smoothedMousePos = rawMousePos;
+                            else _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - _brushSmoothing);
+                            _wasPaintingLastFrame = true;
+                        }
+                        else
+                        {
+                            _wasPaintingLastFrame = false;
+                            _smoothedMousePos = rawMousePos;
+                        }
+                        var mousePos = _smoothedMousePos;
                         if (isHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                         {
                             _renderer.PushUndoSnapshot();
@@ -648,7 +666,19 @@ namespace DragAndDropTexturing.Windows
                     
                     if (isHovered2D || isActive2D)
                     {
-                        var mousePos = ImGui.GetMousePos();
+                        var rawMousePos = ImGui.GetMousePos();
+                        if (isActive2D && ImGui.IsMouseDown(ImGuiMouseButton.Left) && _dragHandle == -1 && _floatingLayer == null)
+                        {
+                            if (!_wasPaintingLastFrame) _smoothedMousePos = rawMousePos;
+                            else _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - _brushSmoothing);
+                            _wasPaintingLastFrame = true;
+                        }
+                        else
+                        {
+                            _wasPaintingLastFrame = false;
+                            _smoothedMousePos = rawMousePos;
+                        }
+                        var mousePos = _smoothedMousePos;
                         Vector2 localMousePos = mousePos - cursorPos;
                         Vector2 uv = new Vector2(localMousePos.X / canvasSize, localMousePos.Y / canvasSize);
 
