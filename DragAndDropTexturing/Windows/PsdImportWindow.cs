@@ -211,7 +211,7 @@ namespace DragAndDropTexturing.Windows
             }
 
             ImGui.Columns(2, "PsdLayout", false);
-            ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.5f);
+            ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.65f);
 
             ImGui.Text("Select layers to import:");
             ImGui.Separator();
@@ -477,8 +477,33 @@ namespace DragAndDropTexturing.Windows
                 }
                 _plugin.PluginLog.Info($"[PSD Preview] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
 
-                _activeBaseTexturePng = TexToTempPng(baseTexPath);
-                _activeNormalTexturePng = TexToTempPng(normTexPath);
+                bool baseIsBlack = false;
+                bool normIsBlack = false;
+                _activeBaseTexturePng = TexToTempPng(baseTexPath, out baseIsBlack);
+                _activeNormalTexturePng = TexToTempPng(normTexPath, out normIsBlack);
+
+                if (_activeBaseTexturePng == null || baseIsBlack)
+                {
+                    _plugin.PluginLog.Info("[PSD Preview] Base texture from priority mod was missing or fully black. Falling back to default underlay skin type.");
+                    int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
+                    string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(0, ffxivGenderInt, 0, ffxivRace, 0, false);
+                    string vanillaBasePng = ExtractVanillaTexViaLumina(vanillaBodyTexPath);
+                    if (!string.IsNullOrEmpty(vanillaBasePng))
+                    {
+                        _activeBaseTexturePng = vanillaBasePng;
+                    }
+                }
+
+                if (_activeNormalTexturePng == null || normIsBlack)
+                {
+                    int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
+                    string vanillaNormTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(1, ffxivGenderInt, 0, ffxivRace, 0, false);
+                    string vanillaNormPng = ExtractVanillaTexViaLumina(vanillaNormTexPath);
+                    if (!string.IsNullOrEmpty(vanillaNormPng))
+                    {
+                        _activeNormalTexturePng = vanillaNormPng;
+                    }
+                }
 
                 UpdatePreviewTextures();
             }
@@ -552,26 +577,94 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
-        private string TexToTempPng(string texPath)
+        private string TexToTempPng(string texPath, out bool isBlack)
         {
+            isBlack = false;
             if (string.IsNullOrEmpty(texPath) || !File.Exists(texPath)) return null;
-            if (texPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return texPath;
+            if (texPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    using (var bitmap = new System.Drawing.Bitmap(texPath))
+                    {
+                        isBlack = IsImageBlack(bitmap);
+                    }
+                }
+                catch { }
+                return texPath;
+            }
             
             try
             {
                 string outPath = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(texPath) + "_base.png");
-                if (File.Exists(outPath)) return outPath;
+                
                 using (var stream = new FileStream(texPath, FileMode.Open, FileAccess.Read))
                 {
                     var bitmap = FFXIVLooseTextureCompiler.ImageProcessing.TexIO.TexToBitmap(stream);
                     if (bitmap != null)
                     {
-                        bitmap.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                        isBlack = IsImageBlack(bitmap);
+                        if (!File.Exists(outPath) || isBlack)
+                        {
+                            bitmap.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                        }
                         return outPath;
                     }
                 }
             }
             catch (Exception ex) { _plugin.PluginLog.Error(ex, $"Failed to convert tex to png: {texPath}"); }
+            return null;
+        }
+
+        private bool IsImageBlack(System.Drawing.Bitmap bitmap)
+        {
+            var data = bitmap.LockBits(new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            int bytes = Math.Abs(data.Stride) * bitmap.Height;
+            byte[] rgbValues = new byte[bytes];
+            System.Runtime.InteropServices.Marshal.Copy(data.Scan0, rgbValues, 0, bytes);
+            bitmap.UnlockBits(data);
+            
+            for (int i = 0; i < rgbValues.Length; i += 4)
+            {
+                if (rgbValues[i + 3] > 0) // if not fully transparent
+                {
+                    if (rgbValues[i] > 5 || rgbValues[i + 1] > 5 || rgbValues[i + 2] > 5) // threshold for black
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        private string ExtractVanillaTexViaLumina(string internalGamePath)
+        {
+            try
+            {
+                var texFile = _plugin.DataManager.GetFile<Lumina.Data.Files.TexFile>(internalGamePath);
+                if (texFile == null) return null;
+
+                using (var stream = new MemoryStream(texFile.Data))
+                {
+                    var bitmap = FFXIVLooseTextureCompiler.ImageProcessing.TexIO.TexToBitmap(stream);
+                    if (bitmap != null)
+                    {
+                        string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
+                        Directory.CreateDirectory(tempDir);
+                        string safeName = internalGamePath.Replace("/", "_").Replace("\\", "_");
+                        string tempPath = Path.Combine(tempDir, safeName + ".png");
+                        if (!File.Exists(tempPath))
+                        {
+                            bitmap.Save(tempPath, System.Drawing.Imaging.ImageFormat.Png);
+                        }
+                        return tempPath;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error(ex, $"[PSD Preview] Failed to extract vanilla tex from {internalGamePath}");
+            }
             return null;
         }
 
