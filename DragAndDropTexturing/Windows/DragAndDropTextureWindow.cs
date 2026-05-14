@@ -105,11 +105,14 @@ namespace RoleplayingVoice
 
             if (string.IsNullOrEmpty(sourceUV))
             {
-                switch (ImageManipulation.FemaleBodyUVClassifier(file))
+                if (uvType != UVMapType.Glow && uvType != UVMapType.Mask)
                 {
-                    case BodyUVType.Bibo: sourceUV = "bibo"; break;
-                    case BodyUVType.Gen3: sourceUV = "gen3"; break;
-                    case BodyUVType.Gen2: sourceUV = "gen2"; break;
+                    switch (ImageManipulation.FemaleBodyUVClassifier(file))
+                    {
+                        case BodyUVType.Bibo: sourceUV = "bibo"; break;
+                        case BodyUVType.Gen3: sourceUV = "gen3"; break;
+                        case BodyUVType.Gen2: sourceUV = "gen2"; break;
+                    }
                 }
             }
 
@@ -130,7 +133,8 @@ namespace RoleplayingVoice
             }
             else if (uvType == UVMapType.Glow)
             {
-                item.Glow = file;
+                if (string.IsNullOrEmpty(item.Glow)) { item.Glow = file; item.GlowUV = sourceUV; }
+                else if (!item.GlowOverlays.Contains(file)) { item.GlowOverlays.Add(file); item.GlowOverlayUVs.Add(sourceUV); }
             }
         }
 

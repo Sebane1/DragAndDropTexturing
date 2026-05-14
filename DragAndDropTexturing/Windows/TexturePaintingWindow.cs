@@ -645,7 +645,7 @@ private void LoadPlayerModels()
 
                 string lowerPath = _topModelDiskPath.ToLower();
                 bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || lowerPath.Contains("eve") || lowerPath.Contains("gaia");
-                bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+");
+                bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body");
 
                 if (!isGen3 && !isBibo)
                 {
@@ -786,7 +786,7 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                 }
                 else
                 {
-                    _plugin.PluginLog.Warning($"[PSD Preview] Penumbra did not resolve a custom disk path for {path}. Skipping Lumina as requested.");
+                    _plugin.PluginLog.Warning($"[PSD Preview] Penumbra did not resolve a custom disk path for {path}. Skipping Lumina.");
                 }
 
                 if (slot == "Top") _topModelDiskPath = diskPath;
