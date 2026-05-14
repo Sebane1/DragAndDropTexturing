@@ -234,6 +234,38 @@ namespace DragAndDropTexturing.Windows
                     drawList.AddImage(new ImTextureID(_renderer.ShaderResourceViewHandle), cursorPos, cursorPos + region);
 
                     ImGui.InvisibleButton("##viewport3d", region);
+                    
+                    if (Plugin.DragDropManager.CreateImGuiTarget("TextureDragDrop", out var files, out _))
+                    {
+                        var file = System.Linq.Enumerable.FirstOrDefault(files, f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
+                        if (file != null)
+                        {
+                            _plugin.PluginLog.Information($"[TexturePainter] Dropped file in 3D: {file}");
+                            LoadFloatingImage(file);
+                            
+                            // Try to project immediately at mouse position
+                            var mousePos = ImGui.GetMousePos();
+                            Vector2 localMousePos = mousePos - cursorPos;
+                            if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal, _primarySlots))
+                            {
+                                if (_floatingLayer != null)
+                                {
+                                    _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
+                                    _floatingLayer.Is3DProjected = true;
+                                    _floatingLayer.DecalCenter = worldHit;
+                                    _floatingLayer.DecalNormal = hitNormal;
+                                    
+                                    Vector3 up = Vector3.UnitY;
+                                    if (Math.Abs(Vector3.Dot(hitNormal, up)) > 0.99f) up = Vector3.UnitZ;
+                                    _floatingLayer.DecalTangent = Vector3.Normalize(Vector3.Cross(up, hitNormal));
+                                    _floatingLayer.DecalBitangent = Vector3.Cross(hitNormal, _floatingLayer.DecalTangent);
+                                    
+                                    _needsComposite = true;
+                                }
+                            }
+                        }
+                    }
+                    
                     bool isHovered = ImGui.IsItemHovered();
                     bool isActive = ImGui.IsItemActive();
 
