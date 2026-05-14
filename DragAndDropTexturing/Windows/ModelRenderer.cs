@@ -34,7 +34,9 @@ namespace DragAndDropTexturing.Windows
 
         private ID3D11ComputeShader _paintBrushCS;
         private ID3D11ComputeShader _compositeCS;
+        private ID3D11ComputeShader _stampCS;
         private ID3D11Buffer _brushCB;
+        private ID3D11Buffer _stampCB;
         private int _paintTexWidth, _paintTexHeight;
         private bool _gpuPaintReady;
 
@@ -60,6 +62,13 @@ namespace DragAndDropTexturing.Windows
             public int Padding2;
             public int Padding3;
             public Vector4 Color;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct StampParams
+        {
+            public Vector2 Position;
+            public Vector2 Scale;
         }
 
         public IntPtr ShaderResourceViewHandle => _shaderResourceView?.NativePointer ?? IntPtr.Zero;
@@ -861,6 +870,41 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
     Output[id.xy] = float4(outRGB, outA);
 }";
 
+        private const string StampShaderCode = @"
+cbuffer StampParams : register(b0)
+{
+    float2 Position; // Top-left UV
+    float2 Scale;    // UV size
+};
+Texture2D<float4> StampTex : register(t0);
+SamplerState StampSampler : register(s0);
+RWTexture2D<float4> PaintLayer : register(u0);
+
+[numthreads(16, 16, 1)]
+void CSStamp(uint3 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    PaintLayer.GetDimensions(w, h);
+    if (id.x >= w || id.y >= h) return;
+
+    float2 uv = float2(id.x, id.y) / float2(w, h);
+    
+    if (uv.x >= Position.x && uv.x <= Position.x + Scale.x &&
+        uv.y >= Position.y && uv.y <= Position.y + Scale.y)
+    {
+        float2 localUv = (uv - Position) / Scale;
+        float4 stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
+        
+        float4 existing = PaintLayer[id.xy];
+        float outA = stamp.a + existing.a * (1.0f - stamp.a);
+        float3 outRGB = (outA > 0.001f)
+            ? (stamp.rgb * stamp.a + existing.rgb * existing.a * (1.0f - stamp.a)) / outA
+            : float3(0,0,0);
+        
+        PaintLayer[id.xy] = float4(outRGB, outA);
+    }
+}";
+
         public void InitGpuPaint(int width, int height)
         {
             if (_device == null) return;
@@ -908,10 +952,20 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
             var compBlob = Vortice.D3DCompiler.Compiler.Compile(CompositeShaderCode, "CSComposite", "", "cs_5_0");
             _compositeCS = _device.CreateComputeShader(compBlob.Span);
 
-            // Constant buffer for brush params (48 bytes, padded to 16-byte alignment)
+            var stampBlob = Vortice.D3DCompiler.Compiler.Compile(StampShaderCode, "CSStamp", "", "cs_5_0");
+            _stampCS = _device.CreateComputeShader(stampBlob.Span);
+
+            // Constant buffer for brush params (64 bytes)
             _brushCB = _device.CreateBuffer(new BufferDescription
             {
                 ByteWidth = Marshal.SizeOf<BrushParams>(),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ConstantBuffer
+            });
+
+            _stampCB = _device.CreateBuffer(new BufferDescription
+            {
+                ByteWidth = Marshal.SizeOf<StampParams>(), // 16 bytes
                 Usage = ResourceUsage.Default,
                 BindFlags = BindFlags.ConstantBuffer
             });
@@ -980,6 +1034,69 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
             // Unbind
             _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
             _context.CSSetShader(null);
+        }
+
+        public void GpuStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale)
+        {
+            if (!_gpuPaintReady || _context == null || stampSrv == null) return;
+
+            var stampParams = new StampParams
+            {
+                Position = position,
+                Scale = scale
+            };
+
+            _context.UpdateSubresource(stampParams, _stampCB);
+
+            // Create a temporary sampler
+            using var sampler = _device.CreateSamplerState(new SamplerDescription
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Clamp,
+                AddressV = TextureAddressMode.Clamp,
+                AddressW = TextureAddressMode.Clamp,
+                ComparisonFunc = ComparisonFunction.Never,
+                MinLOD = 0,
+                MaxLOD = float.MaxValue
+            });
+
+            _context.CSSetShader(_stampCS);
+            _context.CSSetConstantBuffer(0, _stampCB);
+            _context.CSSetShaderResource(0, stampSrv);
+            _context.CSSetSampler(0, sampler);
+            _context.CSSetUnorderedAccessView(0, _gpuPaintUAV);
+
+            int groupsX = (_paintTexWidth + 15) / 16;
+            int groupsY = (_paintTexHeight + 15) / 16;
+            _context.Dispatch(groupsX, groupsY, 1);
+
+            _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
+            _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
+            _context.CSSetShader(null);
+        }
+
+        public ID3D11ShaderResourceView CreateSrvFromRgba(byte[] rgba, int width, int height)
+        {
+            if (_device == null || rgba == null) return null;
+            var texDesc = new Texture2DDescription
+            {
+                Width = width, Height = height,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R8G8B8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            unsafe
+            {
+                fixed (byte* pPixels = rgba)
+                {
+                    var subData = new SubresourceData((IntPtr)pPixels, width * 4);
+                    using var tex = _device.CreateTexture2D(texDesc, new[] { subData });
+                    return _device.CreateShaderResourceView(tex);
+                }
+            }
         }
 
         public void GpuComposite(string[] slots)
@@ -1221,7 +1338,9 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
             _gpuBaseTex?.Dispose(); _gpuBaseTex = null;
             _paintBrushCS?.Dispose(); _paintBrushCS = null;
             _compositeCS?.Dispose(); _compositeCS = null;
+            _stampCS?.Dispose(); _stampCS = null;
             _brushCB?.Dispose(); _brushCB = null;
+            _stampCB?.Dispose(); _stampCB = null;
         }
 
         public void Dispose()

@@ -50,6 +50,23 @@ namespace DragAndDropTexturing.Windows
         private PaintTool _activeTool = PaintTool.Brush;
         private PaintShape _activeShape = PaintShape.Circle;
 
+        private class FloatingLayer : IDisposable
+        {
+            public Vortice.Direct3D11.ID3D11ShaderResourceView SRV;
+            public int Width;
+            public int Height;
+            public Vector2 Position = new Vector2(0f, 0f);
+            public Vector2 Scale = new Vector2(0.5f, 0.5f);
+
+            public void Dispose()
+            {
+                SRV?.Dispose();
+            }
+        }
+        private FloatingLayer _floatingLayer = null;
+        private int _dragHandle = -1;
+        private string _importPath = "";
+
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
         {
             _plugin = plugin;
@@ -150,6 +167,44 @@ namespace DragAndDropTexturing.Windows
             }
             ImGui.EndDisabled();
 
+            if (_floatingLayer != null)
+            {
+                ImGui.Separator();
+                if (ImGui.Button("Stamp Floating Layer"))
+                {
+                    _renderer.PushUndoSnapshot();
+                    _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale);
+                    _needsComposite = true;
+                    _floatingLayer.Dispose();
+                    _floatingLayer = null;
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Discard Floating Layer"))
+                {
+                    _floatingLayer.Dispose();
+                    _floatingLayer = null;
+                }
+            }
+            else
+            {
+                ImGui.Separator();
+                ImGui.Text("Import Image as Floating Layer:");
+                ImGui.InputText("##importpath", ref _importPath, 512);
+                ImGui.SameLine();
+                if (ImGui.Button("Load File"))
+                {
+                    string path = _importPath.Trim('\"', ' ', '\'');
+                    if (File.Exists(path))
+                    {
+                        LoadFloatingImage(path);
+                    }
+                    else
+                    {
+                        _plugin.PluginLog.Error($"[TexturePainter] File does not exist: {path}");
+                    }
+                }
+            }
+
             ImGui.Separator();
 
             // Right column: 3D Preview
@@ -241,26 +296,76 @@ namespace DragAndDropTexturing.Windows
                     var cursorPos = ImGui.GetCursorScreenPos();
                     ImGui.Image(new ImTextureID(srvHandle), new Vector2(canvasSize, canvasSize));
                     
+                    if (_floatingLayer != null && _floatingLayer.SRV != null)
+                    {
+                        var drawList = ImGui.GetWindowDrawList();
+                        Vector2 min = cursorPos + _floatingLayer.Position * canvasSize;
+                        Vector2 max = min + _floatingLayer.Scale * canvasSize;
+                        drawList.AddImage(new ImTextureID(_floatingLayer.SRV.NativePointer), min, max);
+                        drawList.AddRect(min, max, 0xFF00FF00); // Green box
+                        drawList.AddCircleFilled(max, 5f, 0xFF00FF00); // Scale handle
+                    }
+
                     ImGui.SetCursorScreenPos(cursorPos);
                     ImGui.InvisibleButton("##viewport2d", new Vector2(canvasSize, canvasSize));
                     
+                    if (Plugin.DragDropManager.CreateImGuiTarget("TextureDragDrop", out var files, out _))
+                    {
+                        var file = files.FirstOrDefault(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
+                        if (file != null)
+                        {
+                            _plugin.PluginLog.Information($"[TexturePainter] Dropped file: {file}");
+                            LoadFloatingImage(file);
+                        }
+                    }
+
                     if (ImGui.IsItemHovered() || ImGui.IsItemActive())
                     {
                         var mousePos = ImGui.GetMousePos();
+                        Vector2 localMousePos = mousePos - cursorPos;
+                        Vector2 uv = new Vector2(localMousePos.X / canvasSize, localMousePos.Y / canvasSize);
+
                         if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                         {
-                            _renderer.PushUndoSnapshot();
+                            if (_floatingLayer != null)
+                            {
+                                Vector2 min = _floatingLayer.Position;
+                                Vector2 max = min + _floatingLayer.Scale;
+                                if (Vector2.Distance(uv, max) < (10f / canvasSize))
+                                {
+                                    _dragHandle = 1; // Scale
+                                }
+                                else if (uv.X >= min.X && uv.X <= max.X && uv.Y >= min.Y && uv.Y <= max.Y)
+                                {
+                                    _dragHandle = 0; // Move
+                                }
+                                else _dragHandle = -1;
+                            }
+
+                            if (_dragHandle == -1) _renderer.PushUndoSnapshot();
                         }
                         
                         if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                         {
-                            Vector2 localMousePos = mousePos - cursorPos;
-                            Vector2 uv = new Vector2(localMousePos.X / canvasSize, localMousePos.Y / canvasSize);
-                            PaintAtUV(uv);
+                            if (_dragHandle == 0 && _floatingLayer != null)
+                            {
+                                var delta = ImGui.GetIO().MouseDelta;
+                                _floatingLayer.Position += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
+                            }
+                            else if (_dragHandle == 1 && _floatingLayer != null)
+                            {
+                                var delta = ImGui.GetIO().MouseDelta;
+                                _floatingLayer.Scale += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
+                            }
+                            else if (_dragHandle == -1)
+                            {
+                                PaintAtUV(uv);
+                            }
                         }
                         else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
                         {
                             _lastUvHit = null;
+                            _dragHandle = -1;
                         }
                         else
                         {
@@ -277,6 +382,45 @@ namespace DragAndDropTexturing.Windows
             {
                 _renderer.GpuComposite(_primarySlotArray);
                 _needsComposite = false;
+            }
+        }
+
+        private void LoadFloatingImage(string path)
+        {
+            if (!File.Exists(path)) return;
+            try
+            {
+                using var bmp = new System.Drawing.Bitmap(path);
+                var rgba = new byte[bmp.Width * bmp.Height * 4];
+                var bounds = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
+                var data = bmp.LockBits(bounds, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                
+                unsafe
+                {
+                    byte* src = (byte*)data.Scan0;
+                    for (int i = 0; i < rgba.Length; i += 4)
+                    {
+                        rgba[i + 0] = src[i + 2]; // R
+                        rgba[i + 1] = src[i + 1]; // G
+                        rgba[i + 2] = src[i + 0]; // B
+                        rgba[i + 3] = src[i + 3]; // A
+                    }
+                }
+                bmp.UnlockBits(data);
+                
+                _floatingLayer?.Dispose();
+                _floatingLayer = new FloatingLayer
+                {
+                    Width = bmp.Width,
+                    Height = bmp.Height,
+                    SRV = _renderer.CreateSrvFromRgba(rgba, bmp.Width, bmp.Height),
+                    Position = new Vector2(0f, 0f),
+                    Scale = new Vector2(0.5f, 0.5f)
+                };
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error(ex, "Failed to load floating image.");
             }
         }
 
