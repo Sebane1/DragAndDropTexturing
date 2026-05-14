@@ -107,11 +107,29 @@ namespace RoleplayingVoice
             {
                 if (uvType != UVMapType.Glow && uvType != UVMapType.Mask)
                 {
-                    switch (ImageManipulation.FemaleBodyUVClassifier(file))
+                    // Fall back to querying the user's active body via Penumbra Settings
+                    int penumbraBase = -1;
+                    var localPlayer = plugin?.SafeGameObjectManager?.LocalPlayer;
+                    if (localPlayer != null && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter character)
                     {
-                        case BodyUVType.Bibo: sourceUV = "bibo"; break;
-                        case BodyUVType.Gen3: sourceUV = "gen3"; break;
-                        case BodyUVType.Gen2: sourceUV = "gen2"; break;
+                        var customization = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                        Guid collectionId = IPC.PenumbraAndGlamourerHelpers.PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                        int gender = customization.Customize.Gender.Value;
+                        penumbraBase = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, gender, out string _, plugin);
+                    }
+
+                    if (penumbraBase == 1) sourceUV = "bibo";
+                    else if (penumbraBase == 2) sourceUV = "gen3";
+                    else if (penumbraBase == 3) sourceUV = "tbse";
+                    else
+                    {
+                        // Final fallback: Image heuristic
+                        switch (ImageManipulation.FemaleBodyUVClassifier(file))
+                        {
+                            case BodyUVType.Bibo: sourceUV = "bibo"; break;
+                            case BodyUVType.Gen3: sourceUV = "gen3"; break;
+                            case BodyUVType.Gen2: sourceUV = "gen2"; break;
+                        }
                     }
                 }
             }
