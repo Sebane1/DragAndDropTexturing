@@ -1,4 +1,5 @@
 using System;
+using DragAndDropTexturing.LanguageHelpers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -228,15 +229,15 @@ namespace DragAndDropTexturing.Windows
 
             // Top side controls
             // ── Preset Selector ──
-            ImGui.Text("Brush Preset:");
+            ImGui.Text(Translator.LocalizeUI("Brush Preset:"));
             ImGui.SameLine();
             ImGui.SetNextItemWidth(140);
-            if (ImGui.BeginCombo("##BrushPreset", Presets[_activePresetIndex].Name))
+            if (ImGui.BeginCombo("##BrushPreset", Translator.LocalizeUI(Presets[_activePresetIndex].Name)))
             {
                 for (int i = 0; i < Presets.Length; i++)
                 {
                     bool isSelected = (i == _activePresetIndex);
-                    if (ImGui.Selectable(Presets[i].Name, isSelected))
+                    if (ImGui.Selectable(Translator.LocalizeUI(Presets[i].Name), isSelected))
                     {
                         _activePresetIndex = i;
                         ApplyPreset(Presets[i]);
@@ -247,29 +248,29 @@ namespace DragAndDropTexturing.Windows
             }
 
             // ── Tools ──
-            ImGui.Text("Tools:");
+            ImGui.Text(Translator.LocalizeUI("Tools:"));
             ImGui.SameLine();
-            if (ImGui.RadioButton("Brush", _activeTool == PaintTool.Brush)) _activeTool = PaintTool.Brush;
+            if (ImGui.RadioButton(Translator.LocalizeUI("Brush"), _activeTool == PaintTool.Brush)) _activeTool = PaintTool.Brush;
             ImGui.SameLine();
-            if (ImGui.RadioButton("Eraser", _activeTool == PaintTool.Eraser)) _activeTool = PaintTool.Eraser;
+            if (ImGui.RadioButton(Translator.LocalizeUI("Eraser"), _activeTool == PaintTool.Eraser)) _activeTool = PaintTool.Eraser;
             ImGui.SameLine();
-            if (ImGui.RadioButton("Fill", _activeTool == PaintTool.Fill)) _activeTool = PaintTool.Fill;
+            if (ImGui.RadioButton(Translator.LocalizeUI("Fill"), _activeTool == PaintTool.Fill)) _activeTool = PaintTool.Fill;
             ImGui.SameLine();
-            if (ImGui.RadioButton("Eyedropper", _activeTool == PaintTool.Eyedropper)) _activeTool = PaintTool.Eyedropper;
+            if (ImGui.RadioButton(Translator.LocalizeUI("Eyedropper"), _activeTool == PaintTool.Eyedropper)) _activeTool = PaintTool.Eyedropper;
 
             // ── Shape + Blend Mode ──
-            ImGui.Text("Shape:");
+            ImGui.Text(Translator.LocalizeUI("Shape:"));
             ImGui.SameLine();
-            if (ImGui.RadioButton("Circle", _activeShape == PaintShape.Circle)) _activeShape = PaintShape.Circle;
+            if (ImGui.RadioButton(Translator.LocalizeUI("Circle"), _activeShape == PaintShape.Circle)) _activeShape = PaintShape.Circle;
             ImGui.SameLine();
-            if (ImGui.RadioButton("Square", _activeShape == PaintShape.Square)) _activeShape = PaintShape.Square;
+            if (ImGui.RadioButton(Translator.LocalizeUI("Square"), _activeShape == PaintShape.Square)) _activeShape = PaintShape.Square;
             ImGui.SameLine();
             ImGui.SetNextItemWidth(100);
-            if (ImGui.BeginCombo("Blend", BlendModeNames[_brushBlendMode]))
+            if (ImGui.BeginCombo(Translator.LocalizeUI("Blend"), Translator.LocalizeUI(BlendModeNames[_brushBlendMode])))
             {
                 for (int i = 0; i < BlendModeNames.Length; i++)
                 {
-                    if (ImGui.Selectable(BlendModeNames[i], i == _brushBlendMode))
+                    if (ImGui.Selectable(Translator.LocalizeUI(BlendModeNames[i]), i == _brushBlendMode))
                         _brushBlendMode = i;
                 }
                 ImGui.EndCombo();
@@ -278,45 +279,45 @@ namespace DragAndDropTexturing.Windows
             ImGui.Separator();
 
             // ── Primary Sliders ──
-            ImGui.ColorEdit4("Brush Color", ref _paintColor, ImGuiColorEditFlags.NoInputs);
+            ImGui.ColorEdit4(Translator.LocalizeUI("Brush Color"), ref _paintColor, ImGuiColorEditFlags.NoInputs);
             ImGui.SameLine();
             ImGui.SetNextItemWidth(80);
-            ImGui.SliderFloat("Size", ref _brushSize, 1f, 50f, "%.1f");
+            ImGui.SliderFloat(Translator.LocalizeUI("Size"), ref _brushSize, 1f, 50f, "%.1f");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(80);
-            ImGui.SliderFloat("Hardness", ref _brushHardness, 0f, 1f, "%.2f");
+            ImGui.SliderFloat(Translator.LocalizeUI("Hardness"), ref _brushHardness, 0f, 1f, "%.2f");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(80);
-            ImGui.SliderFloat("Opacity", ref _brushOpacity, 0f, 1f, "%.2f");
+            ImGui.SliderFloat(Translator.LocalizeUI("Opacity"), ref _brushOpacity, 0f, 1f, "%.2f");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(80);
-            ImGui.SliderFloat("Flow", ref _brushFlow, 0.01f, 1f, "%.2f");
+            ImGui.SliderFloat(Translator.LocalizeUI("Flow"), ref _brushFlow, 0.01f, 1f, "%.2f");
 
             // ── Advanced Settings (collapsible) ──
-            if (ImGui.TreeNode("Advanced Brush Settings"))
+            if (ImGui.TreeNode(Translator.LocalizeUI("Advanced Brush Settings")))
             {
                 ImGui.SetNextItemWidth(120);
-                ImGui.SliderFloat("Spacing (%)", ref _brushSpacing, 0.01f, 1f, "%.2f");
+                ImGui.SliderFloat(Translator.LocalizeUI("Spacing (%)"), ref _brushSpacing, 0.01f, 1f, "%.2f");
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(120);
-                ImGui.SliderFloat("Scatter", ref _brushScatter, 0f, 1f, "%.2f");
+                ImGui.SliderFloat(Translator.LocalizeUI("Scatter"), ref _brushScatter, 0f, 1f, "%.2f");
 
                 float angleDeg = _brushAngle * (180f / (float)Math.PI);
                 ImGui.SetNextItemWidth(120);
-                if (ImGui.SliderFloat("Angle", ref angleDeg, 0f, 360f, "%.0f°"))
+                if (ImGui.SliderFloat(Translator.LocalizeUI("Angle"), ref angleDeg, 0f, 360f, "%.0f°"))
                     _brushAngle = angleDeg * ((float)Math.PI / 180f);
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(120);
-                ImGui.SliderFloat("Size Jitter", ref _brushSizeJitter, 0f, 1f, "%.2f");
+                ImGui.SliderFloat(Translator.LocalizeUI("Size Jitter"), ref _brushSizeJitter, 0f, 1f, "%.2f");
 
                 ImGui.SetNextItemWidth(120);
-                ImGui.SliderFloat("Noise Scale", ref _brushNoiseScale, 0f, 0.3f, "%.3f");
+                ImGui.SliderFloat(Translator.LocalizeUI("Noise Scale"), ref _brushNoiseScale, 0f, 0.3f, "%.3f");
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(120);
-                ImGui.SliderFloat("Noise Amt", ref _brushNoiseAmount, 0f, 1f, "%.2f");
+                ImGui.SliderFloat(Translator.LocalizeUI("Noise Amt"), ref _brushNoiseAmount, 0f, 1f, "%.2f");
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(120);
-                ImGui.SliderFloat("Smoothing", ref _brushSmoothing, 0f, 0.99f, "%.2f");
+                ImGui.SliderFloat(Translator.LocalizeUI("Smoothing"), ref _brushSmoothing, 0f, 0.99f, "%.2f");
 
                 ImGui.TreePop();
             }
@@ -336,7 +337,7 @@ namespace DragAndDropTexturing.Windows
                 ImGui.TextColored(new Vector4(0.5f, 1f, 0.5f, 1f), $"Editing: {Path.GetFileName(EditSourcePath)}");
             }
             ImGui.SameLine();
-            if (ImGui.Button("Clear Paint"))
+            if (ImGui.Button(Translator.LocalizeUI("Clear Paint")))
             {
                 _renderer?.PushUndoSnapshot();
                 _renderer?.GpuClearPaint();
@@ -344,7 +345,7 @@ namespace DragAndDropTexturing.Windows
             }
             ImGui.SameLine();
             ImGui.BeginDisabled(_renderer == null || !_renderer.CanUndo);
-            if (ImGui.Button("Undo"))
+            if (ImGui.Button(Translator.LocalizeUI("Undo")))
             {
                 _renderer?.Undo();
                 _needsComposite = true;
@@ -352,7 +353,7 @@ namespace DragAndDropTexturing.Windows
             ImGui.EndDisabled();
             ImGui.SameLine();
             ImGui.BeginDisabled(_renderer == null || !_renderer.CanRedo);
-            if (ImGui.Button("Redo"))
+            if (ImGui.Button(Translator.LocalizeUI("Redo")))
             {
                 _renderer?.Redo();
                 _needsComposite = true;
@@ -361,10 +362,10 @@ namespace DragAndDropTexturing.Windows
 
             // ── Mesh Visibility Toggle ──
             ImGui.SameLine();
-            ImGui.Text("  ");
+            ImGui.Text(Translator.LocalizeUI("  "));
             ImGui.SameLine();
             bool hideExtras = _hideExtraMeshes;
-            if (ImGui.Checkbox("Hide Extra Meshes", ref hideExtras))
+            if (ImGui.Checkbox(Translator.LocalizeUI("Hide Extra Meshes"), ref hideExtras))
             {
                 _hideExtraMeshes = hideExtras;
                 UpdateMeshVisibility();
@@ -374,12 +375,12 @@ namespace DragAndDropTexturing.Windows
             if (_overrideTopPathList.Count > 1 || _overrideBotPathList.Count > 1)
             {
                 ImGui.Separator();
-                if (ImGui.TreeNode("Target Model Selection"))
+                if (ImGui.TreeNode(Translator.LocalizeUI("Target Model Selection")))
                 {
                     if (_overrideTopPathList.Count > 1)
                     {
                         ImGui.SetNextItemWidth(250);
-                        if (ImGui.BeginCombo("Top Model", _overrideTopPathList[_overrideTopSelectedIndex].ModName))
+                        if (ImGui.BeginCombo(Translator.LocalizeUI("Top Model"), _overrideTopPathList[_overrideTopSelectedIndex].ModName))
                         {
                             for (int i = 0; i < _overrideTopPathList.Count; i++)
                             {
@@ -406,7 +407,7 @@ namespace DragAndDropTexturing.Windows
                     if (_overrideBotPathList.Count > 1)
                     {
                         ImGui.SetNextItemWidth(250);
-                        if (ImGui.BeginCombo("Bottom Model", _overrideBotPathList[_overrideBotSelectedIndex].ModName))
+                        if (ImGui.BeginCombo(Translator.LocalizeUI("Bottom Model"), _overrideBotPathList[_overrideBotSelectedIndex].ModName))
                         {
                             for (int i = 0; i < _overrideBotPathList.Count; i++)
                             {
@@ -436,7 +437,7 @@ namespace DragAndDropTexturing.Windows
             if (_floatingLayer != null)
             {
                 ImGui.Separator();
-                if (ImGui.Button("Stamp Floating Layer"))
+                if (ImGui.Button(Translator.LocalizeUI("Stamp Floating Layer")))
                 {
                     _renderer.PushUndoSnapshot();
                     if (_floatingLayer.Is3DProjected)
@@ -448,7 +449,7 @@ namespace DragAndDropTexturing.Windows
                     _floatingLayer = null;
                 }
                 ImGui.SameLine();
-                if (ImGui.Button("Discard Floating Layer"))
+                if (ImGui.Button(Translator.LocalizeUI("Discard Floating Layer")))
                 {
                     _floatingLayer.Dispose();
                     _floatingLayer = null;
@@ -457,10 +458,10 @@ namespace DragAndDropTexturing.Windows
             else
             {
                 ImGui.Separator();
-                ImGui.Text("Import Image as Floating Layer:");
+                ImGui.Text(Translator.LocalizeUI("Import Image as Floating Layer:"));
                 ImGui.InputText("##importpath", ref _importPath, 512);
                 ImGui.SameLine();
-                if (ImGui.Button("Load"))
+                if (ImGui.Button(Translator.LocalizeUI("Load")))
                 {
                     string path = _importPath.Trim('\"', ' ', '\'');
                     if (File.Exists(path))
@@ -469,7 +470,7 @@ namespace DragAndDropTexturing.Windows
                     }
                 }
                 ImGui.SameLine();
-                if (ImGui.Button("Browse..."))
+                if (ImGui.Button(Translator.LocalizeUI("Browse...")))
                 {
                     _showFileBrowser = true;
                     if (string.IsNullOrEmpty(_browserCurrentDir))
@@ -487,7 +488,7 @@ namespace DragAndDropTexturing.Windows
                 if (ImGui.BeginPopupModal("ImageFileBrowser", ref _showFileBrowser, ImGuiWindowFlags.NoScrollbar))
                 {
                     // Navigation bar
-                    if (ImGui.Button("^ Up"))
+                    if (ImGui.Button(Translator.LocalizeUI("^ Up")))
                     {
                         var parent = Directory.GetParent(_browserCurrentDir);
                         if (parent != null)
@@ -563,12 +564,12 @@ namespace DragAndDropTexturing.Windows
                     ImGui.EndChild();
 
                     // Bottom bar
-                    ImGui.Text("Selected: " + (string.IsNullOrEmpty(_browserSelectedFile) ? "(none)" : Path.GetFileName(_browserSelectedFile)));
+                    ImGui.Text(Translator.LocalizeUI("Selected: ") + (string.IsNullOrEmpty(_browserSelectedFile) ? "(none)" : Path.GetFileName(_browserSelectedFile)));
                     ImGui.SameLine();
                     float buttonWidth = 80;
                     ImGui.SetCursorPosX(ImGui.GetWindowWidth() - buttonWidth * 2 - 20);
                     ImGui.BeginDisabled(string.IsNullOrEmpty(_browserSelectedFile));
-                    if (ImGui.Button("Open", new Vector2(buttonWidth, 0)))
+                    if (ImGui.Button(Translator.LocalizeUI("Open"), new Vector2(buttonWidth, 0)))
                     {
                         _importPath = _browserSelectedFile;
                         LoadFloatingImage(_browserSelectedFile);
@@ -577,7 +578,7 @@ namespace DragAndDropTexturing.Windows
                     }
                     ImGui.EndDisabled();
                     ImGui.SameLine();
-                    if (ImGui.Button("Cancel", new Vector2(buttonWidth, 0)))
+                    if (ImGui.Button(Translator.LocalizeUI("Cancel"), new Vector2(buttonWidth, 0)))
                     {
                         _showFileBrowser = false;
                         ImGui.CloseCurrentPopup();
@@ -744,7 +745,7 @@ namespace DragAndDropTexturing.Windows
             ImGui.BeginChild("RightPanel", new Vector2(0, 0), true);
 
             // 2D Canvas View
-            ImGui.Text("2D UV Canvas");
+            ImGui.Text(Translator.LocalizeUI("2D UV Canvas"));
             ImGui.Separator();
             
             var canvasRegion = ImGui.GetContentRegionAvail();

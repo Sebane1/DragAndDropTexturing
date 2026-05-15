@@ -114,6 +114,22 @@ public sealed class Plugin : IDalamudPlugin
         _pluginLog = pluginLog;
         BackupTexturePaths.OverrideMode = Configuration.UsePriorityBodyMod;
 
+        if (Configuration.LanguageOverride >= 0)
+        {
+            DragAndDropTexturing.LanguageHelpers.Translator.UiLanguage = (DragAndDropTexturing.LanguageHelpers.LanguageEnum)Configuration.LanguageOverride;
+        }
+        else
+        {
+            DragAndDropTexturing.LanguageHelpers.Translator.UiLanguage = clientState.ClientLanguage switch
+            {
+                Dalamud.Game.ClientLanguage.Japanese => DragAndDropTexturing.LanguageHelpers.LanguageEnum.Japanese,
+                Dalamud.Game.ClientLanguage.French => DragAndDropTexturing.LanguageHelpers.LanguageEnum.French,
+                Dalamud.Game.ClientLanguage.German => DragAndDropTexturing.LanguageHelpers.LanguageEnum.German,
+                _ => DragAndDropTexturing.LanguageHelpers.LanguageEnum.English,
+            };
+        }
+        DragAndDropTexturing.LanguageHelpers.Translator.LoadCache(Path.Combine(PluginInterface.ConfigDirectory.FullName, "translation_cache.json"));
+
         try
         {
             _emoteReaderHooks = new EmoteReaderHooks(gameInteropProvider, clientState, _safeGameObjectManager);

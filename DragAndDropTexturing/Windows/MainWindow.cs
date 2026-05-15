@@ -7,6 +7,7 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
 using System.Collections.Generic;
+using DragAndDropTexturing.LanguageHelpers;
 
 namespace DragAndDropTexturing.Windows;
 
@@ -61,22 +62,27 @@ public class MainWindow : Window, IDisposable
 
         if (ImGui.BeginTabBar("MainWindowTabs"))
         {
-            if (ImGui.BeginTabItem("Active Layers"))
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Active Layers")))
             {
                 DrawActiveLayers();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Contextual Layers"))
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Layer History")))
+            {
+                DrawLayerHistory();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Contextual Layers")))
             {
                 DrawContextualLayers();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Settings"))
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Settings")))
             {
                 DrawSettings();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Diagnostics"))
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Diagnostics")))
             {
                 DrawDiagnostics();
                 ImGui.EndTabItem();
@@ -97,9 +103,43 @@ public class MainWindow : Window, IDisposable
     private void DrawSettings()
     {
         ImGui.Spacing();
-
         ImGui.Separator();
-        ImGui.Text("Current Body Type Detection:");
+        
+        ImGui.Text(Translator.LocalizeUI("Language Override:"));
+        int langOverride = Plugin.Configuration.LanguageOverride;
+        string[] languagesWithAuto = new string[Translator.LanguageStrings.Length + 1];
+        languagesWithAuto[0] = "Auto Detect";
+        for (int i = 0; i < Translator.LanguageStrings.Length; i++)
+        {
+            languagesWithAuto[i + 1] = Translator.LanguageStrings[i];
+        }
+        
+        int comboIndex = langOverride + 1;
+        if (ImGui.Combo("##LanguageOverride", ref comboIndex, languagesWithAuto, languagesWithAuto.Length))
+        {
+            Plugin.Configuration.LanguageOverride = comboIndex - 1;
+            Plugin.Configuration.Save();
+            
+            if (Plugin.Configuration.LanguageOverride >= 0)
+            {
+                Translator.UiLanguage = (LanguageEnum)Plugin.Configuration.LanguageOverride;
+            }
+            else
+            {
+                Translator.UiLanguage = Plugin.ClientState.ClientLanguage switch
+                {
+                    Dalamud.Game.ClientLanguage.Japanese => LanguageEnum.Japanese,
+                    Dalamud.Game.ClientLanguage.French => LanguageEnum.French,
+                    Dalamud.Game.ClientLanguage.German => LanguageEnum.German,
+                    _ => LanguageEnum.English,
+                };
+            }
+        }
+        ImGui.TextWrapped(Translator.LocalizeUI("Overrides the detected game language. Changes apply to UI immediately, but translating entirely new text requires network requests."));
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Text(Translator.LocalizeUI("Current Body Type Detection:"));
         if ((DateTime.Now - _lastBodyTypeCheck).TotalSeconds > 5)
         {
             var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
@@ -129,24 +169,24 @@ public class MainWindow : Window, IDisposable
             else if (_cachedBodyType == 3) bodyString = "TBSE";
 
             if (_cachedBodyType != -1)
-                ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), $"Detected: {bodyString}");
+                ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected:") + $" {bodyString}");
             else
-                ImGui.TextColored(new Vector4(1.0f, 1.0f, 0.2f, 1.0f), "Detected: Vanilla (No body mod found)");
+                ImGui.TextColored(new Vector4(1.0f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected: Vanilla (No body mod found)"));
             
             if (!string.IsNullOrEmpty(_cachedBodyModName))
             {
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), $"Detected From Mod: {_cachedBodyModName}");
+                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), Translator.LocalizeUI("Detected From Mod:") + $" {_cachedBodyModName}");
             }
         }
         else if (_cachedBodyType == -2)
         {
-            ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), "Player not loaded.");
+            ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), Translator.LocalizeUI("Player not loaded."));
         }
         ImGui.Separator();
         
         ImGui.Spacing();
 
-        if (ImGui.Button("Open 3D Model Preview (Experimental)"))
+        if (ImGui.Button(Translator.LocalizeUI("Open 3D Model Preview (Experimental)")))
         {
             Plugin.MdlPreviewWindow.IsOpen = !Plugin.MdlPreviewWindow.IsOpen;
         }
@@ -155,16 +195,16 @@ public class MainWindow : Window, IDisposable
 
         ImGui.Spacing();
         bool enableStacking = Plugin.Configuration.EnableTextureStacking;
-        if (ImGui.Checkbox("Enable Texture Stacking", ref enableStacking))
+        if (ImGui.Checkbox(Translator.LocalizeUI("Enable Texture Stacking"), ref enableStacking))
         {
             Plugin.Configuration.EnableTextureStacking = enableStacking;
             Plugin.Configuration.Save();
         }
-        ImGui.TextWrapped("When enabled, dragging multiple textures over time will stack them (layering). When disabled, dragging a new texture replaces the previous one.");
+        ImGui.TextWrapped(Translator.LocalizeUI("When enabled, dragging multiple textures over time will stack them (layering). When disabled, dragging a new texture replaces the previous one."));
         
         ImGui.Spacing();
         bool autoConvert = Plugin.Configuration.AutoUniversalConvert;
-        if (ImGui.Checkbox("Auto Universal Convert", ref autoConvert))
+        if (ImGui.Checkbox(Translator.LocalizeUI("Auto Universal Convert"), ref autoConvert))
         {
             Plugin.Configuration.AutoUniversalConvert = autoConvert;
             Plugin.Configuration.Save();
@@ -175,11 +215,11 @@ public class MainWindow : Window, IDisposable
                 ddtForRebuild.RebuildAllCategories();
             }
         }
-        ImGui.TextWrapped("When enabled, textures are generated for all possible body types at once (Potentially slower generation)");
+        ImGui.TextWrapped(Translator.LocalizeUI("When enabled, textures are generated for all possible body types at once (Potentially slower generation)"));
         
         ImGui.Spacing();
         bool generateNormals = Plugin.Configuration.GenerateNormals;
-        if (ImGui.Checkbox("Generate Normals", ref generateNormals))
+        if (ImGui.Checkbox(Translator.LocalizeUI("Generate Normals"), ref generateNormals))
         {
             Plugin.Configuration.GenerateNormals = generateNormals;
             Plugin.Configuration.Save();
@@ -190,12 +230,12 @@ public class MainWindow : Window, IDisposable
                 ddtForRebuild.RebuildAllCategories();
             }
         }
-        ImGui.TextWrapped("When enabled, normal maps will be automatically generated from base textures if they are missing.");
+        ImGui.TextWrapped(Translator.LocalizeUI("When enabled, normal maps will be automatically generated from base textures if they are missing."));
 
         ImGui.Spacing();
         int exportCompression = Plugin.Configuration.ExportCompression;
-        string[] compressionOptions = { "Speed (Uncompressed)", "Sync Friendly (Mode 6 BC7)" };
-        if (ImGui.Combo("Export Compression", ref exportCompression, compressionOptions, compressionOptions.Length))
+        string[] compressionOptions = { Translator.LocalizeUI("Speed (Uncompressed)"), Translator.LocalizeUI("Sync Friendly (Mode 6 BC7)") };
+        if (ImGui.Combo(Translator.LocalizeUI("Export Compression"), ref exportCompression, compressionOptions, compressionOptions.Length))
         {
             Plugin.Configuration.ExportCompression = exportCompression;
             Plugin.Configuration.Save();
@@ -206,21 +246,22 @@ public class MainWindow : Window, IDisposable
                 ddtForRebuild.RebuildAllCategories();
             }
         }
-        ImGui.TextWrapped("Selects the texture compression method used for exports. Speed is faster to generate but results in larger file sizes. BC7 offers the lowest file sizes for Dawntrail, but is performance heavy exporting.");
+        ImGui.TextWrapped(Translator.LocalizeUI("Selects the texture compression method used for exports. Speed is faster to generate but results in larger file sizes. BC7 offers the lowest file sizes for Dawntrail, but is performance heavy exporting."));
         
         ImGui.Spacing();
         var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
+        var locOptions = Translator.LocalizeTextArray(options);
         int selectedIndex = Math.Max(0, Array.IndexOf(options, Plugin.Configuration.DefaultUnderlaySkinType));
-        if (ImGui.Combo("Default Underlay Skin Type", ref selectedIndex, options, options.Length))
+        if (ImGui.Combo(Translator.LocalizeUI("Default Underlay Skin Type"), ref selectedIndex, locOptions, locOptions.Length))
         {
             Plugin.Configuration.DefaultUnderlaySkinType = options[selectedIndex];
             Plugin.Configuration.Save();
         }
-        ImGui.TextWrapped("Selects the base skin underlay type when a custom transparent tattoo is dropped. If the character's base body doesn't support the specific skin variant, it will fall back to its own default.");
+        ImGui.TextWrapped(Translator.LocalizeUI("Selects the base skin underlay type when a custom transparent tattoo is dropped. If the character's base body doesn't support the specific skin variant, it will fall back to its own default."));
         
         ImGui.Spacing();
         bool usePriorityMod = Plugin.Configuration.UsePriorityBodyMod;
-        if (ImGui.Checkbox("Use Textures From Priority Body Mod", ref usePriorityMod))
+        if (ImGui.Checkbox(Translator.LocalizeUI("Use Textures From Priority Body Mod"), ref usePriorityMod))
         {
             Plugin.Configuration.UsePriorityBodyMod = usePriorityMod;
             FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = usePriorityMod;
@@ -232,12 +273,12 @@ public class MainWindow : Window, IDisposable
                 ddtForRebuild.RebuildAllCategories();
             }
         }
-        ImGui.TextWrapped("When enabled, the compiler will scan your Penumbra modlist and automatically inherit the body texture of your highest priority active skin mod as the underlay for transparent overlays.");
+        ImGui.TextWrapped(Translator.LocalizeUI("When enabled, the compiler will scan your Penumbra modlist and automatically inherit the body texture of your highest priority active skin mod as the underlay for transparent overlays."));
         
         if (usePriorityMod)
         {
             ImGui.Spacing();
-            ImGui.Text("Active Body Overrides:");
+            ImGui.Text(Translator.LocalizeUI("Active Body Overrides:"));
             ImGui.Indent();
             var ddtForUI = Plugin.DragAndDropTextures;
             if (ddtForUI != null && ddtForUI.ActiveBodyOverrides.Count > 0)
@@ -249,9 +290,9 @@ public class MainWindow : Window, IDisposable
             }
             else
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "None detected (or scan pending)");
+                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("None detected (or scan pending)"));
             }
-            if (ImGui.Button("Scan For Overrides"))
+            if (ImGui.Button(Translator.LocalizeUI("Scan For Overrides")))
             {
                 ddtForUI?.RefreshActiveOverrides();
             }
@@ -281,9 +322,9 @@ public class MainWindow : Window, IDisposable
             var keys = ddt.TextureHistory.Keys.Where(k => ddt.TextureHistory[k].Count > 0).ToList();
             if (keys.Count == 0)
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No active textures dropped yet.");
+                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No active textures dropped yet."));
                 ImGui.Spacing();
-                if (ImGui.Button("Open Texture Painter"))
+                if (ImGui.Button(Translator.LocalizeUI("Open Texture Painter")))
                 {
                     Plugin.OpenPaintWindow();
                 }
@@ -309,13 +350,13 @@ public class MainWindow : Window, IDisposable
                 string key = keys[_selectedActiveLayerIndex];
                 var list = ddt.TextureHistory[key];
                 
-                ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), $"Active Layers for: {key}");
+                ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Active Layers for:") + $" {key}");
                 ImGui.Separator();
                 
-                if (ImGui.Button("Clear All##" + key))
+                if (ImGui.Button(Translator.LocalizeUI("Clear All") + "##" + key))
                 {
                     list.Clear();
-                    ddt.RebuildCategory(key);
+                    ddt.RebuildCategory(key, false);
                     Plugin.Configuration.Save();
                     // Keep index bounded if list clears and we want to prevent out of bounds next frame
                 }
@@ -365,7 +406,7 @@ public class MainWindow : Window, IDisposable
                     }
                     if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
                     
-                    if (ImGui.Button("Up##" + key + i) && i > 0)
+                    if (ImGui.Button(Translator.LocalizeUI("Up") + "##" + key + i) && i > 0)
                     {
                         var temp = list[i - 1];
                         list[i - 1] = list[i];
@@ -374,7 +415,7 @@ public class MainWindow : Window, IDisposable
                     }
                     
                     ImGui.SameLine();
-                    if (ImGui.Button("Down##" + key + i) && i < list.Count - 1)
+                    if (ImGui.Button(Translator.LocalizeUI("Down") + "##" + key + i) && i < list.Count - 1)
                     {
                         var temp = list[i + 1];
                         list[i + 1] = list[i];
@@ -383,7 +424,7 @@ public class MainWindow : Window, IDisposable
                     }
 
                     ImGui.SameLine();
-                    if (ImGui.Button("Remove##" + key + i))
+                    if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
                     {
                         list.RemoveAt(i);
                         i--;
@@ -404,7 +445,7 @@ public class MainWindow : Window, IDisposable
                             canEdit = Plugin.IsBodyAvailable("tbse");
 
                         if (!canEdit) ImGui.BeginDisabled();
-                        if (ImGui.Button("Edit##" + key + i))
+                        if (ImGui.Button(Translator.LocalizeUI("Edit") + "##" + key + i))
                         {
                             Plugin.OpenPaintWindow(path);
                         }
@@ -413,25 +454,104 @@ public class MainWindow : Window, IDisposable
                             ImGui.EndDisabled();
                             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                             {
-                                ImGui.SetTooltip("This layer requires a body mod that is not currently available in your Penumbra directory.");
+                                ImGui.SetTooltip(Translator.LocalizeUI("This layer requires a body mod that is not currently available in your Penumbra directory."));
                             }
                         }
                     }
                 }
 
-                if (ImGui.Button("Add New Layer (Open Painter)##" + key))
+                if (ImGui.Button(Translator.LocalizeUI("Add New Layer (Open Painter)##") + key))
                 {
                     Plugin.OpenPaintWindow();
                 }
 
                 if (changed)
                 {
-                    ddt.RebuildCategory(key);
+                    ddt.RebuildCategory(key, false);
                     Plugin.Configuration.Save();
                 }
             }
             ImGui.EndChild();
         }
+    }
+
+    private void DrawLayerHistory()
+    {
+        ImGui.Spacing();
+        var recentLayers = Plugin.Configuration.RecentLayers;
+        if (recentLayers == null || recentLayers.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No previously dropped layers found.");
+            return;
+        }
+
+        ImGui.Text(Translator.LocalizeUI("History of all dropped textures (Newest first):"));
+        ImGui.Separator();
+
+        ImGui.BeginChild("LayerHistoryList", new Vector2(0, 0), true);
+        for (int i = 0; i < recentLayers.Count; i++)
+        {
+            string path = recentLayers[i];
+            var tex = GetPreviewTexture(path);
+            var wrap = tex?.GetWrapOrDefault();
+            
+            float originalY = ImGui.GetCursorPosY();
+            
+            if (wrap != null)
+            {
+                ImGui.Image(wrap.Handle, new Vector2(40, 40));
+                ImGui.SameLine();
+            }
+            
+            // Align all text and buttons to the middle of the 40px image
+            if (wrap != null) ImGui.SetCursorPosY(originalY + 10);
+            
+            ImGui.Text(Path.GetFileName(path));
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(path);
+            }
+            
+            ImGui.SameLine(ImGui.GetWindowWidth() - 200);
+            
+            if (ImGui.Button(Translator.LocalizeUI("Apply") + $"##history_{i}"))
+            {
+                var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+                if (localPlayer != null && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter character)
+                {
+                    Plugin.DragAndDropTextures.InjectFilesAndRebuild(new System.Collections.Generic.List<string> { path }, new System.Collections.Generic.KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(localPlayer.Name.TextValue, character), PenumbraAndGlamourerHelpers.BodyDragPart.Unknown);
+                }
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(Translator.LocalizeUI("Directly apply this layer to your own character."));
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button(Translator.LocalizeUI("Copy Path") + $"##history_{i}"))
+            {
+                ImGui.SetClipboardText(path);
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(Translator.LocalizeUI("Copy the full file path to your clipboard to paste into an Active Layer input box."));
+            }
+            
+            ImGui.SameLine();
+            if (ImGui.Button($"X##remove_history_{i}"))
+            {
+                recentLayers.RemoveAt(i);
+                Plugin.Configuration.Save();
+                i--;
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(Translator.LocalizeUI("Remove from history"));
+            }
+            
+            ImGui.SetCursorPosY(originalY + 45); // move to next line accounting for image height
+        }
+        ImGui.EndChild();
     }
 
     private int _selectedContextualLayerIndex = 0;
@@ -443,7 +563,7 @@ public class MainWindow : Window, IDisposable
     private void DrawDiagnostics()
     {
         ImGui.Spacing();
-        ImGui.Text("GPU Fallback Diagnostic Log:");
+        ImGui.Text(Translator.LocalizeUI("GPU Fallback Diagnostic Log:"));
         
         string logPath = Path.Combine(Path.GetTempPath(), "GPU_Fallback_Error.txt");
         string benchPath = Path.Combine(Path.GetTempPath(), "GPU_Benchmark.txt");
@@ -456,7 +576,7 @@ public class MainWindow : Window, IDisposable
             }
             else
             {
-                _cachedErrorLog = "No GPU fallback errors detected. (GPU acceleration is working fine!)";
+                _cachedErrorLog = Translator.LocalizeUI("No GPU fallback errors detected. (GPU acceleration is working fine!)");
             }
             
             if (File.Exists(benchPath))
@@ -465,7 +585,7 @@ public class MainWindow : Window, IDisposable
             }
             else
             {
-                _cachedBenchmarkLog = "No benchmark data recorded yet.";
+                _cachedBenchmarkLog = Translator.LocalizeUI("No benchmark data recorded yet.");
             }
             
             _lastErrorLogCheck = DateTime.Now;
@@ -478,15 +598,15 @@ public class MainWindow : Window, IDisposable
             ImGui.EndChild();
         }
 
-        if (ImGui.Button("Clear Error Log"))
+        if (ImGui.Button(Translator.LocalizeUI("Clear Error Log")))
         {
             if (File.Exists(logPath)) { try { File.Delete(logPath); } catch { } }
-            _cachedErrorLog = "No GPU fallback errors detected. (GPU acceleration is working fine!)";
+            _cachedErrorLog = Translator.LocalizeUI("No GPU fallback errors detected. (GPU acceleration is working fine!)");
         }
         
         ImGui.Separator();
         ImGui.Spacing();
-        ImGui.Text("MergeImageLayers Performance Benchmarks:");
+        ImGui.Text(Translator.LocalizeUI("MergeImageLayers Performance Benchmarks:"));
         
         if (_cachedBenchmarkLog != null)
         {
@@ -497,24 +617,24 @@ public class MainWindow : Window, IDisposable
             ImGui.EndChild();
         }
         
-        if (ImGui.Button("Clear Benchmark Log"))
+        if (ImGui.Button(Translator.LocalizeUI("Clear Benchmark Log")))
         {
             if (File.Exists(benchPath)) { try { File.Delete(benchPath); } catch { } }
-            _cachedBenchmarkLog = "No benchmark data recorded yet.";
+            _cachedBenchmarkLog = Translator.LocalizeUI("No benchmark data recorded yet.");
         }
     }
 
     private void DrawContextualLayers()
     {
         ImGui.Spacing();
-        if (ImGui.Button("Add Contextual Layer"))
+        if (ImGui.Button(Translator.LocalizeUI("Add Contextual Layer")))
         {
             Plugin.ContextualLayerManager.CreateNewLayer();
             _selectedContextualLayerIndex = Plugin.ContextualLayerManager.ContextualLayers.Count - 1;
         }
         
         ImGui.SameLine();
-        if (ImGui.Button("Open Imports Folder"))
+        if (ImGui.Button(Translator.LocalizeUI("Open Imports Folder")))
         {
             string importFolder = System.IO.Path.Combine(Plugin.ContextualLayerManager.RootDirectory, "Imports");
             if (!System.IO.Directory.Exists(importFolder)) System.IO.Directory.CreateDirectory(importFolder);
@@ -527,7 +647,7 @@ public class MainWindow : Window, IDisposable
         }
         
         ImGui.SameLine();
-        if (ImGui.Button("Scan for Imports"))
+        if (ImGui.Button(Translator.LocalizeUI("Scan for Imports")))
         {
             Plugin.ContextualLayerManager.ImportLayersFromImportsFolder();
             if (Plugin.ContextualLayerManager.ContextualLayers.Count > 0)
@@ -538,7 +658,7 @@ public class MainWindow : Window, IDisposable
 
         if (Plugin.ContextualLayerManager.ContextualLayers.Count == 0)
         {
-            ImGui.Text("No contextual layers configured.");
+            ImGui.Text(Translator.LocalizeUI("No contextual layers configured."));
             return;
         }
 
@@ -556,7 +676,7 @@ public class MainWindow : Window, IDisposable
 
         if (ImGui.IsItemHovered())
         {
-            ImGui.SetTooltip("You can drop .clmp files directly here to import them!");
+            ImGui.SetTooltip(Translator.LocalizeUI("You can drop .clmp files directly here to import them!"));
         }
 
         if (Plugin.DragDropManager.CreateImGuiTarget("ContextualLayerImportTarget", out var droppedFiles, out _))
@@ -581,23 +701,25 @@ public class MainWindow : Window, IDisposable
             bool changed = false;
 
             string name = layer.Name;
-            if (ImGui.InputText("Name##ContextName", ref name, 255))
+            if (ImGui.InputText(Translator.LocalizeUI("Name") + "##ContextName", ref name, 255))
             {
                 layer.Name = name;
                 changed = true;
             }
 
             int triggerType = (int)layer.Trigger;
-            string[] triggerNames = Enum.GetNames(typeof(TriggerType));
-            if (ImGui.Combo("Trigger Type##ContextTrigger", ref triggerType, triggerNames, triggerNames.Length))
+            string[] triggerNames = Enum.GetNames(typeof(TriggerType)).Select(n => n.Replace("_", " ")).ToArray();
+            var locTriggerNames = Translator.LocalizeTextArray(triggerNames);
+            if (ImGui.Combo(Translator.LocalizeUI("Trigger Type") + "##ContextTrigger", ref triggerType, locTriggerNames, locTriggerNames.Length))
             {
                 layer.Trigger = (TriggerType)triggerType;
                 changed = true;
             }
 
             int clearType = (int)layer.ClearTrigger;
-            string[] clearNames = Enum.GetNames(typeof(ClearCondition));
-            if (ImGui.Combo("Clear Condition##ContextClear", ref clearType, clearNames, clearNames.Length))
+            string[] clearNames = Enum.GetNames(typeof(ClearCondition)).Select(n => n.Replace("_", " ")).ToArray();
+            var locClearNames = Translator.LocalizeTextArray(clearNames);
+            if (ImGui.Combo(Translator.LocalizeUI("Clear Condition") + "##ContextClear", ref clearType, locClearNames, locClearNames.Length))
             {
                 layer.ClearTrigger = (ClearCondition)clearType;
                 changed = true;
@@ -609,9 +731,9 @@ public class MainWindow : Window, IDisposable
                 var currentEmote = _emotes.FirstOrDefault(x => x.RowId == emoteId);
                 string currentEmoteName = currentEmote.RowId != 0 ? currentEmote.Name.ExtractText() : $"ID: {emoteId}";
 
-                if (ImGui.BeginCombo("Emote##ContextEmote", currentEmoteName))
+                if (ImGui.BeginCombo(Translator.LocalizeUI("Emote") + "##ContextEmote", currentEmoteName))
                 {
-                    ImGui.InputText("Search##EmoteSearch", ref _emoteSearchFilter, 255);
+                    ImGui.InputText(Translator.LocalizeUI("Search") + "##EmoteSearch", ref _emoteSearchFilter, 255);
                     string filter = _emoteSearchFilter.ToLower();
 
                     for (int eIndex = 0; eIndex < _emotes.Count; eIndex++)
@@ -636,7 +758,7 @@ public class MainWindow : Window, IDisposable
             else if (layer.Trigger == TriggerType.HP_Threshold)
             {
                 int hpThresh = layer.HPThresholdPercentage;
-                if (ImGui.SliderInt("HP Threshold %##ContextHP", ref hpThresh, 1, 99))
+                if (ImGui.SliderInt(Translator.LocalizeUI("HP Threshold %") + "##ContextHP", ref hpThresh, 1, 99))
                 {
                     layer.HPThresholdPercentage = hpThresh;
                     changed = true;
@@ -645,14 +767,14 @@ public class MainWindow : Window, IDisposable
             else if (layer.Trigger == TriggerType.Audio_Path_Load)
             {
                 string audioPath = layer.AudioTriggerPath;
-                if (ImGui.InputText("Audio Path / Name (.scd)##ContextAudio", ref audioPath, 255))
+                if (ImGui.InputText(Translator.LocalizeUI("Audio Path / Name (.scd)") + "##ContextAudio", ref audioPath, 255))
                 {
                     layer.AudioTriggerPath = audioPath;
                     changed = true;
                 }
                 
                 int reqSounds = layer.RequiredSoundsPerStack;
-                if (ImGui.InputInt("Required Sounds per Stack##ContextSounds", ref reqSounds))
+                if (ImGui.InputInt(Translator.LocalizeUI("Required Sounds per Stack") + "##ContextSounds", ref reqSounds))
                 {
                     layer.RequiredSoundsPerStack = Math.Max(1, reqSounds);
                     changed = true;
@@ -661,14 +783,14 @@ public class MainWindow : Window, IDisposable
             else if (layer.Trigger == TriggerType.Chat_Message)
             {
                 string chatRegex = layer.ChatRegex;
-                if (ImGui.InputText("Chat Regex Pattern##ContextChat", ref chatRegex, 255))
+                if (ImGui.InputText(Translator.LocalizeUI("Chat Regex Pattern") + "##ContextChat", ref chatRegex, 255))
                 {
                     layer.ChatRegex = chatRegex;
                     changed = true;
                 }
                 
                 bool emoteOnly = layer.ChatFilterCustomEmotesOnly;
-                if (ImGui.Checkbox("Only trigger on Emotes (/em or standard)##ContextChatEmote", ref emoteOnly))
+                if (ImGui.Checkbox(Translator.LocalizeUI("Only trigger on Emotes (/em or standard)") + "##ContextChatEmote", ref emoteOnly))
                 {
                     layer.ChatFilterCustomEmotesOnly = emoteOnly;
                     changed = true;
@@ -677,7 +799,7 @@ public class MainWindow : Window, IDisposable
             else if (layer.Trigger == TriggerType.Enemy_Nearby)
             {
                 string enemyName = layer.TargetEnemyName;
-                if (ImGui.InputText("Target Enemy Name##ContextEnemy", ref enemyName, 255))
+                if (ImGui.InputText(Translator.LocalizeUI("Target Enemy Name") + "##ContextEnemy", ref enemyName, 255))
                 {
                     layer.TargetEnemyName = enemyName;
                     changed = true;
@@ -686,7 +808,7 @@ public class MainWindow : Window, IDisposable
             else if (layer.Trigger == TriggerType.Territory_ID)
             {
                 int territoryId = (int)layer.TargetTerritoryId;
-                if (ImGui.InputInt("Territory ID##ContextTerritory", ref territoryId))
+                if (ImGui.InputInt(Translator.LocalizeUI("Territory ID") + "##ContextTerritory", ref territoryId))
                 {
                     layer.TargetTerritoryId = (uint)Math.Max(0, territoryId);
                     changed = true;
@@ -695,7 +817,7 @@ public class MainWindow : Window, IDisposable
             else if (layer.Trigger == TriggerType.Weather_ID)
             {
                 int weatherId = (int)layer.TargetWeatherId;
-                if (ImGui.InputInt("Weather ID##ContextWeather", ref weatherId))
+                if (ImGui.InputInt(Translator.LocalizeUI("Weather ID") + "##ContextWeather", ref weatherId))
                 {
                     layer.TargetWeatherId = (uint)Math.Max(0, weatherId);
                     changed = true;
@@ -706,12 +828,12 @@ public class MainWindow : Window, IDisposable
                 int startHour = layer.TargetTimeStartHour;
                 int endHour = layer.TargetTimeEndHour;
                 
-                if (ImGui.SliderInt("Start Hour (ET)##ContextTimeStart", ref startHour, 0, 23))
+                if (ImGui.SliderInt(Translator.LocalizeUI("Start Hour (ET)") + "##ContextTimeStart", ref startHour, 0, 23))
                 {
                     layer.TargetTimeStartHour = startHour;
                     changed = true;
                 }
-                if (ImGui.SliderInt("End Hour (ET)##ContextTimeEnd", ref endHour, 0, 23))
+                if (ImGui.SliderInt(Translator.LocalizeUI("End Hour (ET)") + "##ContextTimeEnd", ref endHour, 0, 23))
                 {
                     layer.TargetTimeEndHour = endHour;
                     changed = true;
@@ -720,15 +842,15 @@ public class MainWindow : Window, IDisposable
             else if (layer.Trigger == TriggerType.Kill_Count || layer.Trigger == TriggerType.Action_Used)
             {
                 int reqKills = layer.RequiredKillsPerStack;
-                string stackLabel = layer.Trigger == TriggerType.Kill_Count ? "Required Kills per Stack" : "Required Actions per Stack";
-                if (ImGui.InputInt($"{stackLabel}##ContextKills", ref reqKills))
+                string stackLabel = Translator.LocalizeUI(layer.Trigger == TriggerType.Kill_Count ? "Required Kills per Stack" : "Required Actions per Stack");
+                if (ImGui.InputInt(stackLabel + "##ContextKills", ref reqKills))
                 {
                     layer.RequiredKillsPerStack = Math.Max(1, reqKills);
                     changed = true;
                 }
                 
                 int decay = layer.DecayIntervalSeconds;
-                if (ImGui.InputInt("Decay Interval (Seconds)##ContextDecay", ref decay))
+                if (ImGui.InputInt(Translator.LocalizeUI("Decay Interval (Seconds)") + "##ContextDecay", ref decay))
                 {
                     layer.DecayIntervalSeconds = Math.Max(0, decay);
                     changed = true;
@@ -740,7 +862,7 @@ public class MainWindow : Window, IDisposable
                 layer.Trigger == TriggerType.Chat_Message)
             {
                 int duration = layer.DurationSeconds;
-                if (ImGui.InputInt("Duration (Seconds)##ContextDur", ref duration))
+                if (ImGui.InputInt(Translator.LocalizeUI("Duration (Seconds)") + "##ContextDur", ref duration))
                 {
                     layer.DurationSeconds = Math.Max(1, duration);
                     changed = true;
@@ -748,15 +870,16 @@ public class MainWindow : Window, IDisposable
             }
 
             string[] bodyParts = { "body", "face", "eyes", "eyebrows" };
+            var locBodyParts = Translator.LocalizeTextArray(bodyParts);
             int partIndex = Math.Max(0, Array.IndexOf(bodyParts, layer.TargetBodyPart));
-            if (ImGui.Combo("Target Body Part##ContextPart", ref partIndex, bodyParts, bodyParts.Length))
+            if (ImGui.Combo(Translator.LocalizeUI("Target Body Part") + "##ContextPart", ref partIndex, locBodyParts, locBodyParts.Length))
             {
                 layer.TargetBodyPart = bodyParts[partIndex];
                 changed = true;
             }
 
             ImGui.Spacing();
-            if (ImGui.Button("Open Folder##ContextFolder"))
+            if (ImGui.Button(Translator.LocalizeUI("Open Folder") + "##ContextFolder"))
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
                 {
@@ -768,14 +891,14 @@ public class MainWindow : Window, IDisposable
 
             ImGui.SameLine();
 
-            if (ImGui.Button("Export Layer##ContextExport"))
+            if (ImGui.Button(Translator.LocalizeUI("Export Layer") + "##ContextExport"))
             {
                 Plugin.ContextualLayerManager.ExportLayer(layer);
             }
 
             ImGui.SameLine();
 
-            if (ImGui.Button("Remove Layer##ContextRemove"))
+            if (ImGui.Button(Translator.LocalizeUI("Remove Layer") + "##ContextRemove"))
             {
                 Plugin.ContextualLayerManager.DeleteLayer(layer);
                 _selectedContextualLayerIndex = Math.Max(0, _selectedContextualLayerIndex - 1);

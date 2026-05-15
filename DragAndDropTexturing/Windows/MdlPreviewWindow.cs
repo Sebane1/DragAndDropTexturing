@@ -1,4 +1,5 @@
 using System;
+using DragAndDropTexturing.LanguageHelpers;
 using System.IO;
 using System.Numerics;
 using System.Collections.Generic;
@@ -129,16 +130,16 @@ namespace DragAndDropTexturing.Windows
                 if (ImGui.CollapsingHeader(slot.Name + " Slot", ImGuiTreeNodeFlags.DefaultOpen))
                 {
                     ImGui.InputText($"Model Path##{slot.Name}", ref slot.ModelPath, 1024);
-                    if (ImGui.Button($"Load Game Path##{slot.Name}")) LoadModel(slot, false);
+                    if (ImGui.Button(Translator.LocalizeUI("Load Game Path") + $"##{slot.Name}")) LoadModel(slot, false);
                     ImGui.SameLine();
-                    if (ImGui.Button($"Load From Disk##{slot.Name}")) LoadModel(slot, true);
+                    if (ImGui.Button(Translator.LocalizeUI("Load From Disk") + $"##{slot.Name}")) LoadModel(slot, true);
 
                     if (!string.IsNullOrEmpty(slot.LoadStatus)) ImGui.TextWrapped(slot.LoadStatus);
 
                     ImGui.InputText($"Texture Path##{slot.Name}", ref slot.TexturePath, 1024);
-                    if (ImGui.Button($"Load Texture##{slot.Name}")) LoadTextureFromDisk(slot);
+                    if (ImGui.Button(Translator.LocalizeUI("Load Texture") + $"##{slot.Name}")) LoadTextureFromDisk(slot);
                     ImGui.SameLine();
-                    if (ImGui.Button($"Clear Texture##{slot.Name}"))
+                    if (ImGui.Button(Translator.LocalizeUI("Clear Texture") + $"##{slot.Name}"))
                     {
                         _renderer?.ClearTexture(slot.Name);
                         slot.TextureStatus = "Texture cleared.";
@@ -147,7 +148,7 @@ namespace DragAndDropTexturing.Windows
                     if (slot.Name == "Top")
                     {
                         ImGui.SameLine();
-                        if (ImGui.Button($"Load to Top & Bottom##{slot.Name}"))
+                        if (ImGui.Button(Translator.LocalizeUI("Load to Top & Bottom") + $"##{slot.Name}"))
                         {
                             LoadTextureFromDisk(slot);
                             var bottomSlot = _slots.Find(s => s.Name == "Bottom");
@@ -170,7 +171,7 @@ namespace DragAndDropTexturing.Windows
             }
 
             ImGui.Spacing();
-            if (ImGui.Button("Reset Camera")) _renderer?.ResetCamera();
+            if (ImGui.Button(Translator.LocalizeUI("Reset Camera"))) _renderer?.ResetCamera();
             if (_renderer != null)
             {
                 ImGui.SameLine();

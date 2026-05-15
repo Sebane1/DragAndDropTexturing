@@ -1,4 +1,5 @@
 using System;
+using DragAndDropTexturing.LanguageHelpers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -205,15 +206,19 @@ namespace DragAndDropTexturing.Windows
 
             if (Layers.Count == 0)
             {
-                ImGui.Text("No valid image layers found in PSD.");
-                if (ImGui.Button("Close")) IsOpen = false;
+                ImGui.Text(Translator.LocalizeUI("No valid image layers found in PSD."));
+                if (ImGui.Button(Translator.LocalizeUI("Close"))) IsOpen = false;
                 return;
             }
 
             ImGui.Columns(2, "PsdLayout", false);
             ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.65f);
 
-            ImGui.Text("Select layers to import:");
+            var locBodyParts = Translator.LocalizeTextArray(_bodyParts);
+            var locOverrideTypes = Translator.LocalizeTextArray(_overrideTypes);
+            var locBodyTypes = Translator.LocalizeTextArray(_bodyTypes);
+
+            ImGui.Text(Translator.LocalizeUI("Select layers to import:"));
             ImGui.Separator();
 
             ImGui.BeginChild("PsdLayersList", new Vector2(0, ImGui.GetContentRegionAvail().Y - 40), true);
@@ -234,7 +239,7 @@ namespace DragAndDropTexturing.Windows
                 ImGui.SameLine(250);
                 ImGui.SetNextItemWidth(100);
                 int part = layer.BodyPartIndex;
-                if (ImGui.Combo("##BodyPart", ref part, _bodyParts, _bodyParts.Length))
+                if (ImGui.Combo("##BodyPart", ref part, locBodyParts, locBodyParts.Length))
                 {
                     layer.BodyPartIndex = part;
                     _previewDirty = true;
@@ -243,7 +248,7 @@ namespace DragAndDropTexturing.Windows
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(80);
                 int type = layer.OverrideTypeIndex;
-                if (ImGui.Combo("##OverrideType", ref type, _overrideTypes, _overrideTypes.Length))
+                if (ImGui.Combo("##OverrideType", ref type, locOverrideTypes, locOverrideTypes.Length))
                 {
                     layer.OverrideTypeIndex = type;
                     _previewDirty = true;
@@ -254,7 +259,7 @@ namespace DragAndDropTexturing.Windows
                     ImGui.SameLine();
                     ImGui.SetNextItemWidth(80);
                     int bType = layer.BodyTypeIndex;
-                    if (ImGui.Combo("##BodyType", ref bType, _bodyTypes, _bodyTypes.Length))
+                    if (ImGui.Combo("##BodyType", ref bType, locBodyTypes, locBodyTypes.Length))
                     {
                         layer.BodyTypeIndex = bType;
                         _previewDirty = true;
@@ -292,7 +297,7 @@ namespace DragAndDropTexturing.Windows
             }
             ImGui.EndChild();
 
-            if (ImGui.Button("Finalize & Import Selected", new Vector2(-1, 30)))
+            if (ImGui.Button(Translator.LocalizeUI("Finalize & Import Selected"), new Vector2(-1, 30)))
             {
                 FinalizeImport();
             }

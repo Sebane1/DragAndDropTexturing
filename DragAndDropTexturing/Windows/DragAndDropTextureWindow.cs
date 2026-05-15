@@ -28,6 +28,7 @@ using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Plugin.Services;
 using static FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation;
 using DragAndDropTexturing;
+using DragAndDropTexturing.LanguageHelpers;
 using LooseTextureCompilerCore.ProjectCreation;
 using PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer;
 namespace RoleplayingVoice
@@ -392,7 +393,7 @@ namespace RoleplayingVoice
                     ImGui.SetCursorPos(barPos);
                     ImGui.BeginChild("LoadingBoxPenumbra", new Vector2(300, 40), true, ImGuiWindowFlags.NoScrollbar);
                     float bounce = (float)Math.Abs(Math.Sin(ImGui.GetTime() * 2.0));
-                    ImGui.ProgressBar(bounce, new Vector2(-1, 0), "Waiting for Penumbra IPC...");
+                    ImGui.ProgressBar(bounce, new Vector2(-1, 0), Translator.LocalizeUI("Waiting for Penumbra IPC..."));
                     ImGui.EndChild();
                 }
                 else if (_isDownloadingDLC)
@@ -402,12 +403,12 @@ namespace RoleplayingVoice
                     ImGui.BeginChild("LoadingBoxDLC", new Vector2(300, 40), true, ImGuiWindowFlags.NoScrollbar);
                     if (_dlcDownloadProgress > 0f && _dlcDownloadProgress < 1f)
                     {
-                        ImGui.ProgressBar(_dlcDownloadProgress, new Vector2(-1, 0), $"Downloading DLC: {(_dlcDownloadProgress * 100):0.0}%");
+                        ImGui.ProgressBar(_dlcDownloadProgress, new Vector2(-1, 0), Translator.LocalizeUI("Downloading DLC:") + $" {(_dlcDownloadProgress * 100):0.0}%");
                     }
                     else
                     {
                         float bounce = (float)Math.Abs(Math.Sin(ImGui.GetTime() * 2.0));
-                        ImGui.ProgressBar(bounce, new Vector2(-1, 0), "Fetching DLC (Please wait)...");
+                        ImGui.ProgressBar(bounce, new Vector2(-1, 0), Translator.LocalizeUI("Fetching DLC (Please wait)..."));
                     }
                     ImGui.EndChild();
                 }
@@ -596,30 +597,30 @@ namespace RoleplayingVoice
                                         selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer)
                                     {
                                         ImGui.SetWindowFontScale(1.5f);
-                                        ImGui.TextUnformatted($"Dragging texture onto {selectedPlayer.Key.Split(' ')[0]}'s {bodyDragPart.ToString()}:\n\t{string.Join("\n\t", m.Files.Select(Path.GetFileName))} " + debugInfo);
+                                        ImGui.TextUnformatted(Translator.LocalizeUI("Dragging texture onto") + $" {selectedPlayer.Key.Split(' ')[0]}'s {bodyDragPart.ToString()}:\n\t{string.Join("\n\t", m.Files.Select(Path.GetFileName))} " + debugInfo);
                                     }
                                     else
                                     {
                                         ImGui.SetWindowFontScale(1.5f);
-                                        ImGui.TextUnformatted(selectedPlayer.Key.Split(' ')[0] + " has the same collection as your main character.\r\nPlease give them a unique collection in Penumbra, or drag onto your main character. " + debugInfo);
+                                        ImGui.TextUnformatted(selectedPlayer.Key.Split(' ')[0] + " " + Translator.LocalizeUI("has the same collection as your main character.\r\nPlease give them a unique collection in Penumbra, or drag onto your main character.") + " " + debugInfo);
                                     }
                                     ImGui.SetWindowFontScale(1f);
                                 }
                                 else
                                 {
-                                    ImGui.TextUnformatted($"Dragging onto no character." + debugInfo);
+                                    ImGui.TextUnformatted(Translator.LocalizeUI("Dragging onto no character.") + debugInfo);
                                 }
                             }
                             catch
                             {
-                                ImGui.TextUnformatted($"Dragging texture on unknown:\n\t{string.Join("\n\t", m.Files.Select(Path.GetFileName))}");
+                                ImGui.TextUnformatted(Translator.LocalizeUI("Dragging texture on unknown:") + $"\n\t{string.Join("\n\t", m.Files.Select(Path.GetFileName))}");
                             }
                             AllowClickthrough = false;
                         }
                         catch (Exception e)
                         {
                             plugin.PluginLog.Warning(e, e.Message);
-                            ImGui.TextUnformatted($"Penumbra is not installed. Or error occured.");
+                            ImGui.TextUnformatted(Translator.LocalizeUI("Penumbra is not installed. Or error occured."));
                         }
                         return true;
                     });
@@ -1458,6 +1459,13 @@ namespace RoleplayingVoice
                     {
                         _textureHistory[categoryKey].Add(file);
                     }
+                    
+                    if (plugin.Configuration.RecentLayers.Contains(file))
+                        plugin.Configuration.RecentLayers.Remove(file);
+                    plugin.Configuration.RecentLayers.Insert(0, file);
+                    while (plugin.Configuration.RecentLayers.Count > 50)
+                        plugin.Configuration.RecentLayers.RemoveAt(plugin.Configuration.RecentLayers.Count - 1);
+
                     droppedCategories.Add(categoryKey);
                 }
                 plugin.Configuration.Save();
