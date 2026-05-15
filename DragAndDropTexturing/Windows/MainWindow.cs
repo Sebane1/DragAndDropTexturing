@@ -397,6 +397,12 @@ public class MainWindow : Window, IDisposable
                     // Keep index bounded if list clears and we want to prevent out of bounds next frame
                 }
                 
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Export to PSD") + "##" + key))
+                {
+                    ExportCategoryToPsd(key, list);
+                }
+                
                 bool changed = false;
                 for (int i = 0; i < list.Count; i++)
                 {
@@ -509,6 +515,116 @@ public class MainWindow : Window, IDisposable
             }
             ImGui.EndChild();
         }
+    }
+
+    private void ExportCategoryToPsd(string key, System.Collections.Generic.List<string> files)
+    {
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                string exportFolder = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "Exports");
+                if (!System.IO.Directory.Exists(exportFolder)) System.IO.Directory.CreateDirectory(exportFolder);
+                
+                string safeName = string.Join("_", key.Split(System.IO.Path.GetInvalidFileNameChars()));
+                string psdPath = System.IO.Path.Combine(exportFolder, $"{safeName}.psd");
+                
+                int targetBody = -1;
+                if (key.EndsWith("_body", StringComparison.OrdinalIgnoreCase))
+                {
+                    var character = Plugin.SafeGameObjectManager.LocalPlayer;
+                    if (character != null)
+                    {
+                        var stateBase64Result = global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
+                        var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64Result.Item2);
+                        int ffxivGender = customization.Customize.Gender.Value;
+                        Guid collectionId = global::PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+                        targetBody = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string _, Plugin);
+                    }
+                }
+
+                using var collection = new ImageMagick.MagickImageCollection();
+                bool added = false;
+                
+                for (int i = 0; i < files.Count; i++)
+                {
+                    string f = files[i];
+                    if (System.IO.File.Exists(f))
+                    {
+                        if (targetBody != -1)
+                        {
+                            int sourceBody = -1;
+                            string fileName = System.IO.Path.GetFileNameWithoutExtension(f).ToLower();
+                            if (fileName.Contains("bibo") || fileName.Contains("b+")) sourceBody = 1;
+                            else if (fileName.Contains("gen3") || System.Text.RegularExpressions.Regex.IsMatch(fileName, @"(^|[^a-z])eve([^a-z]|$)") || fileName.Contains("exqb") || fileName.Contains("pythia") || fileName.Contains("gaia")) sourceBody = 2;
+                            else
+                            {
+                                switch (FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.FemaleBodyUVClassifier(f))
+                                {
+                                    case FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.BodyUVType.Bibo: sourceBody = 1; break;
+                                    case FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.BodyUVType.Gen3: sourceBody = 2; break;
+                                    case FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.BodyUVType.Gen2: sourceBody = 0; break;
+                                }
+                            }
+                            if (sourceBody == -1) sourceBody = 2; // Default to Gen3
+                            
+                            if (sourceBody != targetBody)
+                            {
+                                string convertedPath = System.IO.Path.Combine(exportFolder, System.IO.Path.GetFileNameWithoutExtension(f) + "_converted.png");
+                                if (sourceBody == 1 && targetBody == 2)
+                                {
+                                    if (!System.IO.File.Exists(convertedPath)) FFXIVLooseTextureCompiler.FastUVTransfer.BiboToGen3(f, convertedPath);
+                                    f = convertedPath;
+                                }
+                                else if (sourceBody == 2 && targetBody == 1)
+                                {
+                                    if (!System.IO.File.Exists(convertedPath)) FFXIVLooseTextureCompiler.FastUVTransfer.Gen3ToBibo(f, convertedPath);
+                                    f = convertedPath;
+                                }
+                            }
+                        }
+
+                        if (System.IO.File.Exists(f))
+                        {
+                            var img = new ImageMagick.MagickImage(f);
+                            if (!added)
+                            {
+                                var composite = new ImageMagick.MagickImage(ImageMagick.MagickColors.Transparent, img.Width, img.Height);
+                                collection.Add(composite);
+                            }
+                            img.Label = $"Layer {i + 1} - " + System.IO.Path.GetFileNameWithoutExtension(f);
+                            collection.Add(img);
+                            added = true;
+                        }
+                    }
+                }
+                
+                if (added)
+                {
+                    var composite = collection[0];
+                    for (int i = 1; i < collection.Count; i++)
+                    {
+                        composite.Composite(collection[i], ImageMagick.CompositeOperator.Over);
+                    }
+
+                    collection.Write(psdPath, ImageMagick.MagickFormat.Psd);
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
+                    {
+                        FileName = exportFolder,
+                        UseShellExecute = true,
+                        Verb = "open"
+                    });
+                }
+                else
+                {
+                    Plugin.PluginLog.Warning($"No valid files found to export for category {key}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.PluginLog.Error(ex, $"Failed to export category {key} to PSD");
+            }
+        });
     }
 
     private void DrawLayerHistory()

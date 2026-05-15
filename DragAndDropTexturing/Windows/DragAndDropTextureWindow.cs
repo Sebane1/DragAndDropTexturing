@@ -58,6 +58,13 @@ namespace RoleplayingVoice
         private string[] _faceParts;
         private string[] _faceScales;
         private ITextureProvider _textureProvider;
+        private TaskCompletionSource<string> _classificationTcs;
+        private string _fileToClassify;
+        private bool _showClassificationPopup;
+        private bool _classificationIsBody;
+        private int _classificationSelectedUV = 0;
+        private int _classificationSelectedMap = 0;
+        private IDalamudTextureWrap _classificationTexturePreview;
         private Guid _lastSelectedCollection = Guid.Empty;
         private Guid _lastMainCollection = Guid.Empty;
         private DateTime _lastIpcCheckTime = DateTime.MinValue;
@@ -387,6 +394,66 @@ namespace RoleplayingVoice
             var cursorPosition = ImGui.GetIO().MousePos;
             if (IsOpen)
             {
+                if (_showClassificationPopup)
+                {
+                    ImGui.OpenPopup("Identify Texture Format");
+                    Vector2 center = ImGui.GetMainViewport().GetCenter();
+                    ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, new Vector2(0.5f, 0.5f));
+                    if (ImGui.BeginPopupModal("Identify Texture Format", ref _showClassificationPopup, ImGuiWindowFlags.AlwaysAutoResize))
+                    {
+                        ImGui.Text("The dropped texture could not be automatically identified.");
+                        ImGui.Text($"File: {Path.GetFileName(_fileToClassify)}");
+                        ImGui.Separator();
+                        
+                        if (_classificationIsBody)
+                        {
+                            ImGui.Text("1. Select UV Layout:");
+                            ImGui.RadioButton("Bibo+", ref _classificationSelectedUV, 0); ImGui.SameLine();
+                            ImGui.RadioButton("Gen3", ref _classificationSelectedUV, 1); ImGui.SameLine();
+                            ImGui.RadioButton("TBSE", ref _classificationSelectedUV, 2); ImGui.SameLine();
+                            ImGui.RadioButton("Gen2 / Vanilla", ref _classificationSelectedUV, 3);
+                            ImGui.Spacing();
+                        }
+                        
+                        ImGui.Text("2. Select Texture Map Type:");
+                        ImGui.RadioButton("Base / Diffuse", ref _classificationSelectedMap, 0); ImGui.SameLine();
+                        ImGui.RadioButton("Normal Map", ref _classificationSelectedMap, 1); ImGui.SameLine();
+                        ImGui.RadioButton("Mask", ref _classificationSelectedMap, 2);
+                        
+                        ImGui.Separator();
+                        if (ImGui.Button("Confirm", new Vector2(120, 0)))
+                        {
+                            string uv = "";
+                            if (_classificationIsBody)
+                            {
+                                uv = _classificationSelectedUV == 0 ? "bibo" : _classificationSelectedUV == 1 ? "gen3" : _classificationSelectedUV == 2 ? "tbse" : "gen2";
+                            }
+                            string map = _classificationSelectedMap == 0 ? "base" : _classificationSelectedMap == 1 ? "norm" : "mask";
+                            _classificationTcs?.TrySetResult($"{uv}|{map}");
+                            _showClassificationPopup = false;
+                        }
+                        ImGui.SameLine();
+                        if (ImGui.Button("Cancel", new Vector2(120, 0)))
+                        {
+                            _classificationTcs?.TrySetResult("");
+                            _showClassificationPopup = false;
+                        }
+
+                        if (!_showClassificationPopup)
+                        {
+                            ImGui.CloseCurrentPopup();
+                        }
+                        ImGui.EndPopup();
+                    }
+                    else
+                    {
+                        if (!_showClassificationPopup)
+                        {
+                            _classificationTcs?.TrySetResult("");
+                        }
+                    }
+                }
+
                 if (_isWaitingForPenumbra)
                 {
                     Vector2 barPos = new Vector2(size.X / 2 - 150, size.Y - 100);
@@ -727,11 +794,13 @@ namespace RoleplayingVoice
                                     foreach (var file in files)
                                     {
                                         if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
-                                        string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
+                                        string f = file;
+                                        string fileName = Path.GetFileNameWithoutExtension(f).ToLower();
                                         string categoryKey = selectedPlayer.Key + "_";
+                                        bool isBody = false;
                                         if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                                             fileName.Contains("bibo") || fileName.Contains("b+") ||
-                                            fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
+                                            fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
                                         else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                                         else if (fileName.Contains("eye")) categoryKey += "eyes";
                                         else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
@@ -739,7 +808,7 @@ namespace RoleplayingVoice
                                         {
                                             switch (bodyDragPart)
                                             {
-                                                case BodyDragPart.Body: categoryKey += "body"; break;
+                                                case BodyDragPart.Body: categoryKey += "body"; isBody = true; break;
                                                 case BodyDragPart.Face: categoryKey += "face"; break;
                                                 case BodyDragPart.Eyes: categoryKey += "eyes"; break;
                                                 case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
@@ -747,8 +816,42 @@ namespace RoleplayingVoice
                                             }
                                         }
 
+                                        bool isFace = categoryKey.EndsWith("face");
+                                        bool needsClassification = false;
+
+                                        // Body UV layout missing?
+                                        if (isBody && !fileName.Contains("bibo") && !fileName.Contains("b+") && !fileName.Contains("gen3") && !fileName.Contains("tbse") && !fileName.Contains("gen2") && !fileName.Contains("mata") && !fileName.Contains("amat"))
+                                            needsClassification = true;
+
+                                        // Map type missing?
+                                        if ((isBody || isFace) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_"))
+                                            needsClassification = true;
+
+                                        if (needsClassification)
+                                        {
+                                            _classificationTcs = new TaskCompletionSource<string>();
+                                            _fileToClassify = f;
+                                            _classificationIsBody = isBody;
+                                            _showClassificationPopup = true;
+                                            string format = _classificationTcs.Task.Result;
+                                            if (!string.IsNullOrEmpty(format))
+                                            {
+                                                string[] parts = format.Split('|');
+                                                string prefix = parts.Length > 0 && !string.IsNullOrEmpty(parts[0]) ? parts[0] + "_" : "";
+                                                string suffix = parts.Length > 1 && !string.IsNullOrEmpty(parts[1]) ? "_" + parts[1] : "";
+                                                
+                                                string newPath = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, prefix + Path.GetFileNameWithoutExtension(f) + suffix + Path.GetExtension(f));
+                                                File.Copy(f, newPath, true);
+                                                f = newPath;
+                                            }
+                                            else
+                                            {
+                                                continue; // They cancelled the popup
+                                            }
+                                        }
+
                                         if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
-                                        _textureHistory[categoryKey].Add(file);
+                                        _textureHistory[categoryKey].Add(f);
                                         Plugin.Configuration.Save();
                                     }
 
