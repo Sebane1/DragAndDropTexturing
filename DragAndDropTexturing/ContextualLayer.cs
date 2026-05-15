@@ -60,6 +60,9 @@ public class ContextualLayer
     
     // Which body part this applies to (body, face, eyes, eyebrows) so we know which texture to hotswap
     public string TargetBodyPart { get; set; } = "body"; 
+    
+    // If true, files in the directory are treated as decals to be randomly stamped rather than full overlays
+    public bool ProceduralDecalMode { get; set; } = false;
 
     public void Save()
     {

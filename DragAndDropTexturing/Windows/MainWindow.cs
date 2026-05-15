@@ -670,9 +670,9 @@ public class MainWindow : Window, IDisposable
         }
         
         ImGui.SameLine();
-        if (ImGui.Button(Translator.LocalizeUI("Open Imports Folder")))
+        if (ImGui.Button(Translator.LocalizeUI("Open Saved Overlays Folder")))
         {
-            string importFolder = System.IO.Path.Combine(Plugin.ContextualLayerManager.RootDirectory, "Imports");
+            string importFolder = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
             if (!System.IO.Directory.Exists(importFolder)) System.IO.Directory.CreateDirectory(importFolder);
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
             {
@@ -683,9 +683,9 @@ public class MainWindow : Window, IDisposable
         }
         
         ImGui.SameLine();
-        if (ImGui.Button(Translator.LocalizeUI("Scan for Imports")))
+        if (ImGui.Button(Translator.LocalizeUI("Scan for Saved Overlays")))
         {
-            Plugin.ContextualLayerManager.ImportLayersFromImportsFolder();
+            Plugin.ContextualLayerManager.ImportLayersFromSavedOverlaysFolder();
             if (Plugin.ContextualLayerManager.ContextualLayers.Count > 0)
                 _selectedContextualLayerIndex = Plugin.ContextualLayerManager.ContextualLayers.Count - 1;
         }
@@ -913,6 +913,14 @@ public class MainWindow : Window, IDisposable
                 layer.TargetBodyPart = bodyParts[partIndex];
                 changed = true;
             }
+            
+            bool decalMode = layer.ProceduralDecalMode;
+            if (ImGui.Checkbox(Translator.LocalizeUI("Procedural Decal Mode") + "##ContextDecal", ref decalMode))
+            {
+                layer.ProceduralDecalMode = decalMode;
+                changed = true;
+            }
+            ImGui.TextWrapped(Translator.LocalizeUI("When enabled, the textures in this folder will be treated as decals (e.g. blood/dirt splatters) and procedurally stamped onto random locations of the player's 3D model instead of overriding the entire body."));
 
             ImGui.Spacing();
             if (ImGui.Button(Translator.LocalizeUI("Open Folder") + "##ContextFolder"))

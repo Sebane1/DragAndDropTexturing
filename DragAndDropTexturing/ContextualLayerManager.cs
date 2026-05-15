@@ -174,9 +174,9 @@ namespace DragAndDropTexturing
             }
         }
 
-        public void ImportLayersFromImportsFolder()
+        public void ImportLayersFromSavedOverlaysFolder()
         {
-            string importFolder = System.IO.Path.Combine(RootDirectory, "Imports");
+            string importFolder = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
             if (!System.IO.Directory.Exists(importFolder)) System.IO.Directory.CreateDirectory(importFolder);
             
             var files = System.IO.Directory.GetFiles(importFolder, "*.clmp");
@@ -565,6 +565,30 @@ namespace DragAndDropTexturing
             }
         }
 
+        private void UpdateProceduralDecal(ActiveContextualLayer active)
+        {
+            if (!active.LayerDef.ProceduralDecalMode) return;
+
+            var files = System.IO.Directory.GetFiles(active.LayerDef.DirectoryPath, "*.png")
+                .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) && 
+                            !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) && 
+                            !f.Contains("_from_gen3_to_bibo", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (active.CurrentStackCount > 20) active.CurrentStackCount = 20;
+
+            string tempFile = ProceduralDecalGenerator.GenerateProceduralOverlay(_plugin, _plugin.SafeGameObjectManager.LocalPlayer, active.LayerDef.TargetBodyPart, files, active.CurrentStackCount);
+
+            if (tempFile != null)
+            {
+                if (active.CachedTexturePaths.Count == 1 && active.CachedTexturePaths[0].Contains("temp_decal_"))
+                {
+                    try { System.IO.File.Delete(active.CachedTexturePaths[0]); } catch { }
+                }
+                active.CachedTexturePaths = new List<string> { tempFile };
+            }
+        }
+
         private void ActivateLayer(ContextualLayer layer)
         {
             var existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
@@ -574,10 +598,11 @@ namespace DragAndDropTexturing
                 if (layer.Trigger == TriggerType.Emote)
                 {
                     existing.CurrentStackCount++;
-                    if (existing.CurrentStackCount > existing.CachedTexturePaths.Count)
+                    if (existing.CurrentStackCount > existing.CachedTexturePaths.Count && !layer.ProceduralDecalMode)
                     {
                         existing.CurrentStackCount = existing.CachedTexturePaths.Count;
                     }
+                    if (layer.ProceduralDecalMode) UpdateProceduralDecal(existing);
                     TriggerHotswapRebuild();
                 }
                 else if (layer.Trigger == TriggerType.Audio_Path_Load)
@@ -586,10 +611,11 @@ namespace DragAndDropTexturing
                     if (existing.SoundsSinceLastStack >= layer.RequiredSoundsPerStack)
                     {
                         existing.SoundsSinceLastStack = 0;
-                        if (existing.CurrentStackCount < existing.CachedTexturePaths.Count)
+                        if (existing.CurrentStackCount < existing.CachedTexturePaths.Count || layer.ProceduralDecalMode)
                         {
                             existing.CurrentStackCount++;
                             existing.Timer.Restart();
+                            if (layer.ProceduralDecalMode) UpdateProceduralDecal(existing);
                             TriggerHotswapRebuild();
                         }
                         else
@@ -619,6 +645,7 @@ namespace DragAndDropTexturing
                 active.Timer.Start();
                 _activeLayers.Add(active);
                 
+                if (layer.ProceduralDecalMode) UpdateProceduralDecal(active);
                 TriggerHotswapRebuild();
             }
         }
@@ -682,10 +709,11 @@ namespace DragAndDropTexturing
                         if (existing.KillsSinceLastStack >= layer.RequiredKillsPerStack)
                         {
                             existing.KillsSinceLastStack = 0;
-                            if (existing.CurrentStackCount < existing.CachedTexturePaths.Count)
+                            if (existing.CurrentStackCount < existing.CachedTexturePaths.Count || layer.ProceduralDecalMode)
                             {
                                 existing.CurrentStackCount++;
                                 existing.Timer.Restart();
+                                if (layer.ProceduralDecalMode) UpdateProceduralDecal(existing);
                                 TriggerHotswapRebuild();
                             }
                             else

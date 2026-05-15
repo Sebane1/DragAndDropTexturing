@@ -162,7 +162,7 @@ namespace DragAndDropTexturing.Windows
 
         public override void OnOpen()
         {
-            _tempDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Paint_Temp");
+            _tempDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "Paint_Temp");
             Directory.CreateDirectory(_tempDir);
 
             _rendererInitialized = false;
@@ -1100,7 +1100,7 @@ namespace DragAndDropTexturing.Windows
             else
             {
                 // New layer mode: create a new file
-                string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
+                string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "SavedOverlays");
                 if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
                 string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "vanilla";
                 outPath = Path.Combine(importDir, $"{bodyTag}_base_{Guid.NewGuid().ToString().Substring(0, 8)}.png");

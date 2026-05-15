@@ -94,8 +94,8 @@ namespace DragAndDropTexturing.Windows
             _isBiboPreview = false;
             _previewDirty = false;
 
-            _tempDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "PSD_Temp");
-            _importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "Imports");
+            _tempDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "PSD_Temp");
+            _importDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
 
             Task.Run(() => ProcessPsd(psdPath));
         }
