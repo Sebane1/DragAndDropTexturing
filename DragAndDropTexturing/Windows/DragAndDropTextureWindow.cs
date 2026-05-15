@@ -1467,7 +1467,7 @@ namespace RoleplayingVoice
                         Thread.Sleep(1000);
                         waitAttempts++;
                     }
-                    RebuildCategory(cat);
+                    RebuildCategory(cat, false);
                     Thread.Sleep(500);
                 }
             });
@@ -1496,13 +1496,12 @@ namespace RoleplayingVoice
                         Thread.Sleep(1000);
                         waitAttempts++;
                     }
-                    RebuildCategory(key);
+                    RebuildCategory(key, false);
                     Thread.Sleep(500);
                 }
             });
         }
-
-        public void RebuildCategory(string categoryKey)
+        public void RebuildCategory(string categoryKey, bool hideProgressUI = true)
         {
             if (!_textureHistory.ContainsKey(categoryKey)) return;
 
@@ -1697,7 +1696,7 @@ namespace RoleplayingVoice
 
                         string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
                         await Export(true, textureSets, fullModPath, localModName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
-                            localCustomization.Customize.Race.Value - 1, localCustomization.Customize.Clan.Value - 1, localCustomization.Customize.Gender.Value, localCustomization.Customize.Face.Value - 1, true);
+                            localCustomization.Customize.Race.Value - 1, localCustomization.Customize.Clan.Value - 1, localCustomization.Customize.Gender.Value, localCustomization.Customize.Face.Value - 1, hideProgressUI);
                     }
                 }
                 catch (Exception e)

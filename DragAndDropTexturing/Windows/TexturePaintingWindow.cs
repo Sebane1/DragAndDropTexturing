@@ -1328,6 +1328,17 @@ private void LoadPlayerModels()
                         isTbse = true;
                     }
                 }
+                bool isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) && 
+                    (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                     EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                     EditSourcePath.EndsWith("_n.png", StringComparison.OrdinalIgnoreCase) ||
+                     EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase));
+
+                if (isEditingNormal)
+                {
+                    baseTexPath = normTexPath;
+                }
+
                 _plugin.PluginLog.Info($"[PSD Preview] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
 
                 bool baseIsBlack = false;
@@ -1342,11 +1353,11 @@ private void LoadPlayerModels()
                     string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
                     string dlcBase = null;
                     if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
-                        dlcBase = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                        dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
                     else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
-                        dlcBase = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                        dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
                     else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes.Count > 0)
-                        dlcBase = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                        dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
 
                     _activeBaseTexturePng = TexToTempPng(dlcBase, out baseIsBlack);
 
@@ -1354,7 +1365,7 @@ private void LoadPlayerModels()
                     {
                         _plugin.PluginLog.Info("[PSD Preview] DLC fallback failed. Extracting vanilla texture via Lumina.");
                         int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
-                        string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(0, ffxivGenderInt, 0, ffxivRace, 0, false);
+                        string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(isEditingNormal ? 1 : 0, ffxivGenderInt, 0, ffxivRace, 0, false);
                         string vanillaBasePng = ExtractVanillaTexViaLumina(vanillaBodyTexPath);
                         if (!string.IsNullOrEmpty(vanillaBasePng))
                         {
