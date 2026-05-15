@@ -151,7 +151,7 @@ namespace DragAndDropTexturing
         {
             try
             {
-                string exportFolder = System.IO.Path.Combine(RootDirectory, "Exports");
+                string exportFolder = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "Exports");
                 if (!System.IO.Directory.Exists(exportFolder)) System.IO.Directory.CreateDirectory(exportFolder);
                 
                 string safeName = string.Join("_", layer.Name.Split(System.IO.Path.GetInvalidFileNameChars()));

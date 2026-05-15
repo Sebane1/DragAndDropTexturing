@@ -20,6 +20,8 @@ namespace DragAndDropTexturing.Windows
         
         private ModelRenderer _renderer;
         private bool _rendererInitialized = false;
+        private System.Collections.Concurrent.ConcurrentQueue<Action> _mainThreadActions = new System.Collections.Concurrent.ConcurrentQueue<Action>();
+        private static System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.List<ExtractedMesh>> _meshCache = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.List<ExtractedMesh>>();
         private Vector2 _lastMousePos = Vector2.Zero;
         private bool _isDragging = false;
         private bool _isPanning = false;
@@ -196,6 +198,12 @@ namespace DragAndDropTexturing.Windows
 
         public override void Draw()
         {
+            while (_mainThreadActions.TryDequeue(out var action))
+            {
+                try { action(); }
+                catch (Exception ex) { _plugin.PluginLog.Error(ex, "[TexturePainter] Action queue error"); }
+            }
+
             try
             {
                 if (!_rendererInitialized)
@@ -1100,7 +1108,7 @@ namespace DragAndDropTexturing.Windows
             else
             {
                 // New layer mode: create a new file
-                string importDir = Path.Combine(_plugin.ContextualLayerManager.RootDirectory, "SavedOverlays");
+                string importDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
                 if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
                 string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "vanilla";
                 outPath = Path.Combine(importDir, $"{bodyTag}_base_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
@@ -1283,7 +1291,7 @@ private void LoadPlayerModels()
                     () => LoadModelIntoSlot("Top", topSlotPath, collectionId),
                     () => LoadModelIntoSlot("Bottom", botSlotPath, collectionId)
                 );
-                UpdateMeshVisibility();
+                _mainThreadActions.Enqueue(() => UpdateMeshVisibility());
 
                 bool prevOverrideMode = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode;
                 FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = true;
@@ -1446,7 +1454,9 @@ private void LoadPlayerModels()
                     }
                 }
 
-                UploadBaseTextureToGpu();
+                _mainThreadActions.Enqueue(() => {
+                    UploadBaseTextureToGpu();
+                });
             }
             catch (Exception ex)
             {
@@ -1488,9 +1498,22 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
 
                 if (System.IO.File.Exists(diskPath))
                 {
-                    _plugin.PluginLog.Info($"[PSD Preview] Reading external file from disk: {diskPath}");
-                    meshes = MdlParser.ParseFromDisk(diskPath, out var loadStatus);
-                    _plugin.PluginLog.Info($"[PSD Preview] Disk parse status: {loadStatus}");
+                    if (_meshCache.TryGetValue(diskPath, out var cachedMeshes))
+                    {
+                        _plugin.PluginLog.Info($"[PSD Preview] Loaded external file from cache: {diskPath}");
+                        meshes = cachedMeshes;
+                    }
+                    else
+                    {
+                        _plugin.PluginLog.Info($"[PSD Preview] Reading external file from disk: {diskPath}");
+                        meshes = MdlParser.ParseFromDisk(diskPath, out var loadStatus);
+                        _plugin.PluginLog.Info($"[PSD Preview] Disk parse status: {loadStatus}");
+                        
+                        if (meshes != null)
+                        {
+                            _meshCache[diskPath] = meshes;
+                        }
+                    }
                 }
                 else
                 {
@@ -1503,17 +1526,23 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                 if (meshes != null && meshes.Count > 0)
                 {
                     _plugin.PluginLog.Info($"[PSD Preview] Successfully loaded {meshes.Count} meshes into slot '{slot}'. Slicing base to '{slot}', extras to '{slot}_N'.");
-                    _renderer.LoadMeshes(slot, new System.Collections.Generic.List<ExtractedMesh> { meshes[0] });
-                    for (int i = 1; i < meshes.Count; i++)
-                    {
-                        _renderer.LoadMeshes($"{slot}_{i}", new System.Collections.Generic.List<ExtractedMesh> { meshes[i] });
-                    }
+                    var meshesCopy = new System.Collections.Generic.List<ExtractedMesh>(meshes);
+                    _mainThreadActions.Enqueue(() => {
+                        _renderer.LoadMeshes(slot, new System.Collections.Generic.List<ExtractedMesh> { meshesCopy[0] });
+                        for (int i = 1; i < meshesCopy.Count; i++)
+                        {
+                            _renderer.LoadMeshes($"{slot}_{i}", new System.Collections.Generic.List<ExtractedMesh> { meshesCopy[i] });
+                        }
+                    });
                 }
                 else
                 {
                     _plugin.PluginLog.Warning($"[PSD Preview] No meshes parsed for '{slot}'. Falling back to dummy cube.");
                     // Fall back to dummy cube if missing
-                    _renderer.LoadMeshes(slot, MdlParser.GetDummyCube());
+                    var dummy = MdlParser.GetDummyCube();
+                    _mainThreadActions.Enqueue(() => {
+                        _renderer.LoadMeshes(slot, dummy);
+                    });
                 }
             }
             catch (Exception ex)

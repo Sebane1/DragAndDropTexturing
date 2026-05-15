@@ -389,12 +389,18 @@ public class MainWindow : Window, IDisposable
                 ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Active Layers for:") + $" {key}");
                 ImGui.Separator();
                 
+                ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
                 if (ImGui.Button(Translator.LocalizeUI("Clear All") + "##" + key))
                 {
                     list.Clear();
                     ddt.RebuildCategory(key, false);
                     Plugin.Configuration.Save();
                     // Keep index bounded if list clears and we want to prevent out of bounds next frame
+                }
+                ImGui.EndDisabled();
+                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                {
+                    ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Clear All"));
                 }
                 
                 ImGui.SameLine();
@@ -466,11 +472,17 @@ public class MainWindow : Window, IDisposable
                     }
 
                     ImGui.SameLine();
+                    ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
                     if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
                     {
                         list.RemoveAt(i);
                         i--;
                         changed = true;
+                    }
+                    ImGui.EndDisabled();
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove"));
                     }
 
                     // Edit button — opens the Texture Painter with this layer loaded

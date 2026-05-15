@@ -85,9 +85,11 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin(IClientState clientState, IChatGui chatGui, IObjectTable objectTable, IFramework framework, IPluginLog pluginLog, IGameInteropProvider gameInteropProvider)
     {
+        _pluginLog = pluginLog;
         _penumbraAndGlamourerIpcWrapper = new PenumbraAndGlamourerIpcWrapper(PluginInterface);
         _chat = chatGui;
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        RunMigrations();
         DragAndDropTextures = PluginInterface.Create<DragAndDropTextureWindow>();
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -111,7 +113,6 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(MdlPreviewWindow);
         // Painting windows are now spawned dynamically via OpenPaintWindow()
         _safeGameObjectManager = new ThreadSafeGameObjectManager(clientState, objectTable, framework, pluginLog);
-        _pluginLog = pluginLog;
         BackupTexturePaths.OverrideMode = Configuration.UsePriorityBodyMod;
 
         if (Configuration.LanguageOverride >= 0)
@@ -140,6 +141,94 @@ public sealed class Plugin : IDalamudPlugin
         catch (Exception ex)
         {
             pluginLog.Error(ex, "Failed to initialize ContextualLayerManager, EmoteReaderHooks, or ActionReaderHooks");
+        }
+    }
+
+    private void RunMigrations()
+    {
+        try
+        {
+            string configDir = PluginInterface.ConfigDirectory.FullName;
+            string oldExports = Path.Combine(configDir, "ContextualLayers", "Exports");
+            string oldSavedOverlays = Path.Combine(configDir, "ContextualLayers", "SavedOverlays");
+            
+            string newExports = Path.Combine(configDir, "Exports");
+            string newSavedOverlays = Path.Combine(configDir, "SavedOverlays");
+
+            if (Directory.Exists(oldExports))
+            {
+                if (!Directory.Exists(newExports)) Directory.CreateDirectory(newExports);
+                foreach (var file in Directory.GetFiles(oldExports))
+                {
+                    string dest = Path.Combine(newExports, Path.GetFileName(file));
+                    if (!File.Exists(dest)) File.Move(file, dest);
+                }
+                try { Directory.Delete(oldExports, false); } catch { }
+            }
+
+            if (Directory.Exists(oldSavedOverlays))
+            {
+                if (!Directory.Exists(newSavedOverlays)) Directory.CreateDirectory(newSavedOverlays);
+                foreach (var file in Directory.GetFiles(oldSavedOverlays))
+                {
+                    string dest = Path.Combine(newSavedOverlays, Path.GetFileName(file));
+                    if (!File.Exists(dest)) File.Move(file, dest);
+                }
+                try { Directory.Delete(oldSavedOverlays, false); } catch { }
+            }
+
+            // Migrate paths in Configuration
+            bool configUpdated = false;
+            string targetSubPath1 = Path.Combine("ContextualLayers", "SavedOverlays");
+            string replacementSubPath1 = "SavedOverlays";
+            string targetSubPath2 = Path.Combine("ContextualLayers", "Exports");
+            string replacementSubPath2 = "Exports";
+
+            if (Configuration != null)
+            {
+                if (Configuration.TextureHistory != null)
+                {
+                    foreach (var list in Configuration.TextureHistory.Values)
+                    {
+                        if (list == null) continue;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (!string.IsNullOrEmpty(list[i]))
+                            {
+                                if (list[i].Contains(targetSubPath1) || list[i].Contains(targetSubPath2))
+                                {
+                                    list[i] = list[i].Replace(targetSubPath1, replacementSubPath1).Replace(targetSubPath2, replacementSubPath2);
+                                    configUpdated = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (Configuration.RecentLayers != null)
+                {
+                    for (int i = 0; i < Configuration.RecentLayers.Count; i++)
+                    {
+                        if (!string.IsNullOrEmpty(Configuration.RecentLayers[i]))
+                        {
+                            if (Configuration.RecentLayers[i].Contains(targetSubPath1) || Configuration.RecentLayers[i].Contains(targetSubPath2))
+                            {
+                                Configuration.RecentLayers[i] = Configuration.RecentLayers[i].Replace(targetSubPath1, replacementSubPath1).Replace(targetSubPath2, replacementSubPath2);
+                                configUpdated = true;
+                            }
+                        }
+                    }
+                }
+
+                if (configUpdated)
+                {
+                    Configuration.Save();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _pluginLog?.Error(ex, "Failed to run directory migrations.");
         }
     }
     public Dalamud.Game.ClientState.Objects.Types.IGameObject[] GetNearestObjects()
