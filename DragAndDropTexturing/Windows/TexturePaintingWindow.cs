@@ -203,10 +203,7 @@ namespace DragAndDropTexturing.Windows
             }
             catch { }
 
-            ImGui.Columns(2, "PaintLayout", false);
-            ImGui.SetColumnWidth(0, ImGui.GetWindowWidth() * 0.5f);
-
-            // Left side controls
+            // Top side controls
             // ── Preset Selector ──
             ImGui.Text("Brush Preset:");
             ImGui.SameLine();
@@ -293,7 +290,7 @@ namespace DragAndDropTexturing.Windows
                 ImGui.SliderFloat("Noise Scale", ref _brushNoiseScale, 0f, 0.3f, "%.3f");
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(120);
-                ImGui.SliderFloat("Noise Amount", ref _brushNoiseAmount, 0f, 1f, "%.2f");
+                ImGui.SliderFloat("Noise Amt", ref _brushNoiseAmount, 0f, 1f, "%.2f");
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(120);
                 ImGui.SliderFloat("Smoothing", ref _brushSmoothing, 0f, 0.99f, "%.2f");
@@ -301,9 +298,11 @@ namespace DragAndDropTexturing.Windows
                 ImGui.TreePop();
             }
             
+            ImGui.Separator();
             string commitLabel = EditSourcePath != null
                 ? "Save & Close"
                 : "Commit Paint to Active Layers";
+            
             if (ImGui.Button(commitLabel))
             {
                 CommitPaintLayer();
@@ -553,9 +552,10 @@ namespace DragAndDropTexturing.Windows
                 }
             }
 
-            ImGui.Separator();
+            float remainingWidth = ImGui.GetWindowWidth() - ImGui.GetStyle().ItemSpacing.X * 2;
+            ImGui.BeginChild("MiddlePanel", new Vector2(remainingWidth * 0.5f, 0), true);
 
-            // Right column: 3D Preview
+            // Middle column: 3D Preview
             if (_renderer != null)
             {
                 var region = ImGui.GetContentRegionAvail();
@@ -704,7 +704,9 @@ namespace DragAndDropTexturing.Windows
                 }
             }
 
-            ImGui.NextColumn();
+            ImGui.EndChild();
+            ImGui.SameLine();
+            ImGui.BeginChild("RightPanel", new Vector2(0, 0), true);
 
             // 2D Canvas View
             ImGui.Text("2D UV Canvas");
@@ -836,7 +838,7 @@ namespace DragAndDropTexturing.Windows
                 }
             }
 
-            ImGui.Columns(1);
+            ImGui.EndChild();
 
             // GPU composite every frame (microseconds)
             if (_renderer != null && _gpuPaintInitialized && _needsComposite)
@@ -1210,8 +1212,25 @@ private void LoadPlayerModels()
 
                             _overrideTopPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeTop);
                             _overrideBotPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeBot);
-                            _overrideTopSelectedIndex = 0;
-                            _overrideBotSelectedIndex = 0;
+                            int activeBodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string _, _plugin);
+                            bool activeMatchesLayer = false;
+                            if (activeBodyType == 1 && _targetKeyword == "bibo") activeMatchesLayer = true;
+                            if (activeBodyType == 2 && _targetKeyword == "gen3") activeMatchesLayer = true;
+                            if (activeBodyType == 3 && _targetKeyword == "tbse") activeMatchesLayer = true;
+
+                            if (activeMatchesLayer)
+                            {
+                                PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collectionId, topPath, out string resolvedTopPath);
+                                PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collectionId, botPath, out string resolvedBotPath);
+                                
+                                _overrideTopSelectedIndex = Math.Max(0, _overrideTopPathList.FindIndex(x => string.Equals(x.DiskPath, resolvedTopPath, StringComparison.OrdinalIgnoreCase)));
+                                _overrideBotSelectedIndex = Math.Max(0, _overrideBotPathList.FindIndex(x => string.Equals(x.DiskPath, resolvedBotPath, StringComparison.OrdinalIgnoreCase)));
+                            }
+                            else
+                            {
+                                _overrideTopSelectedIndex = 0;
+                                _overrideBotSelectedIndex = 0;
+                            }
                         }
                     }
                 }

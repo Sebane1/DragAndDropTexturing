@@ -164,14 +164,31 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
     }
 
+    private Dictionary<string, bool> _bodyAvailabilityCache = new Dictionary<string, bool>();
+    private DateTime _lastBodyAvailabilityCheck = DateTime.MinValue;
+
     public bool IsBodyAvailable(string targetKeyword)
     {
         try
         {
+            if ((DateTime.Now - _lastBodyAvailabilityCheck).TotalSeconds > 10)
+            {
+                _bodyAvailabilityCache.Clear();
+                _lastBodyAvailabilityCheck = DateTime.Now;
+            }
+
+            if (_bodyAvailabilityCache.TryGetValue(targetKeyword, out bool available))
+            {
+                return available;
+            }
+
             string trueRaceCode = targetKeyword == "tbse" ? "c0101" : "c0201";
             string relativeTop = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
             string foundPath = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindMeshDiskPathInModDirectory(targetKeyword, relativeTop);
-            return !string.IsNullOrEmpty(foundPath);
+            
+            bool isAvailable = !string.IsNullOrEmpty(foundPath);
+            _bodyAvailabilityCache[targetKeyword] = isAvailable;
+            return isAvailable;
         }
         catch { }
         return false;

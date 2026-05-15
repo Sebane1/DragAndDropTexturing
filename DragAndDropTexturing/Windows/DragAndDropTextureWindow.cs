@@ -57,6 +57,9 @@ namespace RoleplayingVoice
         private string[] _faceParts;
         private string[] _faceScales;
         private ITextureProvider _textureProvider;
+        private Guid _lastSelectedCollection = Guid.Empty;
+        private Guid _lastMainCollection = Guid.Empty;
+        private DateTime _lastIpcCheckTime = DateTime.MinValue;
         private BodyDragPart bodyDragPart;
         private bool _alreadyLoadingFrame;
         private byte[] _nextFrameToLoad;
@@ -457,7 +460,6 @@ namespace RoleplayingVoice
                         try
                         {
                             _closestBone = null;
-                            mainPlayerCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex).Item3.Id;
                             List<KeyValuePair<string, ICharacter>> _objects = new List<KeyValuePair<string, ICharacter>>();
                             _objects.Add(new KeyValuePair<string, ICharacter>(plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue, plugin.SafeGameObjectManager.LocalPlayer as ICharacter));
                             bool oneMinionOnly = false;
@@ -578,7 +580,14 @@ namespace RoleplayingVoice
                                 }
                                 if (selectedPlayer.Value != null)
                                 {
-                                    selectedPlayerCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(selectedPlayer.Value.ObjectIndex).Item3.Id;
+                                    if ((DateTime.Now - _lastIpcCheckTime).TotalMilliseconds > 1000)
+                                    {
+                                        _lastSelectedCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(selectedPlayer.Value.ObjectIndex).Item3.Id;
+                                        _lastMainCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex).Item3.Id;
+                                        _lastIpcCheckTime = DateTime.Now;
+                                    }
+                                    selectedPlayerCollection = _lastSelectedCollection;
+                                    mainPlayerCollection = _lastMainCollection;
                                 }
                                 string debugInfo = (_closestBone != null ? "Closest Bone " + _closestBone.HkaBone.Name.String : "") + " " + (cursorPosition != null ? cursorPosition.X + " " + cursorPosition.Y : "");
                                 if (selectedPlayer.Value != null)

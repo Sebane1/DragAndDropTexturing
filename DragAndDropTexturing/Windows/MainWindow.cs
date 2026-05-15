@@ -85,40 +85,55 @@ public class MainWindow : Window, IDisposable
         }
     }
 
+    private int _cachedBodyType = -2;
+    private string _cachedBodyModName = null;
+    private DateTime _lastBodyTypeCheck = DateTime.MinValue;
+
     private void DrawSettings()
     {
         ImGui.Spacing();
 
         ImGui.Separator();
         ImGui.Text("Current Body Type Detection:");
-        var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
-        if (localPlayer != null)
+        if ((DateTime.Now - _lastBodyTypeCheck).TotalSeconds > 5)
         {
-            var character = localPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
-            if (character != null)
+            var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+            if (localPlayer != null)
             {
-                var customization = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
-                Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
-                int gender = customization.Customize.Gender.Value;
-                int bodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, gender, out string modName, Plugin);
-                
-                string bodyString = "Vanilla / Unknown";
-                if (bodyType == 1) bodyString = "Bibo+";
-                else if (bodyType == 2) bodyString = "Gen3 / Eve / Pythia";
-                else if (bodyType == 3) bodyString = "TBSE";
-
-                if (bodyType != -1)
-                    ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), $"Detected: {bodyString}");
-                else
-                    ImGui.TextColored(new Vector4(1.0f, 1.0f, 0.2f, 1.0f), "Detected: Vanilla (No body mod found)");
-                
-                if (!string.IsNullOrEmpty(modName))
+                var character = localPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                if (character != null)
                 {
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), $"Detected From Mod: {modName}");
+                    var customization = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                    Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                    int gender = customization.Customize.Gender.Value;
+                    _cachedBodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, gender, out _cachedBodyModName, Plugin);
                 }
             }
+            else
+            {
+                _cachedBodyType = -2;
+            }
+            _lastBodyTypeCheck = DateTime.Now;
         }
-        else
+
+        if (_cachedBodyType != -2)
+        {
+            string bodyString = "Vanilla / Unknown";
+            if (_cachedBodyType == 1) bodyString = "Bibo+";
+            else if (_cachedBodyType == 2) bodyString = "Gen3 / Eve / Pythia";
+            else if (_cachedBodyType == 3) bodyString = "TBSE";
+
+            if (_cachedBodyType != -1)
+                ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), $"Detected: {bodyString}");
+            else
+                ImGui.TextColored(new Vector4(1.0f, 1.0f, 0.2f, 1.0f), "Detected: Vanilla (No body mod found)");
+            
+            if (!string.IsNullOrEmpty(_cachedBodyModName))
+            {
+                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), $"Detected From Mod: {_cachedBodyModName}");
+            }
+        }
+        else if (_cachedBodyType == -2)
         {
             ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), "Player not loaded.");
         }
