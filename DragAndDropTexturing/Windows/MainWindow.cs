@@ -76,6 +76,11 @@ public class MainWindow : Window, IDisposable
                 DrawSettings();
                 ImGui.EndTabItem();
             }
+            if (ImGui.BeginTabItem("Diagnostics"))
+            {
+                DrawDiagnostics();
+                ImGui.EndTabItem();
+            }
             ImGui.EndTabBar();
         }
 
@@ -430,6 +435,74 @@ public class MainWindow : Window, IDisposable
     }
 
     private int _selectedContextualLayerIndex = 0;
+
+    private string _cachedErrorLog = null;
+    private string _cachedBenchmarkLog = null;
+    private DateTime _lastErrorLogCheck = DateTime.MinValue;
+
+    private void DrawDiagnostics()
+    {
+        ImGui.Spacing();
+        ImGui.Text("GPU Fallback Diagnostic Log:");
+        
+        string logPath = Path.Combine(Path.GetTempPath(), "GPU_Fallback_Error.txt");
+        string benchPath = Path.Combine(Path.GetTempPath(), "GPU_Benchmark.txt");
+        
+        if ((DateTime.Now - _lastErrorLogCheck).TotalSeconds > 2)
+        {
+            if (File.Exists(logPath))
+            {
+                try { _cachedErrorLog = File.ReadAllText(logPath); } catch { }
+            }
+            else
+            {
+                _cachedErrorLog = "No GPU fallback errors detected. (GPU acceleration is working fine!)";
+            }
+            
+            if (File.Exists(benchPath))
+            {
+                try { _cachedBenchmarkLog = File.ReadAllText(benchPath); } catch { }
+            }
+            else
+            {
+                _cachedBenchmarkLog = "No benchmark data recorded yet.";
+            }
+            
+            _lastErrorLogCheck = DateTime.Now;
+        }
+
+        if (_cachedErrorLog != null)
+        {
+            ImGui.BeginChild("ErrorLogChild", new Vector2(-1, 100), true);
+            ImGui.TextWrapped(_cachedErrorLog);
+            ImGui.EndChild();
+        }
+
+        if (ImGui.Button("Clear Error Log"))
+        {
+            if (File.Exists(logPath)) { try { File.Delete(logPath); } catch { } }
+            _cachedErrorLog = "No GPU fallback errors detected. (GPU acceleration is working fine!)";
+        }
+        
+        ImGui.Separator();
+        ImGui.Spacing();
+        ImGui.Text("MergeImageLayers Performance Benchmarks:");
+        
+        if (_cachedBenchmarkLog != null)
+        {
+            ImGui.BeginChild("BenchmarkLogChild", new Vector2(-1, ImGui.GetContentRegionAvail().Y - 40), true);
+            ImGui.TextUnformatted(_cachedBenchmarkLog);
+            if (ImGui.GetScrollY() >= ImGui.GetScrollMaxY())
+                ImGui.SetScrollHereY(1.0f);
+            ImGui.EndChild();
+        }
+        
+        if (ImGui.Button("Clear Benchmark Log"))
+        {
+            if (File.Exists(benchPath)) { try { File.Delete(benchPath); } catch { } }
+            _cachedBenchmarkLog = "No benchmark data recorded yet.";
+        }
+    }
 
     private void DrawContextualLayers()
     {
