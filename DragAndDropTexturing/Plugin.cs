@@ -179,10 +179,12 @@ public sealed class Plugin : IDalamudPlugin
 
             // Migrate paths in Configuration
             bool configUpdated = false;
-            string targetSubPath1 = Path.Combine("ContextualLayers", "SavedOverlays");
-            string replacementSubPath1 = "SavedOverlays";
-            string targetSubPath2 = Path.Combine("ContextualLayers", "Exports");
-            string replacementSubPath2 = "Exports";
+            string target1A = "ContextualLayers\\SavedOverlays";
+            string target1B = "ContextualLayers/SavedOverlays";
+            string rep1 = "SavedOverlays";
+            string target2A = "ContextualLayers\\Exports";
+            string target2B = "ContextualLayers/Exports";
+            string rep2 = "Exports";
 
             if (Configuration != null)
             {
@@ -195,9 +197,15 @@ public sealed class Plugin : IDalamudPlugin
                         {
                             if (!string.IsNullOrEmpty(list[i]))
                             {
-                                if (list[i].Contains(targetSubPath1) || list[i].Contains(targetSubPath2))
+                                if (list[i].Contains(target1A, StringComparison.OrdinalIgnoreCase) || 
+                                    list[i].Contains(target1B, StringComparison.OrdinalIgnoreCase) || 
+                                    list[i].Contains(target2A, StringComparison.OrdinalIgnoreCase) || 
+                                    list[i].Contains(target2B, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    list[i] = list[i].Replace(targetSubPath1, replacementSubPath1).Replace(targetSubPath2, replacementSubPath2);
+                                    list[i] = list[i].Replace(target1A, rep1, StringComparison.OrdinalIgnoreCase)
+                                                     .Replace(target1B, rep1, StringComparison.OrdinalIgnoreCase)
+                                                     .Replace(target2A, rep2, StringComparison.OrdinalIgnoreCase)
+                                                     .Replace(target2B, rep2, StringComparison.OrdinalIgnoreCase);
                                     configUpdated = true;
                                 }
                             }
@@ -211,9 +219,15 @@ public sealed class Plugin : IDalamudPlugin
                     {
                         if (!string.IsNullOrEmpty(Configuration.RecentLayers[i]))
                         {
-                            if (Configuration.RecentLayers[i].Contains(targetSubPath1) || Configuration.RecentLayers[i].Contains(targetSubPath2))
+                            if (Configuration.RecentLayers[i].Contains(target1A, StringComparison.OrdinalIgnoreCase) || 
+                                Configuration.RecentLayers[i].Contains(target1B, StringComparison.OrdinalIgnoreCase) || 
+                                Configuration.RecentLayers[i].Contains(target2A, StringComparison.OrdinalIgnoreCase) || 
+                                Configuration.RecentLayers[i].Contains(target2B, StringComparison.OrdinalIgnoreCase))
                             {
-                                Configuration.RecentLayers[i] = Configuration.RecentLayers[i].Replace(targetSubPath1, replacementSubPath1).Replace(targetSubPath2, replacementSubPath2);
+                                Configuration.RecentLayers[i] = Configuration.RecentLayers[i].Replace(target1A, rep1, StringComparison.OrdinalIgnoreCase)
+                                                                                             .Replace(target1B, rep1, StringComparison.OrdinalIgnoreCase)
+                                                                                             .Replace(target2A, rep2, StringComparison.OrdinalIgnoreCase)
+                                                                                             .Replace(target2B, rep2, StringComparison.OrdinalIgnoreCase);
                                 configUpdated = true;
                             }
                         }
