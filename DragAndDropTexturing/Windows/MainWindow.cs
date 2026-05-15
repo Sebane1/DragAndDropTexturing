@@ -7,6 +7,7 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
 using System.Collections.Generic;
+using Dalamud.Interface.ImGuiFileDialog;
 using DragAndDropTexturing.LanguageHelpers;
 
 namespace DragAndDropTexturing.Windows;
@@ -17,6 +18,7 @@ public class MainWindow : Window, IDisposable
     private List<Lumina.Excel.Sheets.Emote> _emotes = new();
     private string[] _emoteNames = new string[0];
     private string _emoteSearchFilter = "";
+    private readonly FileDialogManager _fileDialogManager = new();
 
     public MainWindow(Plugin plugin)
         : base("Drag And Drop Texturing Config", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
@@ -39,6 +41,7 @@ public class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
+        _fileDialogManager.Draw();
         bool isDownloading = Plugin.DragAndDropTextures != null && Plugin.DragAndDropTextures.IsDownloadingDLC;
         if (isDownloading)
         {
@@ -313,6 +316,28 @@ public class MainWindow : Window, IDisposable
         return _textureCache[path];
     }
 
+    private void OpenImportDialog()
+    {
+        _fileDialogManager.OpenFileDialog(
+            Translator.LocalizeUI("Select textures to apply to your character"), 
+            "Texture Files{.png,.dds,.tex,.bmp,.psd}", 
+            (b, files) => 
+            {
+                if (b && files != null && files.Count > 0)
+                {
+                    var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+                    if (localPlayer != null && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter chara)
+                    {
+                        Plugin.DragAndDropTextures?.InjectFilesAndRebuild(
+                            files, 
+                            new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(localPlayer.Name.TextValue, chara), 
+                            PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                    }
+                }
+            }, 
+            0, null, true);
+    }
+
     private void DrawActiveLayers()
     {
         ImGui.Spacing();
@@ -324,12 +349,23 @@ public class MainWindow : Window, IDisposable
             {
                 ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No active textures dropped yet."));
                 ImGui.Spacing();
+                if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)")))
+                {
+                    OpenImportDialog();
+                }
+                ImGui.SameLine();
                 if (ImGui.Button(Translator.LocalizeUI("Open Texture Painter")))
                 {
                     Plugin.OpenPaintWindow();
                 }
                 return;
             }
+
+            if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)")))
+            {
+                OpenImportDialog();
+            }
+            ImGui.Spacing();
 
             ImGui.BeginChild("ActiveLayersList", new Vector2(200, 0), true);
             for (int i = 0; i < keys.Count; i++)
