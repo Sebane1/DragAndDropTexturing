@@ -1454,7 +1454,10 @@ namespace RoleplayingVoice
                         _textureHistory[categoryKey].Clear();
                     }
                     
-                    _textureHistory[categoryKey].Add(file);
+                    if (!_textureHistory[categoryKey].Contains(file))
+                    {
+                        _textureHistory[categoryKey].Add(file);
+                    }
                     droppedCategories.Add(categoryKey);
                 }
                 plugin.Configuration.Save();

@@ -27,8 +27,7 @@ namespace DragAndDropTexturing.Windows
         private string _botModelDiskPath = "";
         private string _activeBaseTexturePng = "";
         private string _activeNormalTexturePng = "";
-        private bool _previewDirty = false;
-        private bool _isPreviewUpdating = false;
+        private bool _isDrawing = false;
         private bool _isGen3Preview = false;
         private bool _isBiboPreview = false;
         private bool _isTbsePreview = false;
@@ -98,7 +97,7 @@ namespace DragAndDropTexturing.Windows
             new BrushPreset { Name = "Marker",       Size = 8f,  Hardness = 0.5f, Opacity = 0.7f, Flow = 0.4f,  Spacing = 0.08f, Scatter = 0f,    Angle = 0f, NoiseScale = 0f,   NoiseAmount = 0f,   SizeJitter = 0f,   BlendMode = 0, Shape = PaintShape.Square },
             new BrushPreset { Name = "Stipple",      Size = 6f,  Hardness = 1.0f, Opacity = 1.0f, Flow = 1.0f,  Spacing = 0.60f, Scatter = 0.5f,  Angle = 0f, NoiseScale = 0.12f, NoiseAmount = 0.8f, SizeJitter = 0.3f,  BlendMode = 0, Shape = PaintShape.Circle },
         };
-        private bool _showAdvancedBrush = false;
+        private int _advancedBrushIndex = 0;
         private bool _hideExtraMeshes = true;
         public string EditSourcePath { get; private set; } = null;  // When non-null, we're editing an existing layer file
         private bool _editLayerLoaded = false;   // Whether we've loaded the source into the paint layer
