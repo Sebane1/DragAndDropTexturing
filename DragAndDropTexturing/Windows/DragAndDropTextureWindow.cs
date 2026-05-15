@@ -1357,17 +1357,35 @@ namespace RoleplayingVoice
                 if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
 
                 string modDir = e.ModDirectory?.ToLower() ?? "";
+                plugin?.PluginLog?.Information($"[Drag And Drop Debug] ModSettingChanged: Type={e.ChangeType}, ModDir='{e.ModDirectory}', CollectionId={e.CollectionId}, Inherited={e.Inherited}");
+
                 // Skip our own generated mods
                 if (modDir.Contains("drag and drop") || modDir.Contains("do_not_edit") || modDir.Contains("texture body") || modDir.Contains("texture face") || modDir.Contains("texture eyes") || modDir.Contains("texture eyebrows") || modDir.Contains("texture mod")) return;
+
+                // Check if this change affects the player's current collection
+                Guid playerCollection = Guid.Empty;
+                try
+                {
+                    playerCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex).Item3.Id;
+                }
+                catch { }
+
+                // Inheritance changes affect the effective mod list even if the mod name doesn't look skin-related.
+                // When a collection's inheritance is changed, the body mod may appear/disappear from the effective set.
+                bool isInheritanceChange = e.ChangeType == Penumbra.Api.Enums.ModSettingChange.Inheritance ||
+                                           e.ChangeType == Penumbra.Api.Enums.ModSettingChange.MultiInheritance;
 
                 bool isSkinMod = modDir.Contains("bibo") || modDir.Contains("gen3") || modDir.Contains("tbse") ||
                                  modDir.Contains("body") || modDir.Contains("skin") || modDir.Contains("yab") ||
                                  modDir.Contains("eve ") || modDir.Contains("tight");
 
-                if (isSkinMod)
+                if (isSkinMod || isInheritanceChange)
                 {
                     string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
-                    plugin.PluginLog.Information("[Drag And Drop Texturing] Skin mod change detected (" + e.ModDirectory + "). Rebuilding body textures...");
+                    if (isInheritanceChange)
+                        plugin.PluginLog.Information($"[Drag And Drop Texturing] Inheritance change detected (ModDir: '{e.ModDirectory}', Collection: {e.CollectionId}). Rebuilding body textures...");
+                    else
+                        plugin.PluginLog.Information("[Drag And Drop Texturing] Skin mod change detected (" + e.ModDirectory + "). Rebuilding body textures...");
                     ScheduleRegeneration(charName, new[] { "_body" });
                 }
             }
