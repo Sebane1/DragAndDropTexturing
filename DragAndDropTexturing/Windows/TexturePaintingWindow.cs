@@ -388,7 +388,13 @@ namespace DragAndDropTexturing.Windows
                                 {
                                     _overrideTopSelectedIndex = i;
                                     _renderer?.PushUndoSnapshot();
-                                    LoadPlayerModels();
+                                    _modelsLoaded = false;
+                                    _isLoadingModels = true;
+                                    Task.Run(() => {
+                                        try { LoadPlayerModels(); }
+                                        catch (Exception ex) { _plugin.PluginLog.Error(ex, "[TexturePainter] Background top model load failed"); }
+                                        finally { _modelsLoaded = true; _isLoadingModels = false; }
+                                    });
                                     _needsComposite = true;
                                 }
                                 if (isSelected) ImGui.SetItemDefaultFocus();
@@ -409,7 +415,13 @@ namespace DragAndDropTexturing.Windows
                                 {
                                     _overrideBotSelectedIndex = i;
                                     _renderer?.PushUndoSnapshot();
-                                    LoadPlayerModels();
+                                    _modelsLoaded = false;
+                                    _isLoadingModels = true;
+                                    Task.Run(() => {
+                                        try { LoadPlayerModels(); }
+                                        catch (Exception ex) { _plugin.PluginLog.Error(ex, "[TexturePainter] Background bottom model load failed"); }
+                                        finally { _modelsLoaded = true; _isLoadingModels = false; }
+                                    });
                                     _needsComposite = true;
                                 }
                                 if (isSelected) ImGui.SetItemDefaultFocus();
@@ -1263,8 +1275,13 @@ private void LoadPlayerModels()
                 if (_overrideBotPathList.Count > 0 && _overrideBotSelectedIndex >= 0 && _overrideBotSelectedIndex < _overrideBotPathList.Count)
                     overrideBotPath = _overrideBotPathList[_overrideBotSelectedIndex].DiskPath;
 
-                LoadModelIntoSlot("Top", overrideTopPath ?? topPath, collectionId);
-                LoadModelIntoSlot("Bottom", overrideBotPath ?? botPath, collectionId);
+                // Load both model slots in parallel since they're independent
+                var topSlotPath = overrideTopPath ?? topPath;
+                var botSlotPath = overrideBotPath ?? botPath;
+                System.Threading.Tasks.Parallel.Invoke(
+                    () => LoadModelIntoSlot("Top", topSlotPath, collectionId),
+                    () => LoadModelIntoSlot("Bottom", botSlotPath, collectionId)
+                );
                 UpdateMeshVisibility();
 
                 bool prevOverrideMode = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode;
@@ -1364,10 +1381,17 @@ private void LoadPlayerModels()
 
                 _plugin.PluginLog.Info($"[PSD Preview] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
 
+                // Load both textures in parallel
                 bool baseIsBlack = false;
                 bool normIsBlack = false;
-                _activeBaseTexturePng = TexToTempPng(baseTexPath, out baseIsBlack);
-                _activeNormalTexturePng = TexToTempPng(normTexPath, out normIsBlack);
+                string baseResult = null;
+                string normResult = null;
+                System.Threading.Tasks.Parallel.Invoke(
+                    () => baseResult = TexToTempPng(baseTexPath, out baseIsBlack),
+                    () => normResult = TexToTempPng(normTexPath, out normIsBlack)
+                );
+                _activeBaseTexturePng = baseResult;
+                _activeNormalTexturePng = normResult;
 
                 if (_activeBaseTexturePng == null || baseIsBlack)
                 {
@@ -1505,9 +1529,11 @@ private string TexToTempPng(string texPath, out bool isBlack)
             {
                 try
                 {
-                    using (var bitmap = new System.Drawing.Bitmap(texPath))
+                    // Quick IsBlack check by sampling a few pixels instead of loading entire 4K bitmap
+                    using (var fs = new FileStream(texPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    using (var image = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(fs))
                     {
-                        isBlack = IsImageBlack(bitmap);
+                        isBlack = IsImageBlackFast(image);
                     }
                 }
                 catch { }
@@ -1525,7 +1551,7 @@ private string TexToTempPng(string texPath, out bool isBlack)
                         isBlack = IsImageBlack(bitmap);
                         if (!File.Exists(outPath) || isBlack)
                         {
-                            bitmap.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveBitmapFast(bitmap, outPath);
                         }
                         return outPath;
                     }
@@ -1533,6 +1559,23 @@ private string TexToTempPng(string texPath, out bool isBlack)
             }
             catch (Exception ex) { _plugin.PluginLog.Error(ex, $"Failed to convert tex to png: {texPath}"); }
             return null;
+        }
+
+private bool IsImageBlackFast(SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32> image)
+        {
+            // Sample a grid of pixels instead of scanning every single one
+            int stepX = Math.Max(1, image.Width / 32);
+            int stepY = Math.Max(1, image.Height / 32);
+            for (int y = 0; y < image.Height; y += stepY)
+            {
+                for (int x = 0; x < image.Width; x += stepX)
+                {
+                    var pixel = image[x, y];
+                    if (pixel.A > 0 && (pixel.R > 5 || pixel.G > 5 || pixel.B > 5))
+                        return false;
+                }
+            }
+            return true;
         }
 
 private bool IsImageBlack(System.Drawing.Bitmap bitmap)
