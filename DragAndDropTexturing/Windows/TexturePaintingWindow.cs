@@ -101,6 +101,8 @@ namespace DragAndDropTexturing.Windows
         private bool _hideExtraMeshes = true;
         public string EditSourcePath { get; private set; } = null;  // When non-null, we're editing an existing layer file
         private bool _editLayerLoaded = false;   // Whether we've loaded the source into the paint layer
+        private volatile bool _isLoadingModels = false;
+        private volatile bool _modelsLoaded = false;
 
         private class FloatingLayer : IDisposable
         {
@@ -176,6 +178,8 @@ namespace DragAndDropTexturing.Windows
             _isTbsePreview = false;
             _editLayerLoaded = EditSourcePath != null ? false : true; // Need to load if editing
             _needsComposite = true;
+            _modelsLoaded = false;
+            _isLoadingModels = false;
         }
 
         /// <summary>
@@ -197,10 +201,30 @@ namespace DragAndDropTexturing.Windows
                 {
                     _renderer = new ModelRenderer(800, 600);
                     _rendererInitialized = true;
-                    LoadPlayerModels();
+                    if (!_isLoadingModels && !_modelsLoaded)
+                    {
+                        _isLoadingModels = true;
+                        Task.Run(() => {
+                            try {
+                                LoadPlayerModels();
+                            } catch (Exception ex) {
+                                _plugin.PluginLog.Error(ex, "[TexturePainter] Background model load failed");
+                            } finally {
+                                _modelsLoaded = true;
+                                _isLoadingModels = false;
+                            }
+                        });
+                    }
                 }
             }
             catch { }
+
+            if (_isLoadingModels)
+            {
+                float bounce = (float)Math.Abs(Math.Sin(ImGui.GetTime() * 2.0));
+                ImGui.ProgressBar(bounce, new Vector2(-1, 0), "Loading player models and textures...");
+                ImGui.Spacing();
+            }
 
             // Top side controls
             // ── Preset Selector ──
@@ -555,7 +579,7 @@ namespace DragAndDropTexturing.Windows
             ImGui.BeginChild("MiddlePanel", new Vector2(remainingWidth * 0.5f, 0), true);
 
             // Middle column: 3D Preview
-            if (_renderer != null)
+            if (_renderer != null && _modelsLoaded)
             {
                 var region = ImGui.GetContentRegionAvail();
                 if (region.X > 0 && region.Y > 0 && (region.X != _renderer.Width || region.Y != _renderer.Height))
