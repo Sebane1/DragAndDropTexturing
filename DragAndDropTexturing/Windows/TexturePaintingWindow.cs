@@ -136,6 +136,12 @@ namespace DragAndDropTexturing.Windows
         private static readonly HashSet<string> _imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif" };
 
+        private List<(string ModName, string DiskPath)> _overrideTopPathList = new();
+        private List<(string ModName, string DiskPath)> _overrideBotPathList = new();
+        private int _overrideTopSelectedIndex = 0;
+        private int _overrideBotSelectedIndex = 0;
+        private string _targetKeyword = null;
+
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
         {
             _plugin = plugin;
@@ -340,6 +346,57 @@ namespace DragAndDropTexturing.Windows
             {
                 _hideExtraMeshes = hideExtras;
                 UpdateMeshVisibility();
+            }
+
+            // ── Model Override Selectors ──
+            if (_overrideTopPathList.Count > 1 || _overrideBotPathList.Count > 1)
+            {
+                ImGui.Separator();
+                if (ImGui.TreeNode("Target Model Selection"))
+                {
+                    if (_overrideTopPathList.Count > 1)
+                    {
+                        ImGui.SetNextItemWidth(250);
+                        if (ImGui.BeginCombo("Top Model", _overrideTopPathList[_overrideTopSelectedIndex].ModName))
+                        {
+                            for (int i = 0; i < _overrideTopPathList.Count; i++)
+                            {
+                                bool isSelected = (i == _overrideTopSelectedIndex);
+                                if (ImGui.Selectable(_overrideTopPathList[i].ModName, isSelected))
+                                {
+                                    _overrideTopSelectedIndex = i;
+                                    _renderer?.PushUndoSnapshot();
+                                    LoadPlayerModels();
+                                    _needsComposite = true;
+                                }
+                                if (isSelected) ImGui.SetItemDefaultFocus();
+                            }
+                            ImGui.EndCombo();
+                        }
+                    }
+
+                    if (_overrideBotPathList.Count > 1)
+                    {
+                        ImGui.SetNextItemWidth(250);
+                        if (ImGui.BeginCombo("Bottom Model", _overrideBotPathList[_overrideBotSelectedIndex].ModName))
+                        {
+                            for (int i = 0; i < _overrideBotPathList.Count; i++)
+                            {
+                                bool isSelected = (i == _overrideBotSelectedIndex);
+                                if (ImGui.Selectable(_overrideBotPathList[i].ModName, isSelected))
+                                {
+                                    _overrideBotSelectedIndex = i;
+                                    _renderer?.PushUndoSnapshot();
+                                    LoadPlayerModels();
+                                    _needsComposite = true;
+                                }
+                                if (isSelected) ImGui.SetItemDefaultFocus();
+                            }
+                            ImGui.EndCombo();
+                        }
+                    }
+                    ImGui.TreePop();
+                }
             }
 
             if (_floatingLayer != null)
@@ -1130,8 +1187,42 @@ private void LoadPlayerModels()
                 Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
                 _plugin.PluginLog.Info($"[PSD Preview] Collection ID: {collectionId}");
 
-                LoadModelIntoSlot("Top", topPath, collectionId);
-                LoadModelIntoSlot("Bottom", botPath, collectionId);
+                string overrideTopPath = null;
+                string overrideBotPath = null;
+                if (!string.IsNullOrEmpty(EditSourcePath))
+                {
+                    if (_overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
+                    {
+                        string lowerEditPath = EditSourcePath.ToLower();
+                        _targetKeyword = null;
+                        if (lowerEditPath.Contains("bibo") || lowerEditPath.Contains("b+") || lowerEditPath.Contains("turali bod") || lowerEditPath.Contains("lavabod") || lowerEditPath.Contains("rue") || lowerEditPath.Contains("yab") || lowerEditPath.Contains("yet another body") || lowerEditPath.Contains("lithe"))
+                            _targetKeyword = "bibo";
+                        else if (lowerEditPath.Contains("gen3") || lowerEditPath.Contains("tfgen3") || lowerEditPath.Contains("pythia") || lowerEditPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerEditPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerEditPath.Contains("gaia") || lowerEditPath.Contains("RiderThicc"))
+                            _targetKeyword = "gen3";
+                        else if (lowerEditPath.Contains("tbse") || lowerEditPath.Contains("the body se") || lowerEditPath.Contains("hrbody"))
+                            _targetKeyword = "tbse";
+
+                        if (_targetKeyword != null)
+                        {
+                            string checkRaceCode = _targetKeyword == "tbse" ? "c0101" : "c0201";
+                            string relativeTop = $"chara/equipment/e0279/model/{checkRaceCode}e0279_top.mdl";
+                            string relativeBot = $"chara/equipment/e0279/model/{checkRaceCode}e0279_dwn.mdl";
+
+                            _overrideTopPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeTop);
+                            _overrideBotPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeBot);
+                            _overrideTopSelectedIndex = 0;
+                            _overrideBotSelectedIndex = 0;
+                        }
+                    }
+                }
+
+                if (_overrideTopPathList.Count > 0 && _overrideTopSelectedIndex >= 0 && _overrideTopSelectedIndex < _overrideTopPathList.Count)
+                    overrideTopPath = _overrideTopPathList[_overrideTopSelectedIndex].DiskPath;
+                if (_overrideBotPathList.Count > 0 && _overrideBotSelectedIndex >= 0 && _overrideBotSelectedIndex < _overrideBotPathList.Count)
+                    overrideBotPath = _overrideBotPathList[_overrideBotSelectedIndex].DiskPath;
+
+                LoadModelIntoSlot("Top", overrideTopPath ?? topPath, collectionId);
+                LoadModelIntoSlot("Bottom", overrideBotPath ?? botPath, collectionId);
                 UpdateMeshVisibility();
 
                 bool prevOverrideMode = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode;
@@ -1141,7 +1232,7 @@ private void LoadPlayerModels()
 
                 string lowerPath = _topModelDiskPath.ToLower();
                 bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") 
-                || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia");
+                || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia") || lowerPath.Contains("riderthicc");
                 bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") 
                || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe");
                 bool isTbse = lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody");
@@ -1158,6 +1249,27 @@ private void LoadPlayerModels()
                 _isGen3Preview = isGen3;
                 _isBiboPreview = isBibo;
                 _isTbsePreview = isTbse;
+
+                if (string.IsNullOrEmpty(EditSourcePath) && _overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
+                {
+                    _targetKeyword = null;
+                    if (isBibo) _targetKeyword = "bibo";
+                    else if (isGen3) _targetKeyword = "gen3";
+                    else if (isTbse) _targetKeyword = "tbse";
+
+                    if (_targetKeyword != null)
+                    {
+                        string checkRaceCode = _targetKeyword == "tbse" ? "c0101" : "c0201";
+                        string relativeTop = $"chara/equipment/e0279/model/{checkRaceCode}e0279_top.mdl";
+                        string relativeBot = $"chara/equipment/e0279/model/{checkRaceCode}e0279_dwn.mdl";
+
+                        _overrideTopPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeTop);
+                        _overrideBotPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeBot);
+                        
+                        _overrideTopSelectedIndex = Math.Max(0, _overrideTopPathList.FindIndex(x => string.Equals(x.DiskPath, _topModelDiskPath, StringComparison.OrdinalIgnoreCase)));
+                        _overrideBotSelectedIndex = Math.Max(0, _overrideBotPathList.FindIndex(x => string.Equals(x.DiskPath, _botModelDiskPath, StringComparison.OrdinalIgnoreCase)));
+                    }
+                }
 
                 string baseTexPath = null;
                 string normTexPath = null;
@@ -1268,31 +1380,35 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
         {
             try
             {
-                _plugin.PluginLog.Info($"[PSD Preview] Loading slot '{slot}' with GamePath: {path}");
+                _plugin.PluginLog.Info($"[PSD Preview] Loading slot '{slot}' with Path: {path}");
                 
-                // Try resolving via Penumbra first
                 string diskPath = path;
-                try 
+
+                // Try resolving via Penumbra first if it's a game path
+                if (!Path.IsPathRooted(path))
                 {
-                    PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collectionId, path, out string resolvedPath);
-                    if (!string.IsNullOrEmpty(resolvedPath))
+                    try 
                     {
-                        diskPath = resolvedPath;
-                        _plugin.PluginLog.Info($"[PSD Preview] Penumbra resolved '{path}' -> '{diskPath}'");
+                        PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collectionId, path, out string resolvedPath);
+                        if (!string.IsNullOrEmpty(resolvedPath))
+                        {
+                            diskPath = resolvedPath;
+                            _plugin.PluginLog.Info($"[PSD Preview] Penumbra resolved '{path}' -> '{diskPath}'");
+                        }
+                        else
+                        {
+                            _plugin.PluginLog.Info($"[PSD Preview] Penumbra did not resolve '{path}'. Returning original.");
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        _plugin.PluginLog.Info($"[PSD Preview] Penumbra did not resolve '{path}'. Returning original.");
+                        _plugin.PluginLog.Error(ex, $"[PSD Preview] Penumbra IPC ResolvePath failed for '{path}'");
                     }
-                }
-                catch (Exception ex)
-                {
-                    _plugin.PluginLog.Error(ex, $"[PSD Preview] Penumbra IPC ResolvePath failed for '{path}'");
                 }
 
                 System.Collections.Generic.List<ExtractedMesh> meshes = null;
 
-                if (diskPath != path && System.IO.File.Exists(diskPath))
+                if (System.IO.File.Exists(diskPath))
                 {
                     _plugin.PluginLog.Info($"[PSD Preview] Reading external file from disk: {diskPath}");
                     meshes = MdlParser.ParseFromDisk(diskPath, out var loadStatus);
@@ -1300,7 +1416,7 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                 }
                 else
                 {
-                    _plugin.PluginLog.Warning($"[PSD Preview] Penumbra did not resolve a custom disk path for {path}. Skipping Lumina.");
+                    _plugin.PluginLog.Warning($"[PSD Preview] Could not find physical file for '{diskPath}'. Skipping Lumina.");
                 }
 
                 if (slot == "Top") _topModelDiskPath = diskPath;

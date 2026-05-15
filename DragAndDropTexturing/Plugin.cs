@@ -164,6 +164,19 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
     }
 
+    public bool IsBodyAvailable(string targetKeyword)
+    {
+        try
+        {
+            string trueRaceCode = targetKeyword == "tbse" ? "c0101" : "c0201";
+            string relativeTop = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
+            string foundPath = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindMeshDiskPathInModDirectory(targetKeyword, relativeTop);
+            return !string.IsNullOrEmpty(foundPath);
+        }
+        catch { }
+        return false;
+    }
+
     private void OnCommand(string command, string args)
     {
         // in response to the slash command, just toggle the display status of our main ui

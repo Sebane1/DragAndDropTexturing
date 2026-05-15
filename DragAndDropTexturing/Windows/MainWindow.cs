@@ -374,9 +374,27 @@ public class MainWindow : Window, IDisposable
                     if (!string.IsNullOrEmpty(path) && File.Exists(path))
                     {
                         ImGui.SameLine();
+                        bool canEdit = true;
+                        string lowerPath = path.ToLower();
+                        if (lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe"))
+                            canEdit = Plugin.IsBodyAvailable("bibo");
+                        else if (lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia"))
+                            canEdit = Plugin.IsBodyAvailable("gen3");
+                        else if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody"))
+                            canEdit = Plugin.IsBodyAvailable("tbse");
+
+                        if (!canEdit) ImGui.BeginDisabled();
                         if (ImGui.Button("Edit##" + key + i))
                         {
                             Plugin.OpenPaintWindow(path);
+                        }
+                        if (!canEdit)
+                        {
+                            ImGui.EndDisabled();
+                            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                            {
+                                ImGui.SetTooltip("This layer requires a body mod that is not currently available in your Penumbra directory.");
+                            }
                         }
                     }
                 }
