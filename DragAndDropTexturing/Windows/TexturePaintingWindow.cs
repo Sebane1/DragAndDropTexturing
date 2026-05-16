@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using DragAndDropTexturing.LanguageHelpers;
 using System.Collections.Generic;
 using System.IO;
@@ -102,7 +102,7 @@ namespace DragAndDropTexturing.Windows
         };
         private int _advancedBrushIndex = 0;
         private bool _hideExtraMeshes = true;
-        public string EditSourcePath { get; private set; } = null;  // When non-null, we're editing an existing layer file
+        public string EditSourcePath { get; set; } = null;  // When non-null, we're editing an existing layer file
         private bool _editLayerLoaded = false;   // Whether we've loaded the source into the paint layer
         private volatile bool _isLoadingModels = false;
         private volatile bool _modelsLoaded = false;
@@ -165,7 +165,18 @@ namespace DragAndDropTexturing.Windows
             public List<DecalPixelData> LoadedDecals;
         }
         private readonly System.Collections.Concurrent.ConcurrentQueue<ProceduralStampRequest> _pendingStampRequests = new();
-        public bool IsHeadlessMode { get; set; } = false;
+        private bool _isHeadlessMode = false;
+        public bool IsHeadlessMode
+        {
+            get => _isHeadlessMode;
+            set
+            {
+                _isHeadlessMode = value;
+                Flags = value 
+                    ? ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoInputs | ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoScrollbar 
+                    : ImGuiWindowFlags.NoScrollbar;
+            }
+        }
         private static readonly Random _proceduralRng = new Random();
 
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
@@ -206,6 +217,12 @@ namespace DragAndDropTexturing.Windows
             _modelsLoaded = false;
             _isLoadingModels = false;
             lock (_loadedMeshes) { _loadedMeshes.Clear(); }
+        }
+
+        public void ClearCanvas()
+        {
+            _renderer?.GpuClearPaint();
+            _needsComposite = true;
         }
 
         /// <summary>

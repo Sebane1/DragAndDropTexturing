@@ -880,13 +880,16 @@ public class MainWindow : Window, IDisposable
                 changed = true;
             }
 
-            int clearType = (int)layer.ClearTrigger;
-            string[] clearNames = Enum.GetNames(typeof(ClearCondition)).Select(n => n.Replace("_", " ")).ToArray();
-            var locClearNames = Translator.LocalizeTextArray(clearNames);
-            if (ImGui.Combo(Translator.LocalizeUI("Clear Condition") + "##ContextClear", ref clearType, locClearNames, locClearNames.Length))
+            if (!layer.ProceduralDecalMode)
             {
-                layer.ClearTrigger = (ClearCondition)clearType;
-                changed = true;
+                int clearType = (int)layer.ClearTrigger;
+                string[] clearNames = Enum.GetNames(typeof(ClearCondition)).Select(n => n.Replace("_", " ")).ToArray();
+                var locClearNames = Translator.LocalizeTextArray(clearNames);
+                if (ImGui.Combo(Translator.LocalizeUI("Clear Condition") + "##ContextClear", ref clearType, locClearNames, locClearNames.Length))
+                {
+                    layer.ClearTrigger = (ClearCondition)clearType;
+                    changed = true;
+                }
             }
 
             if (layer.Trigger == TriggerType.Emote)
@@ -1013,11 +1016,14 @@ public class MainWindow : Window, IDisposable
                     changed = true;
                 }
                 
-                int decay = layer.DecayIntervalSeconds;
-                if (ImGui.InputInt(Translator.LocalizeUI("Decay Interval (Seconds)") + "##ContextDecay", ref decay))
+                if (!layer.ProceduralDecalMode)
                 {
-                    layer.DecayIntervalSeconds = Math.Max(0, decay);
-                    changed = true;
+                    int decay = layer.DecayIntervalSeconds;
+                    if (ImGui.InputInt(Translator.LocalizeUI("Decay Interval (Seconds)") + "##ContextDecay", ref decay))
+                    {
+                        layer.DecayIntervalSeconds = Math.Max(0, decay);
+                        changed = true;
+                    }
                 }
             }
 
@@ -1048,7 +1054,7 @@ public class MainWindow : Window, IDisposable
                 layer.ProceduralDecalMode = decalMode;
                 changed = true;
             }
-            ImGui.TextWrapped(Translator.LocalizeUI("When enabled, the textures in this folder will be treated as decals (e.g. blood/dirt splatters) and procedurally stamped onto random locations of the player's 3D model instead of overriding the entire body."));
+            ImGui.TextWrapped(Translator.LocalizeUI("When enabled, the textures in this folder will be treated as decals (e.g. blood/dirt splatters) and procedurally stamped onto random locations of the player's 3D model instead of overriding the entire body. (Experimental, may cause hitches)"));
 
             ImGui.Spacing();
             if (ImGui.Button(Translator.LocalizeUI("Open Folder") + "##ContextFolder"))

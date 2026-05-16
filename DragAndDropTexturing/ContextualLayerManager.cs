@@ -89,7 +89,11 @@ namespace DragAndDropTexturing
                         {
                             var active = new ActiveContextualLayer { LayerDef = layer, CurrentStackCount = stackCount };
                             
-                            if (System.IO.Directory.Exists(layer.DirectoryPath))
+                            if (layer.ProceduralDecalMode && !string.IsNullOrEmpty(_plugin.Configuration.PersistedProceduralCanvasPath) && System.IO.File.Exists(_plugin.Configuration.PersistedProceduralCanvasPath))
+                            {
+                                active.CachedTexturePaths = new List<string> { _plugin.Configuration.PersistedProceduralCanvasPath };
+                            }
+                            else if (System.IO.Directory.Exists(layer.DirectoryPath))
                             {
                                 var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png")
                                     .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) && 
@@ -104,6 +108,19 @@ namespace DragAndDropTexturing
                             _activeLayers.Add(active);
                         }
                     }
+                }
+            }
+            EnsureHeadlessWindowIsRunningIfNeeded();
+        }
+
+        private void EnsureHeadlessWindowIsRunningIfNeeded()
+        {
+            if (ContextualLayers.Any(l => l.ProceduralDecalMode))
+            {
+                var window = GetOrCreateHeadlessPaintWindow();
+                if (!string.IsNullOrEmpty(_plugin.Configuration.PersistedProceduralCanvasPath) && System.IO.File.Exists(_plugin.Configuration.PersistedProceduralCanvasPath))
+                {
+                    window.EditSourcePath = _plugin.Configuration.PersistedProceduralCanvasPath;
                 }
             }
         }
@@ -332,6 +349,31 @@ namespace DragAndDropTexturing
             bool weaponDrawn = player.StatusFlags.HasFlag(Dalamud.Game.ClientState.Objects.Enums.StatusFlags.WeaponOut);
             bool isSwimming = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Swimming] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Diving];
             bool isMounted = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Mounted] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.RidingPillion];
+
+            if (isSwimming)
+            {
+                bool clearedProcedural = false;
+                for (int i = _activeLayers.Count - 1; i >= 0; i--)
+                {
+                    if (_activeLayers[i].LayerDef.ProceduralDecalMode)
+                    {
+                        _activeLayers.RemoveAt(i);
+                        clearedProcedural = true;
+                    }
+                }
+                
+                if (_headlessPaintWindow != null && _headlessPaintWindow.IsOpen)
+                {
+                    _headlessPaintWindow.ClearCanvas();
+                }
+
+                if (clearedProcedural)
+                {
+                    _plugin.Configuration.PersistedProceduralCanvasPath = null;
+                    _plugin.Configuration.Save();
+                    TriggerHotswapRebuild();
+                }
+            }
 
             long unixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             long eorzeaMs = (long)(unixMs * (3600.0 / 175.0));
@@ -617,6 +659,8 @@ namespace DragAndDropTexturing
                             try { System.IO.File.Delete(active.CachedTexturePaths[0]); } catch { }
                         }
                         active.CachedTexturePaths = new List<string> { tempFile };
+                        _plugin.Configuration.PersistedProceduralCanvasPath = tempFile;
+                        _plugin.Configuration.Save();
                         TriggerHotswapRebuild();
                     });
                 }
@@ -631,7 +675,7 @@ namespace DragAndDropTexturing
 
             var window = new Windows.TexturePaintingWindow(_plugin);
             window.WindowName = $"Texture Painter (Headless Debug)###HeadlessPainter_{Guid.NewGuid()}";
-            window.IsHeadlessMode = false;
+            window.IsHeadlessMode = true;
             window.IsOpen = true;
             _plugin.TexturePaintingWindows.Add(window);
             _plugin.WindowSystem.AddWindow(window);
