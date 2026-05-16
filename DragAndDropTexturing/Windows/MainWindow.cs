@@ -831,10 +831,13 @@ public class MainWindow : Window, IDisposable
         {
             var layer = Plugin.ContextualLayerManager.ContextualLayers[i];
             bool isSelected = _selectedContextualLayerIndex == i;
-            if (ImGui.Selectable($"{layer.Name}##SelectLayer_{i}", isSelected))
+            if (!layer.Enabled) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.5f, 0.5f, 1.0f));
+            string displayName = layer.Enabled ? layer.Name : layer.Name + " " + Translator.LocalizeUI("(Disabled)");
+            if (ImGui.Selectable($"{displayName}##SelectLayer_{i}", isSelected))
             {
                 _selectedContextualLayerIndex = i;
             }
+            if (!layer.Enabled) ImGui.PopStyleColor();
         }
         ImGui.EndChild();
 
@@ -868,6 +871,13 @@ public class MainWindow : Window, IDisposable
             if (ImGui.InputText(Translator.LocalizeUI("Name") + "##ContextName", ref name, 255))
             {
                 layer.Name = name;
+                changed = true;
+            }
+
+            bool enabled = layer.Enabled;
+            if (ImGui.Checkbox(Translator.LocalizeUI("Enabled") + "##ContextEnabled", ref enabled))
+            {
+                layer.Enabled = enabled;
                 changed = true;
             }
 

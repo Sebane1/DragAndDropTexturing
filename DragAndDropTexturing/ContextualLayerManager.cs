@@ -115,7 +115,7 @@ namespace DragAndDropTexturing
 
         private void EnsureHeadlessWindowIsRunningIfNeeded()
         {
-            if (ContextualLayers.Any(l => l.ProceduralDecalMode))
+            if (ContextualLayers.Any(l => l.ProceduralDecalMode && l.Enabled))
             {
                 var window = GetOrCreateHeadlessPaintWindow();
                 if (!string.IsNullOrEmpty(_plugin.Configuration.PersistedProceduralCanvasPath) && System.IO.File.Exists(_plugin.Configuration.PersistedProceduralCanvasPath))
@@ -253,7 +253,7 @@ namespace DragAndDropTexturing
         {
             if (string.IsNullOrEmpty(path)) return;
             _plugin.PluginLog.Information($"[Contextual Layers] Sound detected: {path}");
-            foreach (var layer in ContextualLayers)
+            foreach (var layer in ContextualLayers.Where(l => l.Enabled))
             {
                 if (layer.Trigger == TriggerType.Audio_Path_Load && !string.IsNullOrEmpty(layer.AudioTriggerPath))
                 {
@@ -270,7 +270,7 @@ namespace DragAndDropTexturing
             var msgText = msg.Message?.TextValue;
             if (string.IsNullOrEmpty(msgText)) return;
 
-            foreach (var layer in ContextualLayers)
+            foreach (var layer in ContextualLayers.Where(l => l.Enabled))
             {
                 if (layer.Trigger == TriggerType.Chat_Message && !string.IsNullOrEmpty(layer.ChatRegex))
                 {
@@ -306,7 +306,7 @@ namespace DragAndDropTexturing
             var player = _plugin.SafeGameObjectManager.LocalPlayer as GameObjectHelper.ThreadSafeDalamudObjectTable.ThreadSafeCharacter;
             if (player == null || instigator.GameObjectId != player.GameObjectId) return;
 
-            foreach (var layer in ContextualLayers)
+            foreach (var layer in ContextualLayers.Where(l => l.Enabled))
             {
                 if (layer.Trigger == TriggerType.Emote && layer.EmoteId == emoteId)
                 {
@@ -317,7 +317,7 @@ namespace DragAndDropTexturing
 
         private void OnActionUsed(uint actionId)
         {
-            foreach (var layer in ContextualLayers)
+            foreach (var layer in ContextualLayers.Where(l => l.Enabled))
             {
                 if (layer.Trigger == TriggerType.Action_Used)
                 {
@@ -414,7 +414,7 @@ namespace DragAndDropTexturing
 
             bool layersChanged = false;
 
-            foreach (var layer in ContextualLayers)
+            foreach (var layer in ContextualLayers.Where(l => l.Enabled))
             {
                 bool isConditionMet = false;
                 int desiredStackForHp = 0;
@@ -526,6 +526,13 @@ namespace DragAndDropTexturing
             for (int i = _activeLayers.Count - 1; i >= 0; i--)
             {
                 var active = _activeLayers[i];
+
+                if (!active.LayerDef.Enabled)
+                {
+                    _activeLayers.RemoveAt(i);
+                    layersChanged = true;
+                    continue;
+                }
 
                 if (active.LayerDef.ClearTrigger == ClearCondition.Swimming && isSwimming)
                 {
@@ -829,7 +836,7 @@ namespace DragAndDropTexturing
             var player = _plugin.SafeGameObjectManager.LocalPlayer;
             if (player == null) return;
 
-            foreach (var layer in ContextualLayers)
+            foreach (var layer in ContextualLayers.Where(l => l.Enabled))
             {
                 if (layer.Trigger == TriggerType.Kill_Count || layer.Trigger == TriggerType.Action_Used)
                 {

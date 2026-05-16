@@ -31,6 +31,7 @@ public enum ClearCondition
 public class ContextualLayer
 {
     public string Name { get; set; } = "New Context Layer";
+    public bool Enabled { get; set; } = true;
     [Newtonsoft.Json.JsonIgnore]
     public string DirectoryPath { get; set; } = "";
     

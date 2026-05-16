@@ -169,6 +169,83 @@ namespace RoleplayingVoice
 
         private string modName;
 
+        private Dictionary<string, System.IO.FileSystemWatcher> _fileWatchers = new Dictionary<string, System.IO.FileSystemWatcher>();
+        private object _watcherLock = new object();
+        private DateTime _lastRebuildTime = DateTime.MinValue;
+
+        private void UpdateWatchers()
+        {
+            lock (_watcherLock)
+            {
+                foreach (var watcher in _fileWatchers.Values)
+                {
+                    watcher.EnableRaisingEvents = false;
+                    watcher.Dispose();
+                }
+                _fileWatchers.Clear();
+
+                foreach (var kvp in _textureHistory)
+                {
+                    string category = kvp.Key;
+                    foreach (var file in kvp.Value)
+                    {
+                        if (System.IO.File.Exists(file))
+                        {
+                            string dir = System.IO.Path.GetDirectoryName(file);
+                            if (string.IsNullOrEmpty(dir)) continue;
+
+                            string watcherKey = dir.ToLowerInvariant();
+                            if (!_fileWatchers.TryGetValue(watcherKey, out var watcher))
+                            {
+                                watcher = new System.IO.FileSystemWatcher();
+                                watcher.Path = dir;
+                                watcher.NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.Size;
+                                watcher.Changed += FileWatcher_Changed;
+                                watcher.EnableRaisingEvents = true;
+                                _fileWatchers[watcherKey] = watcher;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void FileWatcher_Changed(object sender, System.IO.FileSystemEventArgs e)
+        {
+            if ((DateTime.Now - _lastRebuildTime).TotalMilliseconds < 500) return; // Debounce
+            
+            bool triggered = false;
+            HashSet<string> categoriesToRebuild = new HashSet<string>();
+            
+            lock (_watcherLock)
+            {
+                foreach (var kvp in _textureHistory)
+                {
+                    foreach (var file in kvp.Value)
+                    {
+                        if (file.Equals(e.FullPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            categoriesToRebuild.Add(kvp.Key);
+                            triggered = true;
+                        }
+                    }
+                }
+            }
+
+            if (triggered)
+            {
+                _lastRebuildTime = DateTime.Now;
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    System.Threading.Thread.Sleep(200); // Give Photoshop a moment to finish writing
+                    foreach (var cat in categoriesToRebuild)
+                    {
+                        RebuildCategory(cat, false);
+                    }
+                });
+            }
+        }
+
         public Plugin Plugin
         {
             get => plugin;
@@ -178,6 +255,7 @@ namespace RoleplayingVoice
                 if (plugin != null)
                 {
                     _textureHistory = plugin.Configuration.TextureHistory;
+                    UpdateWatchers();
 
                     var oldKeys = _textureHistory.Keys.Where(k => k.EndsWith("_gen2") || k.EndsWith("_bibo") || k.EndsWith("_gen3") || k.EndsWith("_tbse") || k.EndsWith("_otopop") || k.EndsWith("fallback_Body")).ToList();
                     bool migrated = false;
@@ -853,6 +931,7 @@ namespace RoleplayingVoice
                                         if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
                                         _textureHistory[categoryKey].Add(f);
                                         Plugin.Configuration.Save();
+                                        UpdateWatchers();
                                     }
 
                                     int effectiveRace = RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1);
@@ -1559,13 +1638,16 @@ namespace RoleplayingVoice
             return Task.Run(() =>
             {
                 HashSet<string> droppedCategories = new HashSet<string>();
-                foreach (var file in extractedFiles)
+                for (int i = 0; i < extractedFiles.Count; i++)
                 {
+                    string file = extractedFiles[i];
                     string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
                     string categoryKey = selectedPlayer.Key + "_";
+                    bool isBody = false;
+
                     if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                         fileName.Contains("bibo") || fileName.Contains("b+") ||
-                        fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
+                        fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
                     else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                     else if (fileName.Contains("eye")) categoryKey += "eyes";
                     else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
@@ -1573,11 +1655,43 @@ namespace RoleplayingVoice
                     {
                         switch (bodyDragPart)
                         {
-                            case BodyDragPart.Body: categoryKey += "body"; break;
+                            case BodyDragPart.Body: categoryKey += "body"; isBody = true; break;
                             case BodyDragPart.Face: categoryKey += "face"; break;
                             case BodyDragPart.Eyes: categoryKey += "eyes"; break;
                             case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
                             default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
+                        }
+                    }
+
+                    bool isFace = categoryKey.EndsWith("face");
+                    bool needsClassification = false;
+
+                    if (isBody && !fileName.Contains("bibo") && !fileName.Contains("b+") && !fileName.Contains("gen3") && !fileName.Contains("tbse") && !fileName.Contains("gen2") && !fileName.Contains("mata") && !fileName.Contains("amat"))
+                        needsClassification = true;
+
+                    if ((isBody || isFace) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_"))
+                        needsClassification = true;
+
+                    if (needsClassification)
+                    {
+                        _classificationTcs = new TaskCompletionSource<string>();
+                        _fileToClassify = file;
+                        _classificationIsBody = isBody;
+                        _showClassificationPopup = true;
+                        string format = _classificationTcs.Task.Result;
+                        if (!string.IsNullOrEmpty(format))
+                        {
+                            string[] parts = format.Split('|');
+                            string prefix = parts.Length > 0 && !string.IsNullOrEmpty(parts[0]) ? parts[0] + "_" : "";
+                            string suffix = parts.Length > 1 && !string.IsNullOrEmpty(parts[1]) ? "_" + parts[1] : "";
+                            
+                            string newPath = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, prefix + Path.GetFileNameWithoutExtension(file) + suffix + Path.GetExtension(file));
+                            System.IO.File.Copy(file, newPath, true);
+                            file = newPath;
+                        }
+                        else
+                        {
+                            continue; // They cancelled the popup
                         }
                     }
 
@@ -1602,6 +1716,7 @@ namespace RoleplayingVoice
                     droppedCategories.Add(categoryKey);
                 }
                 plugin.Configuration.Save();
+                UpdateWatchers();
 
                 foreach (var cat in droppedCategories)
                 {
