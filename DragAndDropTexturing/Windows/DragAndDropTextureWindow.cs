@@ -1247,7 +1247,18 @@ namespace RoleplayingVoice
                                     // We extract the current gear so we can safely refresh only the armor pieces.
                                     // We avoid applying the whole state because applying weapons during combat causes crashes.
 
-                                    // Re-apply actual gear to force texture reload
+                                    // Force texture reload by doing a rapid "Emperor's New" swap (setting to 0 then back)
+                                    // This bypasses FFXIV's texture cache without causing a full model teardown stutter
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, 0, new List<byte> { 0 });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, 0, new List<byte> { 0 });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, 0, new List<byte> { 0 });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, 0, new List<byte> { 0 });
+                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, 0, new List<byte> { 0 });
+                                    
+                                    // Give FFXIV a tiny moment to process the removal (sometimes needed to flush cache)
+                                    Thread.Sleep(50);
+                                    
+                                    // Re-apply actual gear
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
@@ -1498,7 +1509,7 @@ namespace RoleplayingVoice
             }
         }
 
-        public void ScheduleRegeneration(string charName, string[] categorySuffixes)
+        public void ScheduleRegeneration(string charName, string[] categorySuffixes, bool skipDelays = false)
         {
             lock (_regenerationLock)
             {
@@ -1523,7 +1534,8 @@ namespace RoleplayingVoice
 
                     // Give Penumbra time to process the character model change
                     // before we try to extract textures for the new race
-                    Thread.Sleep(2000);
+                    // (skip for contextual layers — race hasn't changed)
+                    if (!skipDelays) Thread.Sleep(2000);
 
                     foreach (var key in categories)
                     {
@@ -1535,9 +1547,9 @@ namespace RoleplayingVoice
                             waitAttempts++;
                         }
                         RebuildCategory(key);
-                        Thread.Sleep(500);
+                        if (!skipDelays) Thread.Sleep(500);
                     }
-                }, null, 2000, System.Threading.Timeout.Infinite);
+                }, null, skipDelays ? 200 : 2000, System.Threading.Timeout.Infinite);
             }
         }
 

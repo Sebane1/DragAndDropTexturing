@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace DragAndDropTexturing
 {
@@ -22,6 +23,9 @@ namespace DragAndDropTexturing
         private EmoteReaderHooks _emoteReader;
         private ActionReaderHooks _actionReader;
         private AudioReaderHooks _audioReader;
+        private System.Collections.Concurrent.ConcurrentQueue<Action> _mainThreadActions = new System.Collections.Concurrent.ConcurrentQueue<Action>();
+        private System.Threading.CancellationTokenSource _rebuildDebounce = null;
+        private readonly object _debounceLock = new object();
         
         // Track which layers are currently active
         private List<ActiveContextualLayer> _activeLayers = new List<ActiveContextualLayer>();
@@ -309,6 +313,11 @@ namespace DragAndDropTexturing
 
         private void Framework_Update(Dalamud.Plugin.Services.IFramework framework)
         {
+            while (_mainThreadActions.TryDequeue(out var action))
+            {
+                try { action(); } catch (Exception ex) { _plugin.PluginLog.Error(ex, "[ContextualLayerManager] Main thread action failed."); }
+            }
+
             var player = _plugin.SafeGameObjectManager.LocalPlayer as GameObjectHelper.ThreadSafeDalamudObjectTable.ThreadSafeCharacter;
             if (player == null) return;
 
@@ -576,17 +585,58 @@ namespace DragAndDropTexturing
                 .ToList();
 
             if (active.CurrentStackCount > 20) active.CurrentStackCount = 20;
+            var stampCount = 1; // Since the paint layer is persistent, we only add 1 new stamp per kill
 
-            string tempFile = ProceduralDecalGenerator.GenerateProceduralOverlay(_plugin, _plugin.SafeGameObjectManager.LocalPlayer, active.LayerDef.TargetBodyPart, files, active.CurrentStackCount);
-
-            if (tempFile != null)
+            // Get or create the hidden TexturePaintingWindow for procedural decals
+            var paintWindow = GetOrCreateHeadlessPaintWindow();
+            if (paintWindow == null)
             {
-                if (active.CachedTexturePaths.Count == 1 && active.CachedTexturePaths[0].Contains("temp_decal_"))
-                {
-                    try { System.IO.File.Delete(active.CachedTexturePaths[0]); } catch { }
-                }
-                active.CachedTexturePaths = new List<string> { tempFile };
+                _plugin.PluginLog.Warning("[ContextualLayerManager] Failed to get headless paint window for procedural decals.");
+                return;
             }
+
+            string uvType = "";
+            if (files.Count > 0)
+            {
+                string firstFile = System.IO.Path.GetFileNameWithoutExtension(files[0]).ToLower();
+                if (firstFile.Contains("bibo") || firstFile.Contains("b+")) uvType = "bibo";
+                else if (firstFile.Contains("gen3")) uvType = "gen3";
+                else if (firstFile.Contains("tbse")) uvType = "tbse";
+                else if (firstFile.Contains("gen2")) uvType = "gen2";
+                else if (firstFile.Contains("otopop")) uvType = "otopop";
+            }
+
+            // Queue stamps — they'll be processed during the next Draw() on the ImGui/D3D11 thread
+            paintWindow.QueueProceduralStamps(files, stampCount, active.LayerDef.TargetBodyPart, uvType, (tempFile) =>
+            {
+                if (tempFile != null)
+                {
+                    _mainThreadActions.Enqueue(() => {
+                        if (active.CachedTexturePaths.Count == 1 && active.CachedTexturePaths[0].Contains("temp_decal_"))
+                        {
+                            try { System.IO.File.Delete(active.CachedTexturePaths[0]); } catch { }
+                        }
+                        active.CachedTexturePaths = new List<string> { tempFile };
+                        TriggerHotswapRebuild();
+                    });
+                }
+            });
+        }
+
+        private Windows.TexturePaintingWindow _headlessPaintWindow = null;
+
+        private Windows.TexturePaintingWindow GetOrCreateHeadlessPaintWindow()
+        {
+            if (_headlessPaintWindow != null && _headlessPaintWindow.IsOpen) return _headlessPaintWindow;
+
+            var window = new Windows.TexturePaintingWindow(_plugin);
+            window.WindowName = $"Texture Painter (Headless Debug)###HeadlessPainter_{Guid.NewGuid()}";
+            window.IsHeadlessMode = false;
+            window.IsOpen = true;
+            _plugin.TexturePaintingWindows.Add(window);
+            _plugin.WindowSystem.AddWindow(window);
+            _headlessPaintWindow = window;
+            return window;
         }
 
         private void ActivateLayer(ContextualLayer layer)
@@ -602,8 +652,14 @@ namespace DragAndDropTexturing
                     {
                         existing.CurrentStackCount = existing.CachedTexturePaths.Count;
                     }
-                    if (layer.ProceduralDecalMode) UpdateProceduralDecal(existing);
-                    TriggerHotswapRebuild();
+                    if (layer.ProceduralDecalMode) 
+                    {
+                        UpdateProceduralDecal(existing);
+                    }
+                    else
+                    {
+                        TriggerHotswapRebuild();
+                    }
                 }
                 else if (layer.Trigger == TriggerType.Audio_Path_Load)
                 {
@@ -615,8 +671,14 @@ namespace DragAndDropTexturing
                         {
                             existing.CurrentStackCount++;
                             existing.Timer.Restart();
-                            if (layer.ProceduralDecalMode) UpdateProceduralDecal(existing);
-                            TriggerHotswapRebuild();
+                            if (layer.ProceduralDecalMode) 
+                            {
+                                UpdateProceduralDecal(existing);
+                            }
+                            else
+                            {
+                                TriggerHotswapRebuild();
+                            }
                         }
                         else
                         {
@@ -645,12 +707,42 @@ namespace DragAndDropTexturing
                 active.Timer.Start();
                 _activeLayers.Add(active);
                 
-                if (layer.ProceduralDecalMode) UpdateProceduralDecal(active);
-                TriggerHotswapRebuild();
+                if (layer.ProceduralDecalMode) 
+                {
+                    UpdateProceduralDecal(active);
+                }
+                else
+                {
+                    TriggerHotswapRebuild();
+                }
             }
         }
 
         private void TriggerHotswapRebuild()
+        {
+            // Debounce: cancel any pending rebuild and restart the timer.
+            // This collapses rapid kills into a single ScheduleRegeneration call.
+            lock (_debounceLock)
+            {
+                _rebuildDebounce?.Cancel();
+                _rebuildDebounce = new System.Threading.CancellationTokenSource();
+                var token = _rebuildDebounce.Token;
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(500, token);
+                        if (!token.IsCancellationRequested)
+                        {
+                            _mainThreadActions.Enqueue(() => ExecuteHotswapRebuild());
+                        }
+                    }
+                    catch (TaskCanceledException) { }
+                });
+            }
+        }
+
+        private void ExecuteHotswapRebuild()
         {
             _plugin.PluginLog.Information("Contextual Layer state changed. Hotswap Rebuild triggered.");
             
@@ -684,7 +776,7 @@ namespace DragAndDropTexturing
                     }
                 }
                 
-                _plugin.DragAndDropTextures.ScheduleRegeneration(charName, partsToUpdate.ToArray());
+                _plugin.DragAndDropTextures.ScheduleRegeneration(charName, partsToUpdate.ToArray(), skipDelays: true);
             }
         }
 
