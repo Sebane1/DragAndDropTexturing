@@ -83,6 +83,8 @@ namespace DragAndDropTexturing.Windows
             public Vector3 DecalBitangent;
             public float Padding1;
             public Matrix4x4 ViewProj;
+            public Vector3 CameraEye;
+            public float AspectRatio;
         }
 
         public IntPtr ShaderResourceViewHandle => _shaderResourceView?.NativePointer ?? IntPtr.Zero;
@@ -566,6 +568,7 @@ float4 PS(PS_IN input) : SV_TARGET
         private Vector3 _boundsMin = Vector3.Zero;
         private Vector3 _boundsMax = Vector3.Zero;
         private Vector3 _boundsCenter = Vector3.Zero;
+        private Vector3 _lastEye = Vector3.Zero;
         private float _boundsRadius = 1.0f;
 
         // Interactive orbital camera state
@@ -753,6 +756,7 @@ float4 PS(PS_IN input) : SV_TARGET
 
                     var target = _cameraPan;
                     var eye = target + eyeOffset;
+                    _lastEye = eye + _boundsCenter;
 
                     var centerOffset = Matrix4x4.CreateTranslation(-_boundsCenter);
                     var view = Matrix4x4.CreateLookAt(eye, target, Vector3.UnitY);
@@ -1143,6 +1147,8 @@ cbuffer StampParams : register(b0)
     float3 DecalBitangent;
     float Padding1;
     matrix ViewProj;
+    float3 CameraEye;
+    float AspectRatio;
 };
 Texture2D<float4> StampTex : register(t0);
 SamplerState StampSampler : register(s0);
@@ -1195,29 +1201,33 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             float3 norm = NormalMap[id.xy].xyz;
             
             float3 offset = pos - DecalCenter;
-            float z = dot(offset, DecalNormal);
+            float3 viewDir = normalize(pos - CameraEye);
             
-            if (z <= 0.1f && z >= -DecalDepth && dot(norm, DecalNormal) > 0.0f)
+            // True screen space: we only cull backfaces and limit the overall 3D radius.
+            // We do NOT use the tangent plane 'z' depth bounds, because that causes flat cut-offs on curved surfaces.
+            if (dot(norm, -viewDir) > -0.1f)
             {
-                if (length(offset) <= DecalRadius * 3.0f)
+                if (length(offset) <= DecalRadius * 5.0f) // Slightly larger radius for screen-space to prevent sphere cutoffs
                 {
                     float4 clipPos = mul(float4(pos, 1.0f), ViewProj);
                     if (clipPos.w > 0.001f)
                     {
                         clipPos.xyz /= clipPos.w;
                         float2 screenUv = float2(clipPos.x * 0.5f + 0.5f, 1.0f - (clipPos.y * 0.5f + 0.5f));
+                        float2 screenUvAdjusted = screenUv * float2(AspectRatio, 1.0f);
                         
                         float4 centerClip = mul(float4(DecalCenter, 1.0f), ViewProj);
                         centerClip.xyz /= centerClip.w;
                         float2 centerScreenUv = float2(centerClip.x * 0.5f + 0.5f, 1.0f - (centerClip.y * 0.5f + 0.5f));
+                        float2 centerScreenUvAdjusted = centerScreenUv * float2(AspectRatio, 1.0f);
                         
-                        float2 minPos = centerScreenUv - UVScale * 0.5f;
-                        float2 maxPos = centerScreenUv + UVScale * 0.5f;
+                        float2 minPos = centerScreenUvAdjusted - UVScale * 0.5f;
+                        float2 maxPos = centerScreenUvAdjusted + UVScale * 0.5f;
                         
-                        if (screenUv.x >= minPos.x && screenUv.x <= maxPos.x &&
-                            screenUv.y >= minPos.y && screenUv.y <= maxPos.y)
+                        if (screenUvAdjusted.x >= minPos.x && screenUvAdjusted.x <= maxPos.x &&
+                            screenUvAdjusted.y >= minPos.y && screenUvAdjusted.y <= maxPos.y)
                         {
-                            float2 localUv = (screenUv - minPos) / UVScale;
+                            float2 localUv = (screenUvAdjusted - minPos) / UVScale;
                             stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
                         }
                     }
@@ -1450,7 +1460,9 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 ProjectionMode = projectionMode,
                 DecalBitangent = bitangent,
                 Padding1 = 0,
-                ViewProj = Matrix4x4.Transpose(_lastWvp)
+                ViewProj = Matrix4x4.Transpose(_lastWvp),
+                CameraEye = _lastEye,
+                AspectRatio = (float)Width / Height
             };
 
             _context.UpdateSubresource(stampParams, _stampCB);
@@ -1492,7 +1504,9 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 ProjectionMode = projectionMode,
                 DecalBitangent = bitangent,
                 Padding1 = 0,
-                ViewProj = Matrix4x4.Transpose(_lastWvp)
+                ViewProj = Matrix4x4.Transpose(_lastWvp),
+                CameraEye = _lastEye,
+                AspectRatio = (float)Width / Height
             };
 
             _context.UpdateSubresource(stampParams, _stampCB);
