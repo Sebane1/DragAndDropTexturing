@@ -277,7 +277,7 @@ namespace DragAndDropTexturing
                     var _worldNormal = worldNormal; var _rotTangent = rotTangent;
                     var _rotBitangent = rotBitangent; var _radius = radius;
                     RunOnMainThread(() => _headlessRenderer.GpuStampTexture(
-                        _srv, _uvHit, new Vector2(1, 1), true,
+                        _srv, _uvHit, new Vector2(1, 1), 1,
                         _worldPos, _worldNormal, _rotTangent, _rotBitangent,
                         _radius, _radius * 2.0f
                     ));

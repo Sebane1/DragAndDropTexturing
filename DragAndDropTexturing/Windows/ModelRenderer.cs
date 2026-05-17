@@ -79,9 +79,10 @@ namespace DragAndDropTexturing.Windows
             public Vector3 DecalNormal;
             public float DecalRadius;
             public Vector3 DecalTangent;
-            public int Is3D;
+            public int ProjectionMode;
             public Vector3 DecalBitangent;
             public float Padding1;
+            public Matrix4x4 ViewProj;
         }
 
         public IntPtr ShaderResourceViewHandle => _shaderResourceView?.NativePointer ?? IntPtr.Zero;
@@ -1138,9 +1139,10 @@ cbuffer StampParams : register(b0)
     float3 DecalNormal;
     float DecalRadius;
     float3 DecalTangent;
-    int Is3D;
+    int ProjectionMode;
     float3 DecalBitangent;
     float Padding1;
+    matrix ViewProj;
 };
 Texture2D<float4> StampTex : register(t0);
 SamplerState StampSampler : register(s0);
@@ -1158,7 +1160,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
     float2 uv = float2(id.x, id.y) / float2(w, h);
     float4 stamp = float4(0,0,0,0);
     
-    if (Is3D > 0)
+    if (ProjectionMode == 1) // 3D Tangent Space
     {
         float4 posData = PositionMap[id.xy];
         if (posData.a > 0.5f)
@@ -1169,11 +1171,8 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             float3 offset = pos - DecalCenter;
             float z = dot(offset, DecalNormal);
             
-            // z is negative when curving inward along the surface, positive when floating above the surface.
-            // We restrict positive z to 0.1 to prevent jumping across empty space (e.g. to the other leg)
             if (z <= 0.1f && z >= -DecalDepth && dot(norm, DecalNormal) > 0.0f)
             {
-                // Spherical limit to prevent painting disconnected geometry that happens to fall in the cylinder
                 if (length(offset) <= DecalRadius * 1.5f)
                 {
                     float x = dot(offset, DecalTangent);
@@ -1187,7 +1186,46 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             }
         }
     }
-    else
+    else if (ProjectionMode == 2) // 3D Camera Space
+    {
+        float4 posData = PositionMap[id.xy];
+        if (posData.a > 0.5f)
+        {
+            float3 pos = posData.xyz;
+            float3 norm = NormalMap[id.xy].xyz;
+            
+            float3 offset = pos - DecalCenter;
+            float z = dot(offset, DecalNormal);
+            
+            if (z <= 0.1f && z >= -DecalDepth && dot(norm, DecalNormal) > 0.0f)
+            {
+                if (length(offset) <= DecalRadius * 3.0f)
+                {
+                    float4 clipPos = mul(float4(pos, 1.0f), ViewProj);
+                    if (clipPos.w > 0.001f)
+                    {
+                        clipPos.xyz /= clipPos.w;
+                        float2 screenUv = float2(clipPos.x * 0.5f + 0.5f, 1.0f - (clipPos.y * 0.5f + 0.5f));
+                        
+                        float4 centerClip = mul(float4(DecalCenter, 1.0f), ViewProj);
+                        centerClip.xyz /= centerClip.w;
+                        float2 centerScreenUv = float2(centerClip.x * 0.5f + 0.5f, 1.0f - (centerClip.y * 0.5f + 0.5f));
+                        
+                        float2 minPos = centerScreenUv - UVScale * 0.5f;
+                        float2 maxPos = centerScreenUv + UVScale * 0.5f;
+                        
+                        if (screenUv.x >= minPos.x && screenUv.x <= maxPos.x &&
+                            screenUv.y >= minPos.y && screenUv.y <= maxPos.y)
+                        {
+                            float2 localUv = (screenUv - minPos) / UVScale;
+                            stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else // 2D Canvas
     {
         if (uv.x >= UVPosition.x && uv.x <= UVPosition.x + UVScale.x &&
             uv.y >= UVPosition.y && uv.y <= UVPosition.y + UVScale.y)
@@ -1395,10 +1433,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             }
         }
 
-        public void GpuStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, bool is3D = false, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)
+        public void GpuStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, int projectionMode = 0, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)
         {
             if (!_gpuPaintReady || _context == null || stampSrv == null) return;
-            if (is3D && (PositionMapSRV == null || NormalMapSRV == null)) return;
+            if (projectionMode > 0 && (PositionMapSRV == null || NormalMapSRV == null)) return;
 
             var stampParams = new StampParams
             {
@@ -1409,9 +1447,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 DecalNormal = normal,
                 DecalRadius = radius,
                 DecalTangent = tangent,
-                Is3D = is3D ? 1 : 0,
+                ProjectionMode = projectionMode,
                 DecalBitangent = bitangent,
-                Padding1 = 0
+                Padding1 = 0,
+                ViewProj = Matrix4x4.Transpose(_lastWvp)
             };
 
             _context.UpdateSubresource(stampParams, _stampCB);
@@ -1436,10 +1475,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShader(null);
         }
 
-        public void GpuPreviewStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, bool is3D = false, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)
+        public void GpuPreviewStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, int projectionMode = 0, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)
         {
             if (!_gpuPaintReady || _context == null || stampSrv == null) return;
-            if (is3D && (PositionMapSRV == null || NormalMapSRV == null)) return;
+            if (projectionMode > 0 && (PositionMapSRV == null || NormalMapSRV == null)) return;
 
             var stampParams = new StampParams
             {
@@ -1450,9 +1489,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 DecalNormal = normal,
                 DecalRadius = radius,
                 DecalTangent = tangent,
-                Is3D = is3D ? 1 : 0,
+                ProjectionMode = projectionMode,
                 DecalBitangent = bitangent,
-                Padding1 = 0
+                Padding1 = 0,
+                ViewProj = Matrix4x4.Transpose(_lastWvp)
             };
 
             _context.UpdateSubresource(stampParams, _stampCB);

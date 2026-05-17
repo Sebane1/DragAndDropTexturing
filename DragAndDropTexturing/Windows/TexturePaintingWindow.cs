@@ -116,7 +116,7 @@ namespace DragAndDropTexturing.Windows
             public Vector2 Position = new Vector2(0f, 0f);
             public Vector2 Scale = new Vector2(0.5f, 0.5f);
             
-            public bool Is3DProjected = false;
+            public int ProjectionMode = 0;
             public Vector3 DecalCenter = Vector3.Zero;
             public Vector3 DecalNormal = Vector3.UnitY;
             public Vector3 DecalTangent = Vector3.UnitX;
@@ -128,6 +128,7 @@ namespace DragAndDropTexturing.Windows
             }
         }
         private FloatingLayer _floatingLayer = null;
+        private int _default3DProjectionMode = 1;
         private int _dragHandle = -1;
         private string _importPath = "";
 
@@ -491,13 +492,22 @@ namespace DragAndDropTexturing.Windows
             if (_floatingLayer != null)
             {
                 ImGui.Separator();
+                
+                ImGui.Text(Translator.LocalizeUI("Projection Mode:"));
+                int pMode = _floatingLayer.ProjectionMode;
+                if (ImGui.RadioButton(Translator.LocalizeUI("2D Canvas"), ref pMode, 0)) _floatingLayer.ProjectionMode = pMode;
+                ImGui.SameLine();
+                if (ImGui.RadioButton(Translator.LocalizeUI("3D Tangent"), ref pMode, 1)) { _floatingLayer.ProjectionMode = pMode; _default3DProjectionMode = pMode; }
+                ImGui.SameLine();
+                if (ImGui.RadioButton(Translator.LocalizeUI("3D Camera"), ref pMode, 2)) { _floatingLayer.ProjectionMode = pMode; _default3DProjectionMode = pMode; }
+
                 if (ImGui.Button(Translator.LocalizeUI("Stamp Floating Layer")))
                 {
                     _renderer.PushUndoSnapshot();
-                    if (_floatingLayer.Is3DProjected)
-                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, true, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 0.5f);
+                    if (_floatingLayer.ProjectionMode > 0)
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 0.5f);
                     else
-                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale);
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0);
                     _needsComposite = true;
                     _floatingLayer.Dispose();
                     _floatingLayer = null;
@@ -688,7 +698,8 @@ namespace DragAndDropTexturing.Windows
                                     }
 
                                     _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
-                                    _floatingLayer.Is3DProjected = true;
+                                    if (_floatingLayer.ProjectionMode == 0)
+                                        _floatingLayer.ProjectionMode = _default3DProjectionMode;
                                     _floatingLayer.DecalCenter = worldHit;
                                     _floatingLayer.DecalNormal = hitNormal;
                                     
@@ -742,7 +753,8 @@ namespace DragAndDropTexturing.Windows
                                     }
 
                                     _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
-                                    _floatingLayer.Is3DProjected = true;
+                                    if (_floatingLayer.ProjectionMode == 0)
+                                        _floatingLayer.ProjectionMode = _default3DProjectionMode;
                                     _floatingLayer.DecalCenter = worldHit;
                                     _floatingLayer.DecalNormal = hitNormal;
                                     
@@ -883,7 +895,7 @@ namespace DragAndDropTexturing.Windows
                                 var delta = ImGui.GetIO().MouseDelta;
                                 if (ImGui.IsKeyDown(ImGuiKey.ModShift)) delta.X = 0f;
                                 _floatingLayer.Position += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
-                                _floatingLayer.Is3DProjected = false; // Move in 2D disabled 3D projection
+                                _floatingLayer.ProjectionMode = 0; // Move in 2D disabled 3D projection
                                 _needsComposite = true;
                             }
                             else if (_dragHandle == 1 && _floatingLayer != null)
@@ -935,12 +947,14 @@ namespace DragAndDropTexturing.Windows
             {
                 _renderer.GpuComposite(_primarySlotArray);
                 if (_floatingLayer != null && _floatingLayer.SRV != null)
-                {
-                    if (_floatingLayer.Is3DProjected)
-                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, true, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 0.5f);
+                {                    if (_floatingLayer.ProjectionMode > 0)
+                    {
+                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 0.5f);
+                    }
                     else
-                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale);
-                }
+                    {
+                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0);
+                    } }
                 _needsComposite = false;
             }
         }
@@ -1951,7 +1965,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                     Vector3 rotTangent = tangent * cosA - bitangent * sinA;
                     Vector3 rotBitangent = tangent * sinA + bitangent * cosA;
 
-                    _renderer.GpuStampTexture(srv, uvHit, new Vector2(1, 1), true,
+                    _renderer.GpuStampTexture(srv, uvHit, new Vector2(1, 1), _default3DProjectionMode,
                         worldPos, worldNormal, rotTangent, rotBitangent, radius, radius * 2.0f);
                 }
 
