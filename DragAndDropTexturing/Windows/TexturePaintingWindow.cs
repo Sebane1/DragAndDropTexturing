@@ -1730,12 +1730,19 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                 {
                     _renderer.InitGpuPaint(w, h);
                     _gpuPaintInitialized = true;
-                    _renderer.BakeUVMaps();
                 }
                 
                 // Upload the base texture to GPU
                 _renderer.SetBaseTexture(data.Scan0, w, h);
                 _cachedBaseBitmap.UnlockBits(data);
+
+                // Run BakeUVMaps asynchronously so it doesn't freeze the main thread
+                Task.Run(() => {
+                    if (_renderer != null)
+                    {
+                        _renderer.BakeUVMaps();
+                    }
+                });
 
                 // Load existing layer into paint layer if editing
                 if (!_editLayerLoaded && EditSourcePath != null && File.Exists(EditSourcePath))

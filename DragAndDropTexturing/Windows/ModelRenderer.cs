@@ -509,7 +509,6 @@ float4 PS(PS_IN input) : SV_TARGET
             model.IndexBuffer = _device.CreateBuffer(model.Indices, BindFlags.IndexBuffer);
 
             RecalculateBounds();
-            BakeUVMaps();
             if (_vertexShader == null)
             {
                 try
@@ -1292,7 +1291,6 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             }
 
             _gpuPaintReady = true;
-            BakeUVMaps();
         }
 
         public void SetBaseTexture(IntPtr bgraPixels, int width, int height)
