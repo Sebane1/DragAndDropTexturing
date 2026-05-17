@@ -1152,6 +1152,8 @@ namespace RoleplayingVoice
         public async Task<bool> Export(bool finalize, List<TextureSet> exportTextureSets, string path,
             string name, KeyValuePair<string, ICharacter> character, int overrideRace = -1, int overrideClan = -1, int overrideGender = -1, int overrideFace = -1, bool isContextual = false)
         {
+            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
             plugin.PluginLog.Information("[Drag And Drop Debug] Export started!");
             if (!_lockDuplicateGeneration)
             {
@@ -1291,6 +1293,7 @@ namespace RoleplayingVoice
                         plugin.PluginLog.Error("[Drag And Drop Texturing] Error during underlay extraction: " + ex.Message);
                     }
 
+                    _textureProcessor.ExportScale = Plugin.Configuration.ExportScale;
                     ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath, 3, Plugin.Configuration.GenerateNormals, false, true, Plugin.Configuration.ExportCompression == 1);
                     Thread.Sleep(100);
 
@@ -1367,6 +1370,8 @@ namespace RoleplayingVoice
                     });
 
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
+                    sw.Stop();
+                    plugin.Chat.Print($"[Drag & Drop] Export completed in {sw.ElapsedMilliseconds}ms.");
                 }
                 finally
                 {

@@ -12,6 +12,7 @@ public class Configuration : IPluginConfiguration
     public bool AutoUniversalConvert { get; set; } = false;
     public bool GenerateNormals { get; set; } = false;
     public int ExportCompression { get; set; } = 0; // 0 = Speed (Uncompressed), 1 = BC7 High Quality
+    public float ExportScale { get; set; } = 1.0f;
     public string DefaultUnderlaySkinType { get; set; } = "Bibo Detailed";
     public bool UsePriorityBodyMod { get; set; } = true;
     public int LastKnownRace { get; set; } = -1;

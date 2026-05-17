@@ -236,11 +236,11 @@ public class MainWindow : Window, IDisposable
         ImGui.TextWrapped(Translator.LocalizeUI("When enabled, normal maps will be automatically generated from base textures if they are missing."));
 
         ImGui.Spacing();
-        int exportCompression = Plugin.Configuration.ExportCompression;
-        string[] compressionOptions = { Translator.LocalizeUI("Speed (Uncompressed)"), Translator.LocalizeUI("Sync Friendly (Mode 6 BC7)") };
-        if (ImGui.Combo(Translator.LocalizeUI("Export Compression"), ref exportCompression, compressionOptions, compressionOptions.Length))
+        int exportQuality = Plugin.Configuration.ExportCompression;
+        string[] qualityOptions = { Translator.LocalizeUI("Speed (Uncompressed)"), Translator.LocalizeUI("High Quality (BC7 / Sync Friendly)") };
+        if (ImGui.Combo(Translator.LocalizeUI("Export Quality"), ref exportQuality, qualityOptions, qualityOptions.Length))
         {
-            Plugin.Configuration.ExportCompression = exportCompression;
+            Plugin.Configuration.ExportCompression = exportQuality;
             Plugin.Configuration.Save();
             
             var ddtForRebuild = Plugin.DragAndDropTextures;
@@ -249,7 +249,24 @@ public class MainWindow : Window, IDisposable
                 ddtForRebuild.RebuildAllCategories();
             }
         }
-        ImGui.TextWrapped(Translator.LocalizeUI("Selects the texture compression method used for exports. Speed is faster to generate but results in larger file sizes. BC7 offers the lowest file sizes for Dawntrail, but is performance heavy exporting."));
+        ImGui.TextWrapped(Translator.LocalizeUI("Selects the texture quality used for exports. Speed is faster to generate but results in larger file sizes. High Quality (BC7) offers the lowest file sizes for Dawntrail, but is performance heavy."));
+        
+        ImGui.Spacing();
+        float exportScale = Plugin.Configuration.ExportScale;
+        int scaleIndex = exportScale == 1.0f ? 0 : exportScale == 0.5f ? 1 : 2;
+        string[] scaleOptions = { Translator.LocalizeUI("100% (Native)"), Translator.LocalizeUI("50% (Half Resolution)"), Translator.LocalizeUI("25% (Quarter Resolution)") };
+        if (ImGui.Combo(Translator.LocalizeUI("Export Resolution"), ref scaleIndex, scaleOptions, scaleOptions.Length))
+        {
+            Plugin.Configuration.ExportScale = scaleIndex == 0 ? 1.0f : scaleIndex == 1 ? 0.5f : 0.25f;
+            Plugin.Configuration.Save();
+            
+            var ddtForRebuild = Plugin.DragAndDropTextures;
+            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            {
+                ddtForRebuild.RebuildAllCategories();
+            }
+        }
+        ImGui.TextWrapped(Translator.LocalizeUI("Downscales exported textures to save memory and file size at the cost of visual quality."));
         
         ImGui.Spacing();
         var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
