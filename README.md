@@ -34,7 +34,7 @@ Drag and drop your desired texture onto your characters eyebrows, eyes, face, or
 
 Step 4:
 The texture will be automatically applied to your character by creating a penumbra mod for you.
-If you wish to undo any changes, go to your penumbra mod list, search your characters first name, delete the generated mod packs.
+If you wish to undo any changes, go to your penumbra mod list, search your characters first name, delete the generated mod packs. Or clear the unwanted texture layers through the interface using /ddt
 
 Support Discord:
 https://discord.gg/rtGXwMn7pX
