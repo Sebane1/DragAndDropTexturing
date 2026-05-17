@@ -142,6 +142,16 @@ public sealed class Plugin : IDalamudPlugin
         {
             pluginLog.Error(ex, "Failed to initialize ContextualLayerManager, EmoteReaderHooks, or ActionReaderHooks");
         }
+
+        try
+        {
+            string vfsPath = Path.Combine(PluginInterface.ConfigDirectory.FullName, "vfs.dat");
+            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.LoadVFS(vfsPath);
+        }
+        catch (Exception ex)
+        {
+            pluginLog.Error(ex, "Failed to load VFS.");
+        }
     }
 
     private void RunMigrations()
@@ -281,6 +291,16 @@ public sealed class Plugin : IDalamudPlugin
         }
         TexturePaintingWindows.Clear();
         CommandManager.RemoveHandler(CommandName);
+
+        try
+        {
+            string vfsPath = Path.Combine(PluginInterface.ConfigDirectory.FullName, "vfs.dat");
+            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveVFS(vfsPath);
+        }
+        catch (Exception ex)
+        {
+            _pluginLog.Error(ex, "Failed to save VFS.");
+        }
     }
 
     private Dictionary<string, bool> _bodyAvailabilityCache = new Dictionary<string, bool>();

@@ -496,6 +496,7 @@ namespace DragAndDropTexturing
                     var existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
                     if (existing == null)
                     {
+                        _plugin.PluginLog.Information($"[Contextual Layers] Condition met for '{layer.Name}' (Trigger: {layer.Trigger}). Activating...");
                         ActivateLayer(layer);
                         existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
                         if (existing != null && layer.Trigger == TriggerType.HP_Threshold)
@@ -517,6 +518,11 @@ namespace DragAndDropTexturing
                         {
                             existing.CurrentStackCount = desiredStackForHp;
                             layersChanged = true;
+                            _plugin.PluginLog.Information($"[Contextual Layers] '{layer.Name}' HP Threshold adjusted stack count to {desiredStackForHp}.");
+                        }
+                        else if (layer.Trigger != TriggerType.HP_Threshold)
+                        {
+                            // Avoid spamming log every frame, but we could log state refresh here if necessary
                         }
                     }
                 }
@@ -695,6 +701,7 @@ namespace DragAndDropTexturing
             var existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
             if (existing != null)
             {
+                _plugin.PluginLog.Information($"[Contextual Layers] '{layer.Name}' is already active. Processing stack increment or timer refresh...");
                 existing.Timer.Restart();
                 if (layer.Trigger == TriggerType.Emote)
                 {
@@ -740,7 +747,7 @@ namespace DragAndDropTexturing
             }
             else
             {
-                _plugin.PluginLog.Information($"Activating Contextual Layer '{layer.Name}'!");
+                _plugin.PluginLog.Information($"[Contextual Layers] Activating Contextual Layer '{layer.Name}' for the first time!");
                 var active = new ActiveContextualLayer { LayerDef = layer };
                 
                 if (System.IO.Directory.Exists(layer.DirectoryPath))
@@ -849,12 +856,14 @@ namespace DragAndDropTexturing
                     if (existing != null)
                     {
                         existing.KillsSinceLastStack++;
+                        _plugin.PluginLog.Information($"[Contextual Layers] '{layer.Name}' tracking progress: {existing.KillsSinceLastStack}/{layer.RequiredKillsPerStack}");
                         if (existing.KillsSinceLastStack >= layer.RequiredKillsPerStack)
                         {
                             existing.KillsSinceLastStack = 0;
                             if (existing.CurrentStackCount < existing.CachedTexturePaths.Count || layer.ProceduralDecalMode)
                             {
                                 existing.CurrentStackCount++;
+                                _plugin.PluginLog.Information($"[Contextual Layers] '{layer.Name}' threshold reached! Stack increased to {existing.CurrentStackCount}. Rebuilding...");
                                 existing.Timer.Restart();
                                 if (layer.ProceduralDecalMode) UpdateProceduralDecal(existing);
                                 TriggerHotswapRebuild();

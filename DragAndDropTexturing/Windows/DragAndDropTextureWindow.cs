@@ -464,6 +464,60 @@ namespace RoleplayingVoice
             plugin.PluginLog.Information("[Drag And Drop Texturing] " + _exportStatus);
         }
 
+        private int _lastDistanceBracket = -1;
+
+        public override void Update()
+        {
+            if (Plugin.Configuration.AutoDistanceExportQuality && plugin?.SafeGameObjectManager?.LocalPlayer != null)
+            {
+                try
+                {
+                    string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
+                    var charKeys = _textureHistory.Keys.Where(k => k.StartsWith(charName + "_") && _textureHistory[k].Count > 0).ToList();
+                    
+                    if (charKeys.Count > 0)
+                    {
+                        unsafe
+                        {
+                            var cameraManager = FFXIVClientStructs.FFXIV.Client.Graphics.Scene.CameraManager.Instance();
+                            if (cameraManager != null && cameraManager->CurrentCamera != null)
+                            {
+                                var camPos = cameraManager->CurrentCamera->Object.Position;
+                                var playerPos = plugin.SafeGameObjectManager.LocalPlayer.Position;
+                                float distance = System.Numerics.Vector3.Distance(camPos, playerPos);
+                                
+                                int currentBracket = 0;
+                                if (distance < 2.5f) currentBracket = 2; // High
+                                else if (distance < 6.0f) currentBracket = 1; // Mid
+                                else currentBracket = 0; // Low
+
+                                if (_lastDistanceBracket != -1 && _lastDistanceBracket != currentBracket)
+                                {
+                                    plugin.PluginLog.Information($"[Drag And Drop Texturing] Camera crossed distance threshold ({distance}m). Auto-triggering export.");
+                                    
+                                    List<string> partsToRegenerate = new List<string>();
+                                    foreach (var key in charKeys)
+                                    {
+                                        string partSuffix = key.Substring(charName.Length);
+                                        if (partSuffix.Contains("face") || partSuffix.Contains("eye")) continue;
+                                        partsToRegenerate.Add(partSuffix);
+                                    }
+                                    
+                                    if (partsToRegenerate.Count > 0)
+                                    {
+                                        ScheduleRegeneration(charName, partsToRegenerate.ToArray(), true);
+                                    }
+                                }
+                                
+                                _lastDistanceBracket = currentBracket;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
         public override void Draw()
         {
             var size = ImGui.GetIO().DisplaySize;
@@ -1293,7 +1347,40 @@ namespace RoleplayingVoice
                         plugin.PluginLog.Error("[Drag And Drop Texturing] Error during underlay extraction: " + ex.Message);
                     }
 
-                    _textureProcessor.ExportScale = Plugin.Configuration.ExportScale;
+                    float exportScale = Plugin.Configuration.ExportScale;
+                    if (character.Value != null)
+                    {
+                        try
+                        {
+                            unsafe
+                            {
+                                var cameraManager = FFXIVClientStructs.FFXIV.Client.Graphics.Scene.CameraManager.Instance();
+                                if (cameraManager != null && cameraManager->CurrentCamera != null)
+                                {
+                                    var camPos = cameraManager->CurrentCamera->Object.Position;
+                                    var playerPos = character.Value.Position;
+                                    float distance = System.Numerics.Vector3.Distance(camPos, playerPos);
+                                    
+                                    plugin.PluginLog.Information($"[Drag And Drop Texturing] Camera Distance = {distance}m. Auto Quality Enabled = {Plugin.Configuration.AutoDistanceExportQuality}");
+                                    
+                                    if (Plugin.Configuration.AutoDistanceExportQuality)
+                                    {
+                                        // Scale based on distance. 
+                                        if (distance < 2.5f) exportScale = 1.0f; // Close up, High Quality
+                                        else if (distance < 6.0f) exportScale = 0.5f; // Mid-range, Half Quality
+                                        else exportScale = 0.25f; // Far away, Quarter Quality
+                                        
+                                        plugin.PluginLog.Information($"[Drag And Drop Texturing] Auto Distance Export Quality: Scale applied = {exportScale}");
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            plugin.PluginLog.Error("[Drag And Drop Texturing] Camera distance check failed: " + ex.Message);
+                        }
+                    }
+                    _textureProcessor.ExportScale = exportScale;
                     ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath, 3, Plugin.Configuration.GenerateNormals, false, true, Plugin.Configuration.ExportCompression == 1);
 
                     long compilationTime = sw.ElapsedMilliseconds;
@@ -1325,14 +1412,7 @@ namespace RoleplayingVoice
                                 var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64);
                                 if (customization?.Equipment != null)
                                 {
-                                    // Force texture reload by doing a rapid "Emperor's New" swap (setting to 0 then back)
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, 0, new List<byte> { 0 });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, 0, new List<byte> { 0 });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, 0, new List<byte> { 0 });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, 0, new List<byte> { 0 });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, 0, new List<byte> { 0 });
-                                    
-                                    // Re-apply actual gear immediately. FFXIV will fetch the newly available textures from Penumbra's cache during the swap
+                                    // Force texture reload by reapplying the same gear. FFXIV will fetch the newly available textures from Penumbra's cache during the swap
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
@@ -1363,7 +1443,7 @@ namespace RoleplayingVoice
 
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
                     sw.Stop();
-                    plugin.Chat.Print($"[Drag & Drop] Generated in {compilationTime}ms. Total Export+IPC: {sw.ElapsedMilliseconds}ms.");
+                    plugin.PluginLog.Information($"[Drag & Drop] Generated in {compilationTime}ms. Total Export+IPC: {sw.ElapsedMilliseconds}ms.");
                 }
                 finally
                 {

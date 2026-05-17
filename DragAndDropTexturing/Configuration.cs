@@ -13,8 +13,10 @@ public class Configuration : IPluginConfiguration
     public bool GenerateNormals { get; set; } = false;
     public int ExportCompression { get; set; } = 0; // 0 = Speed (Uncompressed), 1 = BC7 High Quality
     public float ExportScale { get; set; } = 1.0f;
+    public bool AutoDistanceExportQuality { get; set; } = false;
     public string DefaultUnderlaySkinType { get; set; } = "Bibo Detailed";
     public bool UsePriorityBodyMod { get; set; } = true;
+    public int FallbackBodyType { get; set; } = 0; // 0 = Auto-detect, 1 = Vanilla, 2 = Bibo+, 3 = Gen3, 4 = TBSE, 5 = Otopop
     public int LastKnownRace { get; set; } = -1;
     public int LastKnownClan { get; set; } = -1;
     public int LastKnownGender { get; set; } = -1;

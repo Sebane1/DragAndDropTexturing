@@ -170,6 +170,7 @@ public class MainWindow : Window, IDisposable
             if (_cachedBodyType == 1) bodyString = "Bibo+";
             else if (_cachedBodyType == 2) bodyString = "Gen3 / Eve / Pythia";
             else if (_cachedBodyType == 3) bodyString = "TBSE";
+            else if (_cachedBodyType == 5) bodyString = "Otopop";
 
             if (_cachedBodyType != -1)
                 ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected:") + $" {bodyString}");
@@ -185,6 +186,17 @@ public class MainWindow : Window, IDisposable
         {
             ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), Translator.LocalizeUI("Player not loaded."));
         }
+        
+        ImGui.Spacing();
+        int fallbackBodyType = Plugin.Configuration.FallbackBodyType;
+        string[] fallbackOptions = { Translator.LocalizeUI("Auto-Detect (Default)"), Translator.LocalizeUI("Vanilla"), "Bibo+", "Gen3 / Eve / Pythia", "TBSE", "Otopop" };
+        if (ImGui.Combo(Translator.LocalizeUI("Manual Body Type Fallback"), ref fallbackBodyType, fallbackOptions, fallbackOptions.Length))
+        {
+            Plugin.Configuration.FallbackBodyType = fallbackBodyType;
+            Plugin.Configuration.Save();
+        }
+        ImGui.TextWrapped(Translator.LocalizeUI("Forces a specific body type to be used when automatic detection via Penumbra fails (e.g., if Penumbra connection issues occur)."));
+        
         ImGui.Separator();
         
         ImGui.Spacing();
@@ -267,6 +279,15 @@ public class MainWindow : Window, IDisposable
             }
         }
         ImGui.TextWrapped(Translator.LocalizeUI("Downscales exported textures to save memory and file size at the cost of visual quality."));
+        
+        ImGui.Spacing();
+        bool autoDistanceExportQuality = Plugin.Configuration.AutoDistanceExportQuality;
+        if (ImGui.Checkbox(Translator.LocalizeUI("Auto Distance Export Quality (Experimental)"), ref autoDistanceExportQuality))
+        {
+            Plugin.Configuration.AutoDistanceExportQuality = autoDistanceExportQuality;
+            Plugin.Configuration.Save();
+        }
+        ImGui.TextWrapped(Translator.LocalizeUI("Automatically scales the export resolution based on how close the camera is to your character during the drop."));
         
         ImGui.Spacing();
         var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
@@ -1098,7 +1119,11 @@ public class MainWindow : Window, IDisposable
 
             if (layer.Trigger == TriggerType.Emote || 
                 layer.Trigger == TriggerType.Audio_Path_Load || 
-                layer.Trigger == TriggerType.Chat_Message)
+                layer.Trigger == TriggerType.Chat_Message ||
+                layer.Trigger == TriggerType.Swimming_State ||
+                layer.Trigger == TriggerType.Combat_State ||
+                layer.Trigger == TriggerType.Weapon_Drawn ||
+                layer.Trigger == TriggerType.Mounted_State)
             {
                 int duration = layer.DurationSeconds;
                 if (ImGui.InputInt(Translator.LocalizeUI("Duration (Seconds)") + "##ContextDur", ref duration))
