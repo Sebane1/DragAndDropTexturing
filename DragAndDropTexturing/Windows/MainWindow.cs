@@ -739,6 +739,7 @@ public class MainWindow : Window, IDisposable
 
     private string _cachedErrorLog = null;
     private string _cachedBenchmarkLog = null;
+    private string _cachedExportBenchmarkLog = null;
     private DateTime _lastErrorLogCheck = DateTime.MinValue;
 
     private void DrawDiagnostics()
@@ -748,6 +749,7 @@ public class MainWindow : Window, IDisposable
         
         string logPath = Path.Combine(Path.GetTempPath(), "GPU_Fallback_Error.txt");
         string benchPath = Path.Combine(Path.GetTempPath(), "GPU_Benchmark.txt");
+        string exportBenchPath = Path.Combine(Path.GetTempPath(), "Export_Benchmark.txt");
         
         if ((DateTime.Now - _lastErrorLogCheck).TotalSeconds > 2)
         {
@@ -768,6 +770,15 @@ public class MainWindow : Window, IDisposable
             {
                 _cachedBenchmarkLog = Translator.LocalizeUI("No benchmark data recorded yet.");
             }
+
+            if (File.Exists(exportBenchPath))
+            {
+                try { _cachedExportBenchmarkLog = File.ReadAllText(exportBenchPath); } catch { }
+            }
+            else
+            {
+                _cachedExportBenchmarkLog = Translator.LocalizeUI("No export benchmark data recorded yet.");
+            }
             
             _lastErrorLogCheck = DateTime.Now;
         }
@@ -787,11 +798,42 @@ public class MainWindow : Window, IDisposable
         
         ImGui.Separator();
         ImGui.Spacing();
-        ImGui.Text(Translator.LocalizeUI("MergeImageLayers Performance Benchmarks:"));
+        ImGui.Text(Translator.LocalizeUI("Export Performance Benchmarks:"));
         
+        if (ImGui.Button(Translator.LocalizeUI("Copy Export Benchmark to Clipboard")))
+        {
+            if (_cachedExportBenchmarkLog != null)
+                ImGui.SetClipboardText(_cachedExportBenchmarkLog);
+        }
+        
+        if (_cachedExportBenchmarkLog != null)
+        {
+            ImGui.BeginChild("ExportBenchmarkLogChild", new Vector2(-1, 250), true);
+            ImGui.TextUnformatted(_cachedExportBenchmarkLog);
+            if (ImGui.GetScrollY() >= ImGui.GetScrollMaxY())
+                ImGui.SetScrollHereY(1.0f);
+            ImGui.EndChild();
+        }
+        
+        if (ImGui.Button(Translator.LocalizeUI("Clear Export Benchmark")))
+        {
+            if (File.Exists(exportBenchPath)) { try { File.Delete(exportBenchPath); } catch { } }
+            _cachedExportBenchmarkLog = Translator.LocalizeUI("No export benchmark data recorded yet.");
+        }
+
+        ImGui.Separator();
+        ImGui.Spacing();
+        ImGui.Text(Translator.LocalizeUI("MergeImageLayers GPU Benchmarks:"));
+        
+        if (ImGui.Button(Translator.LocalizeUI("Copy GPU Benchmark to Clipboard")))
+        {
+            if (_cachedBenchmarkLog != null)
+                ImGui.SetClipboardText(_cachedBenchmarkLog);
+        }
+
         if (_cachedBenchmarkLog != null)
         {
-            ImGui.BeginChild("BenchmarkLogChild", new Vector2(-1, ImGui.GetContentRegionAvail().Y - 40), true);
+            ImGui.BeginChild("BenchmarkLogChild", new Vector2(-1, Math.Max(100, ImGui.GetContentRegionAvail().Y - 40)), true);
             ImGui.TextUnformatted(_cachedBenchmarkLog);
             if (ImGui.GetScrollY() >= ImGui.GetScrollMaxY())
                 ImGui.SetScrollHereY(1.0f);

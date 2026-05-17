@@ -1295,25 +1295,24 @@ namespace RoleplayingVoice
 
                     _textureProcessor.ExportScale = Plugin.Configuration.ExportScale;
                     ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath, 3, Plugin.Configuration.GenerateNormals, false, true, Plugin.Configuration.ExportCompression == 1);
-                    Thread.Sleep(100);
 
-                    Plugin.Framework.RunOnFrameworkThread(() =>
+                    long compilationTime = sw.ElapsedMilliseconds;
+                    plugin.PluginLog.Information($"[Drag And Drop Texturing] Texture generation complete in {compilationTime}ms, beginning Penumbra update...");
+
+                    // Penumbra IPC calls do not require the framework thread
+                    PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
+                    PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
+                    collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
+                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name);
+                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name);
+                    var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
+                    foreach (var group in settings.Item2.Value.Item3)
                     {
-                        PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
-                        PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
-                        collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
-                        PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name);
-                        PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name);
-                        var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
-                        foreach (var group in settings.Item2.Value.Item3)
-                        {
-                            PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
-                        }
-                    });
+                        PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
+                    }
 
-                    Thread.Sleep(100);
-
-                    Plugin.Framework.RunOnFrameworkThread(() =>
+                    // Only Glamourer operations need the framework thread
+                    Plugin.Framework.RunOnFrameworkThread(async () =>
                     {
                         // Instead of redrawing the whole character, we grab their current Glamourer state,
                         // and then immediately re-apply their state to force reload the new texture.
@@ -1326,21 +1325,14 @@ namespace RoleplayingVoice
                                 var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64);
                                 if (customization?.Equipment != null)
                                 {
-                                    // We extract the current gear so we can safely refresh only the armor pieces.
-                                    // We avoid applying the whole state because applying weapons during combat causes crashes.
-
                                     // Force texture reload by doing a rapid "Emperor's New" swap (setting to 0 then back)
-                                    // This bypasses FFXIV's texture cache without causing a full model teardown stutter
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, 0, new List<byte> { 0 });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, 0, new List<byte> { 0 });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, 0, new List<byte> { 0 });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, 0, new List<byte> { 0 });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, 0, new List<byte> { 0 });
                                     
-                                    // Give FFXIV a tiny moment to process the removal (sometimes needed to flush cache)
-                                    Thread.Sleep(50);
-                                    
-                                    // Re-apply actual gear
+                                    // Re-apply actual gear immediately. FFXIV will fetch the newly available textures from Penumbra's cache during the swap
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
                                     PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
@@ -1371,7 +1363,7 @@ namespace RoleplayingVoice
 
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
                     sw.Stop();
-                    plugin.Chat.Print($"[Drag & Drop] Export completed in {sw.ElapsedMilliseconds}ms.");
+                    plugin.Chat.Print($"[Drag & Drop] Generated in {compilationTime}ms. Total Export+IPC: {sw.ElapsedMilliseconds}ms.");
                 }
                 finally
                 {
