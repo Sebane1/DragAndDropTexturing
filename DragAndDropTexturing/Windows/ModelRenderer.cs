@@ -602,10 +602,10 @@ float4 PS(PS_IN input) : SV_TARGET
             // Pan in camera-local space, scaled to model size
             float panScale = _boundsRadius * _cameraDistance * 0.002f;
             // Compute right and up vectors from current yaw/pitch
-            float cosYaw = MathF.Cos(_cameraYaw);
-            float sinYaw = MathF.Sin(_cameraYaw);
-            float cosPitch = MathF.Cos(_cameraPitch);
-            float sinPitch = MathF.Sin(_cameraPitch);
+            float cosYaw = MathF.Cos(CameraYaw);
+            float sinYaw = MathF.Sin(CameraYaw);
+            float cosPitch = MathF.Cos(CameraPitch);
+            float sinPitch = MathF.Sin(CameraPitch);
 
             var right = new Vector3(cosYaw, 0, -sinYaw);
             var up = new Vector3(sinYaw * sinPitch, cosPitch, cosYaw * sinPitch);
@@ -616,8 +616,8 @@ float4 PS(PS_IN input) : SV_TARGET
         /// <summary>Reset camera to default view.</summary>
         public void ResetCamera()
         {
-            _cameraYaw = 0f;
-            _cameraPitch = 0.3f;
+            CameraYaw = 0f;
+            CameraPitch = 0.3f;
             _cameraDistance = 1f;
             _cameraPan = Vector3.Zero;
         }
