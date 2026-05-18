@@ -972,7 +972,7 @@ cbuffer BrushParams : register(b0)
 };
 RWTexture2D<float4> PaintLayer : register(u0);
 
-// ── GPU hash noise (no textures needed) ──
+//   GPU hash noise (no textures needed)  
 float hash21(float2 p)
 {
     p = frac(p * float2(123.34, 456.21));
@@ -1001,7 +1001,7 @@ float distToSegment(float2 p, float2 a, float2 b)
     return length(p - closest);
 }
 
-// ── Blend mode helpers ──
+//   Blend mode helpers  
 float3 blendMultiply(float3 base, float3 blend) { return base * blend; }
 float3 blendScreen(float3 base, float3 blend) { return 1.0 - (1.0 - base) * (1.0 - blend); }
 float3 blendOverlay(float3 base, float3 blend)
@@ -1026,7 +1026,7 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
     PaintLayer.GetDimensions(w, h);
     if (id.x >= w || id.y >= h) return;
 
-    // ── Fill Tool ──
+    //   Fill Tool  
     if (ShapeMode == 2) // Fill
     {
         PaintLayer[id.xy] = Color;
@@ -1035,7 +1035,7 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
 
     float2 pixel = float2(id.x, id.y) + 0.5f;
 
-    // ── Apply rotation: transform pixel into brush-local space ──
+    //   Apply rotation: transform pixel into brush-local space  
     float2 localPixel = pixel - Center;
     if (abs(Angle) > 0.001f)
     {
@@ -1045,7 +1045,7 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
                             localPixel.x * sn + localPixel.y * cs);
     }
 
-    // ── Distance computation ──
+    //   Distance computation  
     float dist = 0.0f;
     
     // For rotated square brush we use Chebyshev distance in rotated space
@@ -1065,13 +1065,13 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
 
     if (dist <= Radius)
     {
-        // ── Edge falloff ──
+        //   Edge falloff  
         float softEdge = Radius * (1.0f - saturate(Hardness));
         float edge = (softEdge < 0.01f)
             ? step(dist, Radius)
             : smoothstep(Radius, Radius - softEdge, dist);
 
-        // ── Noise / texture grain modulation ──
+        //   Noise / texture grain modulation  
         float noiseMod = 1.0f;
         if (NoiseScale > 0.001f)
         {
@@ -1099,7 +1099,7 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
                 brushRGB = blendOverlay(existing.rgb, Color.rgb);
             else if (BlendMode == 5) // Soft Light
                 brushRGB = blendSoftLight(existing.rgb, Color.rgb);
-            // else BlendMode == 0: Normal — brushRGB stays as Color.rgb
+            // else BlendMode == 0: Normal - brushRGB stays as Color.rgb
 
             float outA = alpha + existing.a * (1.0f - alpha);
             float3 outRGB = (outA > 0.001f)

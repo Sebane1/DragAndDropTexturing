@@ -146,7 +146,7 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             string vfsPath = Path.Combine(PluginInterface.ConfigDirectory.FullName, "vfs.dat");
-            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.LoadVFS(vfsPath);
+            //FFXIVLooseTextureCompiler.ImageProcessing.TexIO.LoadVFS(vfsPath);
         }
         catch (Exception ex)
         {
@@ -295,7 +295,7 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             string vfsPath = Path.Combine(PluginInterface.ConfigDirectory.FullName, "vfs.dat");
-            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveVFS(vfsPath);
+            //FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveVFS(vfsPath);
         }
         catch (Exception ex)
         {
