@@ -181,6 +181,7 @@ namespace DragAndDropTexturing.Windows
             {
                 _isProcessing = false;
                 _statusText = "Ready to import.";
+                _previewDirty = true;
             }
         }
 

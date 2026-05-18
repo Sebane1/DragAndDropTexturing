@@ -384,6 +384,14 @@ namespace DragAndDropTexturing.Windows
             
             if (ImGui.Button(commitLabel))
             {
+                if (_floatingLayer != null)
+                {
+                    _renderer.PushUndoSnapshot();
+                    _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 1f);
+                    _floatingLayer.SRV.Dispose();
+                    _floatingLayer = null;
+                    _needsComposite = true;
+                }
                 CommitPaintLayer();
             }
             if (EditSourcePath != null)
