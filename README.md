@@ -27,7 +27,7 @@ Install the Drag And Drop Texturing dalamud plugin.
 https://raw.githubusercontent.com/Sebane1/DragAndDropTexturing/master/repo.json
 
 Step 2:
-Wait for initial dependencies to download.
+Wait for initial LooseTextureCompilerDLC to download.
 
 Step 3:
 Drag and drop your desired texture onto your characters eyebrows, eyes, face, or body.
