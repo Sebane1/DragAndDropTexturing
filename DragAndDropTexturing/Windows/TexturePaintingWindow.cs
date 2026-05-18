@@ -663,6 +663,20 @@ namespace DragAndDropTexturing.Windows
             float remainingWidth = ImGui.GetWindowWidth() - ImGui.GetStyle().ItemSpacing.X * 2;
             ImGui.BeginChild("MiddlePanel", new Vector2(remainingWidth * 0.5f, 0), true);
 
+            if (_renderer != null)
+            {
+                ImGui.Text(Translator.LocalizeUI("Snap:"));
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Front"))) { _renderer.CameraYaw = 0f; _renderer.CameraPitch = 0f; }
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Back"))) { _renderer.CameraYaw = MathF.PI; _renderer.CameraPitch = 0f; }
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Left"))) { _renderer.CameraYaw = MathF.PI / 2f; _renderer.CameraPitch = 0f; }
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Right"))) { _renderer.CameraYaw = -MathF.PI / 2f; _renderer.CameraPitch = 0f; }
+                ImGui.Separator();
+            }
+
             // Middle column: 3D Preview
             if (_renderer != null && _modelsLoaded)
             {

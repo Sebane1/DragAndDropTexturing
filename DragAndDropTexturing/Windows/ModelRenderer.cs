@@ -572,8 +572,8 @@ float4 PS(PS_IN input) : SV_TARGET
         private float _boundsRadius = 1.0f;
 
         // Interactive orbital camera state
-        private float _cameraYaw = 0f;
-        private float _cameraPitch = 0.3f;
+        public float CameraYaw = 0f;
+        public float CameraPitch = 0.3f;
         private float _cameraDistance = 1f; // Multiplier of boundsRadius * 2.5
         private Vector3 _cameraPan = Vector3.Zero;
 
@@ -583,10 +583,10 @@ float4 PS(PS_IN input) : SV_TARGET
         /// <summary>Rotate the camera orbit by yaw/pitch delta (radians).</summary>
         public void RotateCamera(float deltaYaw, float deltaPitch)
         {
-            _cameraYaw += deltaYaw;
-            _cameraPitch += deltaPitch;
+            CameraYaw += deltaYaw;
+            CameraPitch += deltaPitch;
             // Clamp pitch to avoid flipping
-            _cameraPitch = Math.Clamp(_cameraPitch, -1.5f, 1.5f);
+            CameraPitch = Math.Clamp(CameraPitch, -1.5f, 1.5f);
         }
 
         /// <summary>Zoom camera in/out by a multiplicative factor.</summary>
@@ -743,10 +743,10 @@ float4 PS(PS_IN input) : SV_TARGET
                     float farPlane = Math.Max(camDist + _boundsRadius * 10f, 100f);
                     float nearPlane = Math.Max(_boundsRadius * 0.01f, 0.01f);
 
-                    float cosPitch = MathF.Cos(_cameraPitch);
-                    float sinPitch = MathF.Sin(_cameraPitch);
-                    float cosYaw = MathF.Cos(_cameraYaw);
-                    float sinYaw = MathF.Sin(_cameraYaw);
+                    float cosPitch = MathF.Cos(CameraPitch);
+                    float sinPitch = MathF.Sin(CameraPitch);
+                    float cosYaw = MathF.Cos(CameraYaw);
+                    float sinYaw = MathF.Sin(CameraYaw);
 
                     var eyeOffset = new Vector3(
                         sinYaw * cosPitch,
@@ -1183,9 +1183,13 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 {
                     float x = dot(offset, DecalTangent);
                     float y = dot(offset, DecalBitangent);
-                    if (abs(x) <= DecalRadius && abs(y) <= DecalRadius)
+                    
+                    float radiusX = DecalRadius;
+                    float radiusY = DecalRadius * (UVScale.y / UVScale.x);
+                    
+                    if (abs(x) <= radiusX && abs(y) <= radiusY)
                     {
-                        float2 localUv = float2(x / DecalRadius * 0.5f + 0.5f, -y / DecalRadius * 0.5f + 0.5f);
+                        float2 localUv = float2(x / radiusX * 0.5f + 0.5f, -y / radiusY * 0.5f + 0.5f);
                         stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
                     }
                 }
