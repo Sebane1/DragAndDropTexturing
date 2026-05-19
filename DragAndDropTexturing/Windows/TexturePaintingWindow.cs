@@ -701,7 +701,7 @@ namespace DragAndDropTexturing.Windows
             if (_renderer != null && _modelsLoaded)
             {
                 var region = ImGui.GetContentRegionAvail();
-                if (region.X > 0 && region.Y > 0 && (region.X != _renderer.Width || region.Y != _renderer.Height))
+                if (region.X > 0 && region.Y > 0 && ((int)region.X != _renderer.Width || (int)region.Y != _renderer.Height))
                 {
                     _renderer.Resize((int)region.X, (int)region.Y);
                 }
@@ -1742,26 +1742,29 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                     lock (_loadedMeshes) { _loadedMeshes.AddRange(meshesCopy); }
 
                     int primaryIndex = 0;
-                    bool isGearLayer = (slot == "Top" || slot == "Bottom" || slot == "Shoes" || slot == "Gloves" || slot == "Head") && !string.IsNullOrEmpty(EditSourcePath);
                     string searchPattern = null;
 
-                    if (isGearLayer)
+                    if (!string.IsNullOrEmpty(EditSourcePath))
                     {
-                        var match = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+(e\d+)_([a-z]+)_([a-z]+)(_worn)?\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                        if (match.Success)
+                        _plugin.PluginLog.Info($"[PSD Preview] Evaluating EditSourcePath for isolation pattern: {EditSourcePath}");
+                        
+                        var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+(e\d+)_([a-z]+)_([a-z]+)(_worn)?\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        var bodyMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+([bfth]\d+)_([a-z]+)\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                        if (gearMatch.Success)
                         {
-                            searchPattern = $"{match.Groups[1].Value}_{match.Groups[2].Value}".ToLower();
+                            searchPattern = $"{gearMatch.Groups[1].Value}_{gearMatch.Groups[2].Value}".ToLower();
                         }
-                        else
+                        else if (bodyMatch.Success)
                         {
-                            isGearLayer = false;
+                            searchPattern = bodyMatch.Groups[1].Value.ToLower();
                         }
                     }
 
                     var primaryMeshes = new System.Collections.Generic.List<ExtractedMesh>();
                     var secondaryMeshes = new System.Collections.Generic.List<ExtractedMesh>();
 
-                    if (isGearLayer && searchPattern != null)
+                    if (searchPattern != null)
                     {
                         for (int i = 0; i < meshesCopy.Count; i++)
                         {

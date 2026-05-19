@@ -1515,21 +1515,27 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
         {
             if (_device == null || bgraPixels == IntPtr.Zero) return;
 
+            if (_gpuBaseTex != null && _paintTexWidth == width && _paintTexHeight == height)
+            {
+                _context.UpdateSubresource(_gpuBaseTex, 0, null, bgraPixels, width * 4, 0);
+                return;
+            }
+
             _gpuBaseTex?.Dispose();
             _gpuBaseSRV?.Dispose();
 
-            var texDesc = new Texture2DDescription
+            var texDesc = new Vortice.Direct3D11.Texture2DDescription
             {
                 Width = width, Height = height,
                 MipLevels = 1, ArraySize = 1,
-                Format = Format.B8G8R8A8_UNorm,
-                SampleDescription = new SampleDescription(1, 0),
-                Usage = ResourceUsage.Default,
-                BindFlags = BindFlags.ShaderResource,
-                CPUAccessFlags = CpuAccessFlags.None
+                Format = Vortice.DXGI.Format.B8G8R8A8_UNorm,
+                SampleDescription = new Vortice.DXGI.SampleDescription(1, 0),
+                Usage = Vortice.Direct3D11.ResourceUsage.Default,
+                BindFlags = Vortice.Direct3D11.BindFlags.ShaderResource,
+                CPUAccessFlags = Vortice.Direct3D11.CpuAccessFlags.None
             };
-            var subData = new SubresourceData(bgraPixels, width * 4);
-            _gpuBaseTex = _device.CreateTexture2D(texDesc, new[] { subData });
+
+            _gpuBaseTex = _device.CreateTexture2D(texDesc, new Vortice.Direct3D11.SubresourceData(bgraPixels, width * 4));
             _gpuBaseSRV = _device.CreateShaderResourceView(_gpuBaseTex);
         }
 
