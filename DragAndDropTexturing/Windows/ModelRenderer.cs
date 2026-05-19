@@ -3,6 +3,7 @@ using System.Linq;
 using System.Numerics;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 
@@ -302,15 +303,80 @@ float4 PS(PS_IN input) : SV_TARGET
         private ID3D11Texture2D _normalMapTex;
         public ID3D11ShaderResourceView NormalMapSRV { get; private set; }
 
-        public unsafe void BakeUVMaps()
-        {
+        public void BakeUVMaps() {
             if (_device == null || _paintTexWidth <= 0 || _paintTexHeight <= 0) return;
+            if (HasBakedUvMaps) return;
 
             int width = _paintTexWidth;
             int height = _paintTexHeight;
+            var posData = new float[width * height * 4];
+            var normData = new float[width * height * 4];
+            BakeUVMapsCpu(width, height, posData, normData);
+            UploadUvMaps(width, height, posData, normData);
+            _uvMapsBakedRevision = _meshRevision;
+        }
 
-            float[] posData = new float[width * height * 4];
-            float[] normData = new float[width * height * 4];
+        public void RequestBakeUVMapsAsync(Action onComplete = null) {
+            if (HasBakedUvMaps) {
+                onComplete?.Invoke();
+                return;
+            }
+
+            if (onComplete != null) {
+                _pendingBakeCallbacks = (Action)Delegate.Combine(_pendingBakeCallbacks, onComplete);
+            }
+
+            if (_uvBakeRunning) return;
+            if (_device == null || _paintTexWidth <= 0 || _paintTexHeight <= 0) return;
+
+            _uvBakeRunning = true;
+            int width = _paintTexWidth;
+            int height = _paintTexHeight;
+            int bakeRevision = _meshRevision;
+
+            Task.Run(() => {
+                var posData = new float[width * height * 4];
+                var normData = new float[width * height * 4];
+                BakeUVMapsCpu(width, height, posData, normData);
+                _pendingPosMapData = posData;
+                _pendingNormMapData = normData;
+                _pendingBakeRevision = bakeRevision;
+            });
+        }
+
+        /// <summary>Upload CPU-baked UV maps on the D3D11 thread. Returns true when an upload ran.</summary>
+        public bool ProcessUvBakeUpload() {
+            if (_pendingPosMapData == null || _pendingNormMapData == null) return false;
+            if (_device == null || _paintTexWidth <= 0 || _paintTexHeight <= 0) {
+                _pendingPosMapData = null;
+                _pendingNormMapData = null;
+                _uvBakeRunning = false;
+                return false;
+            }
+
+            if (_pendingBakeRevision != _meshRevision) {
+                _pendingPosMapData = null;
+                _pendingNormMapData = null;
+                _uvBakeRunning = false;
+                return false;
+            }
+
+            int width = _paintTexWidth;
+            int height = _paintTexHeight;
+            UploadUvMaps(width, height, _pendingPosMapData, _pendingNormMapData);
+            _pendingPosMapData = null;
+            _pendingNormMapData = null;
+            _uvMapsBakedRevision = _meshRevision;
+            _uvBakeRunning = false;
+
+            var callbacks = _pendingBakeCallbacks;
+            _pendingBakeCallbacks = null;
+            callbacks?.Invoke();
+            return true;
+        }
+
+        private void BakeUVMapsCpu(int width, int height, float[] posData, float[] normData)
+        {
 
             foreach (var kvp in _models)
             {
@@ -422,6 +488,10 @@ float4 PS(PS_IN input) : SV_TARGET
                 posData = newPosData;
                 normData = newNormData;
             }
+        }
+
+        private unsafe void UploadUvMaps(int width, int height, float[] posData, float[] normData) {
+            if (_device == null) return;
 
             _positionMapTex?.Dispose();
             PositionMapSRV?.Dispose();
@@ -557,6 +627,7 @@ float4 PS(PS_IN input) : SV_TARGET
                 }
             }
 
+            InvalidateMeshDerivedData();
             _meshLoaded = true;
         }
 
@@ -624,6 +695,110 @@ float4 PS(PS_IN input) : SV_TARGET
 
         private Matrix4x4 _lastWvp;
 
+        private int _meshRevision;
+        private int _uvMapsBakedRevision = -1;
+        private volatile bool _uvBakeRunning;
+        private float[] _pendingPosMapData;
+        private float[] _pendingNormMapData;
+        private int _pendingBakeRevision = -1;
+        private Action _pendingBakeCallbacks;
+
+        public bool HasBakedUvMaps => _uvMapsBakedRevision == _meshRevision && PositionMapSRV != null;
+        public bool IsUvBakeInProgress => _uvBakeRunning || _pendingPosMapData != null;
+
+        private struct RaycastTriangle {
+            public Vector3 V0, V1, V2;
+            public Vector2 Uv0, Uv1, Uv2;
+            public Vector3 N0, N1, N2;
+        }
+
+        private sealed class RaycastSlotCache {
+            public Vector3 BoundsMin;
+            public Vector3 BoundsMax;
+            public RaycastTriangle[] Triangles;
+        }
+
+        private readonly Dictionary<string, RaycastSlotCache> _raycastCache = new();
+        private int _raycastCacheRevision = -1;
+
+        private void InvalidateMeshDerivedData() {
+            _meshRevision++;
+            _uvMapsBakedRevision = -1;
+            _raycastCacheRevision = -1;
+            _raycastCache.Clear();
+        }
+
+        private void EnsureRaycastCache() {
+            if (_raycastCacheRevision == _meshRevision) return;
+
+            _raycastCache.Clear();
+            foreach (var kvp in _models) {
+                if (kvp.Key.Contains("_")) continue;
+
+                var model = kvp.Value;
+                if (model.Vertices == null || model.Indices == null || model.Indices.Length < 3) continue;
+
+                var tris = new List<RaycastTriangle>(model.Indices.Length / 3);
+                var boundsMin = new Vector3(float.MaxValue);
+                var boundsMax = new Vector3(float.MinValue);
+
+                for (int i = 0; i < model.Indices.Length; i += 3) {
+                    var v0 = model.Vertices[model.Indices[i]];
+                    var v1 = model.Vertices[model.Indices[i + 1]];
+                    var v2 = model.Vertices[model.Indices[i + 2]];
+                    tris.Add(new RaycastTriangle {
+                        V0 = v0.Position, V1 = v1.Position, V2 = v2.Position,
+                        Uv0 = v0.UV, Uv1 = v1.UV, Uv2 = v2.UV,
+                        N0 = v0.Normal, N1 = v1.Normal, N2 = v2.Normal
+                    });
+                    boundsMin = Vector3.Min(boundsMin, Vector3.Min(v0.Position, Vector3.Min(v1.Position, v2.Position)));
+                    boundsMax = Vector3.Max(boundsMax, Vector3.Max(v0.Position, Vector3.Max(v1.Position, v2.Position)));
+                }
+
+                _raycastCache[kvp.Key] = new RaycastSlotCache {
+                    BoundsMin = boundsMin,
+                    BoundsMax = boundsMax,
+                    Triangles = tris.ToArray()
+                };
+            }
+
+            _raycastCacheRevision = _meshRevision;
+        }
+
+        private static bool RayIntersectsAabb(Vector3 origin, Vector3 dir, Vector3 min, Vector3 max, out float tEnter, out float tExit) {
+            tEnter = 0f;
+            tExit = float.MaxValue;
+
+            if (Math.Abs(dir.X) < 1e-8f) {
+                if (origin.X < min.X || origin.X > max.X) return false;
+            } else {
+                float tx1 = (min.X - origin.X) / dir.X;
+                float tx2 = (max.X - origin.X) / dir.X;
+                tEnter = Math.Max(tEnter, Math.Min(tx1, tx2));
+                tExit = Math.Min(tExit, Math.Max(tx1, tx2));
+            }
+
+            if (Math.Abs(dir.Y) < 1e-8f) {
+                if (origin.Y < min.Y || origin.Y > max.Y) return false;
+            } else {
+                float ty1 = (min.Y - origin.Y) / dir.Y;
+                float ty2 = (max.Y - origin.Y) / dir.Y;
+                tEnter = Math.Max(tEnter, Math.Min(ty1, ty2));
+                tExit = Math.Min(tExit, Math.Max(ty1, ty2));
+            }
+
+            if (Math.Abs(dir.Z) < 1e-8f) {
+                if (origin.Z < min.Z || origin.Z > max.Z) return false;
+            } else {
+                float tz1 = (min.Z - origin.Z) / dir.Z;
+                float tz2 = (max.Z - origin.Z) / dir.Z;
+                tEnter = Math.Max(tEnter, Math.Min(tz1, tz2));
+                tExit = Math.Min(tExit, Math.Max(tz1, tz2));
+            }
+
+            return tExit >= Math.Max(tEnter, 0f);
+        }
+
         public bool Raycast(Vector2 screenPos, out Vector2 uvHit, out string hitSlot, out Vector3 worldPos, out Vector3 worldNormal, HashSet<string> allowedSlots = null)
         {
             uvHit = Vector2.Zero;
@@ -632,7 +807,8 @@ float4 PS(PS_IN input) : SV_TARGET
             worldNormal = Vector3.Zero;
             if (_models.Count == 0 || Width == 0 || Height == 0) return false;
 
-            // Convert screen pos to NDC
+            EnsureRaycastCache();
+
             float ndcX = (2.0f * screenPos.X) / Width - 1.0f;
             float ndcY = 1.0f - (2.0f * screenPos.Y) / Height;
 
@@ -650,37 +826,27 @@ float4 PS(PS_IN input) : SV_TARGET
             float closestT = float.MaxValue;
             bool hit = false;
 
-            foreach (var kvp in _models)
-            {
-                // Skip sub-meshes if filtering is active, or if it's a sub-mesh (contains underscore)
+            foreach (var kvp in _raycastCache) {
                 if (allowedSlots != null && !allowedSlots.Contains(kvp.Key)) continue;
                 if (allowedSlots == null && kvp.Key.Contains("_")) continue;
 
-                var model = kvp.Value;
-                if (model.Vertices == null || model.Indices == null) continue;
+                var cache = kvp.Value;
+                if (!RayIntersectsAabb(rayOrigin, rayDir, cache.BoundsMin, cache.BoundsMax, out float tEnter, out float tExit)) continue;
+                if (tEnter > closestT) continue;
 
-                for (int i = 0; i < model.Indices.Length; i += 3)
-                {
-                    var v0 = model.Vertices[model.Indices[i]];
-                    var v1 = model.Vertices[model.Indices[i + 1]];
-                    var v2 = model.Vertices[model.Indices[i + 2]];
-
-                    if (RayIntersectsTriangle(rayOrigin, rayDir, v0.Position, v1.Position, v2.Position, out float t, out float u, out float v))
-                    {
-                        if (t < closestT && t > 0)
-                        {
+                foreach (var tri in cache.Triangles) {
+                    if (RayIntersectsTriangle(rayOrigin, rayDir, tri.V0, tri.V1, tri.V2, out float t, out float u, out float v)) {
+                        if (t < closestT && t > 0) {
                             closestT = t;
                             hitSlot = kvp.Key;
                             hit = true;
-                            
-                            // Interpolate UV and wrap to [0, 1]
+
                             float w = 1.0f - u - v;
-                            Vector2 rawUv = v0.UV * w + v1.UV * u + v2.UV * v;
+                            Vector2 rawUv = tri.Uv0 * w + tri.Uv1 * u + tri.Uv2 * v;
                             uvHit = new Vector2((rawUv.X % 1.0f + 1.0f) % 1.0f, (rawUv.Y % 1.0f + 1.0f) % 1.0f);
                             worldPos = rayOrigin + rayDir * t;
-                            
-                            // Interpolate Normal
-                            Vector3 interpolatedNormal = v0.Normal * w + v1.Normal * u + v2.Normal * v;
+
+                            Vector3 interpolatedNormal = tri.N0 * w + tri.N1 * u + tri.N2 * v;
                             float nLen = interpolatedNormal.Length();
                             worldNormal = nLen > 0.0001f ? interpolatedNormal / nLen : Vector3.UnitZ;
                         }

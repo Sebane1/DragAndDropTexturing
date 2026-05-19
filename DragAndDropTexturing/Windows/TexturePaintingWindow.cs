@@ -166,6 +166,25 @@ namespace DragAndDropTexturing.Windows
             public List<DecalPixelData> LoadedDecals;
         }
         private readonly System.Collections.Concurrent.ConcurrentQueue<ProceduralStampRequest> _pendingStampRequests = new();
+        private ActiveProceduralStampJob _activeProceduralJob;
+
+        private sealed class ActiveProceduralStampJob {
+            public ProceduralStampRequest Request;
+            public List<Vortice.Direct3D11.ID3D11ShaderResourceView> Srvs = new();
+            public List<ExtractedMesh> Meshes;
+            public int TotalTriangles;
+            public int NextStampIndex;
+            public enum Phase { Prepare, WaitUvMaps, Stamping, Readback, Complete }
+            public Phase CurrentPhase = Phase.Prepare;
+        }
+
+        private bool _hasCachedRaycast;
+        private Vector2 _cachedRaycastScreenPos;
+        private Vector2 _cachedRaycastUv;
+        private string _cachedRaycastSlot;
+        private Vector3 _cachedRaycastWorldPos;
+        private Vector3 _cachedRaycastWorldNormal;
+
         private bool _isHeadlessMode = false;
         public bool IsHeadlessMode
         {
@@ -277,6 +296,7 @@ namespace DragAndDropTexturing.Windows
             }
 
             // Process any queued procedural stamp requests (GPU-safe: we're on the ImGui/D3D11 thread)
+            _renderer?.ProcessUvBakeUpload();
             ProcessProceduralStamps();
 
             // In headless mode, skip all UI rendering - we only exist to process stamp requests
@@ -707,7 +727,7 @@ namespace DragAndDropTexturing.Windows
                             // Try to project immediately at mouse position
                             var mousePos = ImGui.GetMousePos();
                             Vector2 localMousePos = mousePos - cursorPos;
-                            if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal, _primarySlots))
+                            if (TryRaycastCached(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal))
                             {
                                 if (_floatingLayer != null)
                                 {
@@ -762,7 +782,7 @@ namespace DragAndDropTexturing.Windows
                         if (isActive)
                         {
                             Vector2 localMousePos = mousePos - cursorPos;
-                            if (_renderer.Raycast(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal, _primarySlots))
+                            if (TryRaycastCached(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal))
                             {
                                 if (_floatingLayer != null)
                                 {
@@ -796,6 +816,7 @@ namespace DragAndDropTexturing.Windows
                         else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
                         {
                             _lastUvHit = null;
+                            _hasCachedRaycast = false;
                         }
                         else
                         {
@@ -1772,13 +1793,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                 _renderer.SetBaseTexture(data.Scan0, w, h);
                 _cachedBaseBitmap.UnlockBits(data);
 
-                // Run BakeUVMaps asynchronously so it doesn't freeze the main thread
-                Task.Run(() => {
-                    if (_renderer != null)
-                    {
-                        _renderer.BakeUVMaps();
-                    }
-                });
+                _renderer.RequestBakeUVMapsAsync();
 
                 // Load existing layer into paint layer if editing
                 if (!_editLayerLoaded && EditSourcePath != null && File.Exists(EditSourcePath))
@@ -1875,177 +1890,217 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
             });
         }
 
-        /// <summary>
-        /// Processes queued procedural stamp requests. Called during Draw() so all GPU operations
-        /// are on the correct D3D11 thread. Uses the existing loaded mesh from the TexturePaintingWindow.
-        /// </summary>
-        private void ProcessProceduralStamps()
-        {
-            if (!_pendingStampRequests.TryPeek(out _)) return; // Nothing queued
-            if (_renderer == null || !_modelsLoaded)
-            {
-                // Not ready yet - leave requests in queue, they'll be retried next Draw()
+        private bool TryRaycastCached(Vector2 localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal) {
+            if (_hasCachedRaycast && Vector2.DistanceSquared(localMousePos, _cachedRaycastScreenPos) < 1.0f) {
+                uvHit = _cachedRaycastUv;
+                hitSlot = _cachedRaycastSlot;
+                worldHit = _cachedRaycastWorldPos;
+                hitNormal = _cachedRaycastWorldNormal;
+                return true;
+            }
+
+            if (_renderer.Raycast(localMousePos, out uvHit, out hitSlot, out worldHit, out hitNormal, _primarySlots)) {
+                _hasCachedRaycast = true;
+                _cachedRaycastScreenPos = localMousePos;
+                _cachedRaycastUv = uvHit;
+                _cachedRaycastSlot = hitSlot;
+                _cachedRaycastWorldPos = worldHit;
+                _cachedRaycastWorldNormal = hitNormal;
+                return true;
+            }
+
+            _hasCachedRaycast = false;
+            return false;
+        }
+
+        private static void DisposeStampSrvs(List<Vortice.Direct3D11.ID3D11ShaderResourceView> srvs) {
+            foreach (var srv in srvs) srv?.Dispose();
+            srvs.Clear();
+        }
+
+        private void ApplyRandomProceduralStamp(ActiveProceduralStampJob job) {
+            if (job.Srvs.Count == 0 || job.Meshes == null || job.TotalTriangles <= 0) return;
+
+            var srv = job.Srvs[_proceduralRng.Next(job.Srvs.Count)];
+            int triIndex = _proceduralRng.Next(job.TotalTriangles);
+            ExtractedMesh targetMesh = null;
+            int localTri = triIndex;
+            foreach (var mesh in job.Meshes) {
+                int meshTris = mesh.Indices.Count / 3;
+                if (localTri < meshTris) { targetMesh = mesh; break; }
+                localTri -= meshTris;
+            }
+            if (targetMesh == null) return;
+
+            uint idx0 = targetMesh.Indices[localTri * 3 + 0];
+            uint idx1 = targetMesh.Indices[localTri * 3 + 1];
+            uint idx2 = targetMesh.Indices[localTri * 3 + 2];
+
+            Vector3 p0 = targetMesh.Positions[(int)idx0];
+            Vector3 p1 = targetMesh.Positions[(int)idx1];
+            Vector3 p2 = targetMesh.Positions[(int)idx2];
+            Vector2 uv0 = targetMesh.UVs[(int)idx0];
+            Vector2 uv1 = targetMesh.UVs[(int)idx1];
+            Vector2 uv2 = targetMesh.UVs[(int)idx2];
+            Vector3 n0 = targetMesh.Normals[(int)idx0];
+            Vector3 n1 = targetMesh.Normals[(int)idx1];
+            Vector3 n2 = targetMesh.Normals[(int)idx2];
+
+            float r1 = (float)_proceduralRng.NextDouble();
+            float r2 = (float)_proceduralRng.NextDouble();
+            if (r1 + r2 > 1.0f) { r1 = 1.0f - r1; r2 = 1.0f - r2; }
+            float w = 1.0f - r1 - r2;
+
+            Vector3 worldPos = p0 * r1 + p1 * r2 + p2 * w;
+            Vector2 uvHit = uv0 * r1 + uv1 * r2 + uv2 * w;
+            Vector3 worldNormal = Vector3.Normalize(n0 * r1 + n1 * r2 + n2 * w);
+
+            float scale = (float)(_proceduralRng.NextDouble() * 0.5 + 0.5);
+            float radius = 0.1f * scale;
+            float angle = (float)(_proceduralRng.NextDouble() * Math.PI * 2.0);
+
+            Vector3 tangent = Vector3.Normalize(Vector3.Cross(worldNormal, Vector3.UnitY));
+            if (tangent.LengthSquared() < 0.001f) tangent = Vector3.Normalize(Vector3.Cross(worldNormal, Vector3.UnitX));
+            Vector3 bitangent = Vector3.Cross(worldNormal, tangent);
+
+            float cosA = (float)Math.Cos(angle);
+            float sinA = (float)Math.Sin(angle);
+            Vector3 rotTangent = tangent * cosA - bitangent * sinA;
+            Vector3 rotBitangent = tangent * sinA + bitangent * cosA;
+
+            _renderer.GpuStampTexture(srv, uvHit, new Vector2(1, 1), _default3DProjectionMode,
+                worldPos, worldNormal, rotTangent, rotBitangent, radius, radius * 2.0f);
+        }
+
+        private void FinishProceduralStampJob(ActiveProceduralStampJob job) {
+            var request = job.Request;
+            DisposeStampSrvs(job.Srvs);
+            job.CurrentPhase = ActiveProceduralStampJob.Phase.Complete;
+            _activeProceduralJob = null;
+
+            byte[] generatedPixels = _renderer.ReadbackPaintLayer();
+            if (generatedPixels == null) {
+                request.OnComplete?.Invoke(null);
                 return;
             }
-            if (!_pendingStampRequests.TryDequeue(out var request)) return;
 
-            try
-            {
-                int width = _renderer.PaintTexWidth > 0 ? _renderer.PaintTexWidth : 2048;
-                int height = _renderer.PaintTexHeight > 0 ? _renderer.PaintTexHeight : 2048;
-
-                if (!_gpuPaintInitialized)
-                {
-                    _renderer.InitGpuPaint(width, height);
-                    _gpuPaintInitialized = true;
-                    _renderer.BakeUVMaps();
-                }
-
-                // Load decal SRVs from pre-decoded background thread data
-                var srvs = new List<Vortice.Direct3D11.ID3D11ShaderResourceView>();
-                if (request.LoadedDecals != null)
-                {
-                    foreach (var decal in request.LoadedDecals)
-                    {
-                        var srv = _renderer.CreateSrvFromRgba(decal.Rgba, decal.Width, decal.Height);
-                        if (srv != null) srvs.Add(srv);
-                    }
-                }
-
-                if (srvs.Count == 0)
-                {
-                    _plugin.PluginLog.Warning("[TexturePainter] No valid decal SRVs loaded for procedural stamps.");
-                    request.OnComplete?.Invoke(null);
-                    return;
-                }
-
-                // Get mesh data for random triangle selection
-                List<ExtractedMesh> extracted;
-                lock (_loadedMeshes) { extracted = new List<ExtractedMesh>(_loadedMeshes); }
-                if (extracted.Count == 0)
-                {
-                    _plugin.PluginLog.Warning("[TexturePainter] No meshes loaded for procedural stamps.");
-                    request.OnComplete?.Invoke(null);
-                    return;
-                }
-
-                // Build triangle count for random selection
-                int totalTriangles = 0;
-                foreach (var mesh in extracted)
-                    totalTriangles += mesh.Indices.Count / 3;
-
-                for (int stamp = 0; stamp < request.NumStamps; stamp++)
-                {
-                    var srv = srvs[_proceduralRng.Next(srvs.Count)];
-
-                    int triIndex = _proceduralRng.Next(totalTriangles);
-                    ExtractedMesh targetMesh = null;
-                    int localTri = triIndex;
-                    foreach (var mesh in extracted)
-                    {
-                        int meshTris = mesh.Indices.Count / 3;
-                        if (localTri < meshTris) { targetMesh = mesh; break; }
-                        localTri -= meshTris;
-                    }
-                    if (targetMesh == null) continue;
-
-                    uint idx0 = targetMesh.Indices[localTri * 3 + 0];
-                    uint idx1 = targetMesh.Indices[localTri * 3 + 1];
-                    uint idx2 = targetMesh.Indices[localTri * 3 + 2];
-
-                    Vector3 p0 = targetMesh.Positions[(int)idx0];
-                    Vector3 p1 = targetMesh.Positions[(int)idx1];
-                    Vector3 p2 = targetMesh.Positions[(int)idx2];
-
-                    Vector2 uv0 = targetMesh.UVs[(int)idx0];
-                    Vector2 uv1 = targetMesh.UVs[(int)idx1];
-                    Vector2 uv2 = targetMesh.UVs[(int)idx2];
-
-                    Vector3 n0 = targetMesh.Normals[(int)idx0];
-                    Vector3 n1 = targetMesh.Normals[(int)idx1];
-                    Vector3 n2 = targetMesh.Normals[(int)idx2];
-
-                    float r1 = (float)_proceduralRng.NextDouble();
-                    float r2 = (float)_proceduralRng.NextDouble();
-                    if (r1 + r2 > 1.0f) { r1 = 1.0f - r1; r2 = 1.0f - r2; }
-                    float w = 1.0f - r1 - r2;
-
-                    Vector3 worldPos = p0 * r1 + p1 * r2 + p2 * w;
-                    Vector2 uvHit = uv0 * r1 + uv1 * r2 + uv2 * w;
-                    Vector3 worldNormal = Vector3.Normalize(n0 * r1 + n1 * r2 + n2 * w);
-
-                    float scale = (float)(_proceduralRng.NextDouble() * 0.5 + 0.5);
-                    float radius = 0.1f * scale;
-                    float angle = (float)(_proceduralRng.NextDouble() * Math.PI * 2.0);
-
-                    Vector3 tangent = Vector3.Normalize(Vector3.Cross(worldNormal, Vector3.UnitY));
-                    if (tangent.LengthSquared() < 0.001f) tangent = Vector3.Normalize(Vector3.Cross(worldNormal, Vector3.UnitX));
-                    Vector3 bitangent = Vector3.Cross(worldNormal, tangent);
-
-                    float cosA = (float)Math.Cos(angle);
-                    float sinA = (float)Math.Sin(angle);
-                    Vector3 rotTangent = tangent * cosA - bitangent * sinA;
-                    Vector3 rotBitangent = tangent * sinA + bitangent * cosA;
-
-                    _renderer.GpuStampTexture(srv, uvHit, new Vector2(1, 1), _default3DProjectionMode,
-                        worldPos, worldNormal, rotTangent, rotBitangent, radius, radius * 2.0f);
-                }
-
-                // Readback paint layer
-                byte[] generatedPixels = _renderer.ReadbackPaintLayer();
-
-                // Dispose the SRVs to prevent memory leaks
-                foreach (var srv in srvs)
-                {
-                    srv.Dispose();
-                }
-                srvs.Clear();
-
-                if (generatedPixels == null)
-                {
-                    request.OnComplete?.Invoke(null);
-                    return;
-                }
-
-                // Save to PNG on a background thread to avoid blocking Draw()
-                string uvSuffix = "_base";
-                if (request.DecalPaths.Count > 0) {
-                    string firstFile = System.IO.Path.GetFileNameWithoutExtension(request.DecalPaths[0]).ToLower();
-                    if (firstFile.EndsWith("_n") || firstFile.Contains("_n_") || firstFile.Contains("norm")) uvSuffix = "_n";
-                    else if (firstFile.EndsWith("_m") || firstFile.Contains("_m_") || firstFile.Contains("mask")) uvSuffix = "_m";
-                    else if (firstFile.EndsWith("_g") || firstFile.Contains("_g_") || firstFile.Contains("glow")) uvSuffix = "_g";
-                }
-
-                Task.Run(() =>
-                {
-                    try
-                    {
-                        string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "vanilla";
-                        string finalUvType = string.IsNullOrEmpty(request.UvType) ? bodyTag : request.UvType;
-
-                        string outPath = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName,
-                            $"temp_decal_{request.BodyPart}_{finalUvType}_{uvSuffix}_{Guid.NewGuid()}_base.png");
-
-                        using var outBmp = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                        var outRect = new System.Drawing.Rectangle(0, 0, width, height);
-                        var outData = outBmp.LockBits(outRect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                        System.Runtime.InteropServices.Marshal.Copy(generatedPixels, 0, outData.Scan0, generatedPixels.Length);
-                        outBmp.UnlockBits(outData);
-                        outBmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
-                        _plugin.PluginLog.Information($"[TexturePainter] Procedural decal saved: {outPath}");
-                        _needsComposite = true; // Force UI to show the decal
-                        request.OnComplete?.Invoke(outPath);
-                    }
-                    catch (Exception ex)
-                    {
-                        _plugin.PluginLog.Error(ex, "[TexturePainter] Failed to save procedural decal.");
-                        request.OnComplete?.Invoke(null);
-                    }
-                });
+            int width = _renderer.PaintTexWidth > 0 ? _renderer.PaintTexWidth : 2048;
+            int height = _renderer.PaintTexHeight > 0 ? _renderer.PaintTexHeight : 2048;
+            string uvSuffix = "_base";
+            if (request.DecalPaths.Count > 0) {
+                string firstFile = Path.GetFileNameWithoutExtension(request.DecalPaths[0]).ToLower();
+                if (firstFile.EndsWith("_n") || firstFile.Contains("_n_") || firstFile.Contains("norm")) uvSuffix = "_n";
+                else if (firstFile.EndsWith("_m") || firstFile.Contains("_m_") || firstFile.Contains("mask")) uvSuffix = "_m";
+                else if (firstFile.EndsWith("_g") || firstFile.Contains("_g_") || firstFile.Contains("glow")) uvSuffix = "_g";
             }
-            catch (Exception ex)
-            {
+
+            Task.Run(() => {
+                try {
+                    string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "vanilla";
+                    string finalUvType = string.IsNullOrEmpty(request.UvType) ? bodyTag : request.UvType;
+                    string outPath = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName,
+                        $"temp_decal_{request.BodyPart}_{finalUvType}_{uvSuffix}_{Guid.NewGuid()}_base.png");
+
+                    using var outBmp = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    var outRect = new System.Drawing.Rectangle(0, 0, width, height);
+                    var outData = outBmp.LockBits(outRect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    System.Runtime.InteropServices.Marshal.Copy(generatedPixels, 0, outData.Scan0, generatedPixels.Length);
+                    outBmp.UnlockBits(outData);
+                    outBmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                    _plugin.PluginLog.Information($"[TexturePainter] Procedural decal saved: {outPath}");
+                    _needsComposite = true;
+                    request.OnComplete?.Invoke(outPath);
+                } catch (Exception ex) {
+                    _plugin.PluginLog.Error(ex, "[TexturePainter] Failed to save procedural decal.");
+                    request.OnComplete?.Invoke(null);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Processes queued procedural stamp requests incrementally during Draw().
+        /// UV baking runs off-thread; stamps and readback are spread across frames to avoid hitches.
+        /// </summary>
+        private void ProcessProceduralStamps() {
+            if (_renderer == null) return;
+
+            if (_activeProceduralJob == null) {
+                if (!_pendingStampRequests.TryDequeue(out var queuedRequest)) return;
+                _activeProceduralJob = new ActiveProceduralStampJob { Request = queuedRequest };
+            }
+
+            var job = _activeProceduralJob;
+            var request = job.Request;
+
+            try {
+                switch (job.CurrentPhase) {
+                    case ActiveProceduralStampJob.Phase.Prepare:
+                        if (!_modelsLoaded) return;
+
+                        int width = _renderer.PaintTexWidth > 0 ? _renderer.PaintTexWidth : 2048;
+                        int height = _renderer.PaintTexHeight > 0 ? _renderer.PaintTexHeight : 2048;
+                        if (!_gpuPaintInitialized) {
+                            _renderer.InitGpuPaint(width, height);
+                            _gpuPaintInitialized = true;
+                        }
+
+                        if (request.LoadedDecals != null) {
+                            foreach (var decal in request.LoadedDecals) {
+                                var srv = _renderer.CreateSrvFromRgba(decal.Rgba, decal.Width, decal.Height);
+                                if (srv != null) job.Srvs.Add(srv);
+                            }
+                        }
+
+                        if (job.Srvs.Count == 0) {
+                            _plugin.PluginLog.Warning("[TexturePainter] No valid decal SRVs loaded for procedural stamps.");
+                            DisposeStampSrvs(job.Srvs);
+                            _activeProceduralJob = null;
+                            request.OnComplete?.Invoke(null);
+                            return;
+                        }
+
+                        lock (_loadedMeshes) { job.Meshes = new List<ExtractedMesh>(_loadedMeshes); }
+                        if (job.Meshes.Count == 0) {
+                            _plugin.PluginLog.Warning("[TexturePainter] No meshes loaded for procedural stamps.");
+                            DisposeStampSrvs(job.Srvs);
+                            _activeProceduralJob = null;
+                            request.OnComplete?.Invoke(null);
+                            return;
+                        }
+
+                        job.TotalTriangles = 0;
+                        foreach (var mesh in job.Meshes)
+                            job.TotalTriangles += mesh.Indices.Count / 3;
+
+                        if (!_renderer.HasBakedUvMaps && !_renderer.IsUvBakeInProgress)
+                            _renderer.RequestBakeUVMapsAsync();
+
+                        job.NextStampIndex = 0;
+                        job.CurrentPhase = ActiveProceduralStampJob.Phase.WaitUvMaps;
+                        break;
+
+                    case ActiveProceduralStampJob.Phase.WaitUvMaps:
+                        if (!_renderer.HasBakedUvMaps) return;
+                        job.CurrentPhase = ActiveProceduralStampJob.Phase.Stamping;
+                        goto case ActiveProceduralStampJob.Phase.Stamping;
+
+                    case ActiveProceduralStampJob.Phase.Stamping:
+                        if (job.NextStampIndex < request.NumStamps) {
+                            ApplyRandomProceduralStamp(job);
+                            job.NextStampIndex++;
+                            return;
+                        }
+                        job.CurrentPhase = ActiveProceduralStampJob.Phase.Readback;
+                        goto case ActiveProceduralStampJob.Phase.Readback;
+
+                    case ActiveProceduralStampJob.Phase.Readback:
+                        FinishProceduralStampJob(job);
+                        break;
+                }
+            } catch (Exception ex) {
                 _plugin.PluginLog.Error(ex, "[TexturePainter] Failed to process procedural stamps.");
+                DisposeStampSrvs(job.Srvs);
+                _activeProceduralJob = null;
                 request.OnComplete?.Invoke(null);
             }
         }
