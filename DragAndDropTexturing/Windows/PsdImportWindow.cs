@@ -427,12 +427,16 @@ namespace DragAndDropTexturing.Windows
 
                 string topPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
                 string botPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_dwn.mdl";
+                string glvPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_glv.mdl";
+                string shoPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_sho.mdl";
 
                 Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
                 _plugin.PluginLog.Info($"[PSD Preview] Collection ID: {collectionId}");
 
                 LoadModelIntoSlot("Top", topPath, collectionId);
                 LoadModelIntoSlot("Bottom", botPath, collectionId);
+                LoadModelIntoSlot("Gloves", glvPath, collectionId);
+                LoadModelIntoSlot("Shoes", shoPath, collectionId);
 
                 bool prevOverrideMode = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode;
                 FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = true;
@@ -789,6 +793,8 @@ namespace DragAndDropTexturing.Windows
                     
                     _renderer.LoadTexture("Top", pixels, w, h);
                     _renderer.LoadTexture("Bottom", pixels, w, h);
+                    _renderer.LoadTexture("Gloves", pixels, w, h);
+                    _renderer.LoadTexture("Shoes", pixels, w, h);
                 }
                 catch (Exception ex) { _plugin.PluginLog.Error(ex, "Failed to update preview textures"); }
                 finally { _isPreviewUpdating = false; }

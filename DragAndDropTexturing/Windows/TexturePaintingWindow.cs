@@ -1478,6 +1478,8 @@ namespace DragAndDropTexturing.Windows
 
                 string topPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
                 string botPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_dwn.mdl";
+                string glvPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_glv.mdl";
+                string shoPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_sho.mdl";
 
                 Guid collectionId = _cachedCollectionId;
                 _plugin.PluginLog.Info($"[PSD Preview] Collection ID: {collectionId}");
@@ -1488,6 +1490,8 @@ namespace DragAndDropTexturing.Windows
                 string activeSuffix = null;
                 string topSlotName = "Top";
                 string botSlotName = "Bottom";
+                string glvSlotName = "Gloves";
+                string shoSlotName = "Shoes";
 
                 List<DragAndDropTexturing.Equipment.WornEquipmentPiece> wornGear = null;
                 try
@@ -1731,7 +1735,9 @@ namespace DragAndDropTexturing.Windows
                     {
                         _primarySlots.Add("Top");
                         _primarySlots.Add("Bottom");
-                        _primarySlotArray = new[] { "Top", "Bottom" };
+                        _primarySlots.Add("Gloves");
+                        _primarySlots.Add("Shoes");
+                        _primarySlotArray = new[] { "Top", "Bottom", "Gloves", "Shoes" };
                     }
                 }
 
@@ -1740,7 +1746,9 @@ namespace DragAndDropTexturing.Windows
                 var botSlotPath = overrideBotPath ?? botPath;
                 System.Threading.Tasks.Parallel.Invoke(
                     () => { if (topSlotPath != null) LoadModelIntoSlot(topSlotName, topSlotPath, collectionId); },
-                    () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId); }
+                    () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId); },
+                    () => { if (!isGear) LoadModelIntoSlot(glvSlotName, glvPath, collectionId); },
+                    () => { if (!isGear) LoadModelIntoSlot(shoSlotName, shoPath, collectionId); }
                 );
                 _mainThreadActions.Enqueue(() => UpdateMeshVisibility());
 
