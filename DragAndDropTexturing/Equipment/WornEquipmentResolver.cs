@@ -27,19 +27,21 @@ public sealed class WornEquipmentPiece
     public string InternalMaskPath { get; init; } = "";
     public string InternalMaterialPath { get; init; } = "";
     public string ResolvedBaseDiskPath { get; init; } = "";
+    public string ResolvedMaterialDiskPath { get; init; } = "";
 
     public string ModName
     {
         get
         {
-            if (string.IsNullOrEmpty(ResolvedBaseDiskPath)) return "";
+            string pathToUse = !string.IsNullOrEmpty(ResolvedMaterialDiskPath) ? ResolvedMaterialDiskPath : ResolvedBaseDiskPath;
+            if (string.IsNullOrEmpty(pathToUse)) return "";
             try
             {
                 string penumbraDir = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
                 if (string.IsNullOrEmpty(penumbraDir)) return "";
-                if (ResolvedBaseDiskPath.StartsWith(penumbraDir, StringComparison.OrdinalIgnoreCase))
+                if (pathToUse.StartsWith(penumbraDir, StringComparison.OrdinalIgnoreCase))
                 {
-                    string relative = ResolvedBaseDiskPath.Substring(penumbraDir.Length).TrimStart('\\', '/');
+                    string relative = pathToUse.Substring(penumbraDir.Length).TrimStart('\\', '/');
                     int slashIndex = relative.IndexOfAny(new[] { '\\', '/' });
                     if (slashIndex > 0)
                         return relative.Substring(0, slashIndex);
@@ -223,8 +225,18 @@ public static class WornEquipmentResolver
 
                 foreach (var piece in pieces)
                 {
-                    DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] {slot.SlotKey}: Successfully resolved piece: {piece.DisplayName}");
-                    results.Add(piece);
+                    bool isGeneratedMod = !string.IsNullOrEmpty(piece.ModName) &&
+                                          piece.ModName.StartsWith(characterName, StringComparison.OrdinalIgnoreCase) &&
+                                          (piece.ModName.Contains("Texture", StringComparison.OrdinalIgnoreCase) || piece.ModName.EndsWith("Mod", StringComparison.OrdinalIgnoreCase));
+                    if (!isGeneratedMod)
+                    {
+                        DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] {slot.SlotKey}: Successfully resolved piece: {piece.DisplayName}");
+                        results.Add(piece);
+                    }
+                    else
+                    {
+                        DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] {slot.SlotKey}: Skipped self-generated mod: {piece.ModName}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -397,6 +409,7 @@ public static class WornEquipmentResolver
                         InternalMaskPath = internalMask,
                         InternalMaterialPath = internalMtrl,
                         ResolvedBaseDiskPath = resolvedDisk ?? "",
+                        ResolvedMaterialDiskPath = mtrlDisk ?? "",
                     };
 
                     pieces.Add(piece);

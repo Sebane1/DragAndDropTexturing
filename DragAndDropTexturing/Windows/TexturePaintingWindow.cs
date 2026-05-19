@@ -2014,6 +2014,7 @@ namespace DragAndDropTexturing.Windows
 
                     int primaryIndex = 0;
                     string searchPattern = null;
+                    string autoDetectedMaterial = null;
 
                     if (!string.IsNullOrEmpty(_selectedMaterial))
                     {
@@ -2029,6 +2030,7 @@ namespace DragAndDropTexturing.Windows
                         if (gearMatch.Success)
                         {
                             searchPattern = $"{gearMatch.Groups[2].Value}_{gearMatch.Groups[3].Value}_{gearMatch.Groups[4].Value}".ToLower();
+                            autoDetectedMaterial = gearMatch.Groups[4].Value;
                         }
                         else if (bodyMatch.Success)
                         {
@@ -2047,6 +2049,12 @@ namespace DragAndDropTexturing.Windows
                                                 matchedPiece.SlotKey == "head" ? "met" : "top";
                                 string matSuffix = !string.IsNullOrEmpty(matchedPiece.MaterialName) ? $"_{matchedPiece.MaterialName.ToLower()}" : "";
                                 searchPattern = $"{eCode}_{suffix}{matSuffix}".ToLower();
+                                autoDetectedMaterial = matchedPiece.MaterialName;
+                            }
+                            
+                            if (string.IsNullOrEmpty(autoDetectedMaterial) && !string.IsNullOrEmpty(EditSourcePath))
+                            {
+                                autoDetectedMaterial = System.IO.Path.GetFileNameWithoutExtension(EditSourcePath).Split('_').LastOrDefault();
                             }
                         }
                     }
@@ -2061,12 +2069,30 @@ namespace DragAndDropTexturing.Windows
                     var primaryMeshes = new System.Collections.Generic.List<ExtractedMesh>();
                     var secondaryMeshes = new System.Collections.Generic.List<ExtractedMesh>();
 
-                    if (searchPattern != null)
+                    if (searchPattern != null || autoDetectedMaterial != null)
                     {
                         for (int i = 0; i < meshesCopy.Count; i++)
                         {
                             string matPath = meshesCopy[i].MaterialPath;
-                            if (!string.IsNullOrEmpty(matPath) && matPath.ToLower().Contains(searchPattern))
+                            bool isMatch = false;
+                            
+                            if (!string.IsNullOrEmpty(matPath))
+                            {
+                                if (searchPattern != null && matPath.ToLower().Contains(searchPattern))
+                                {
+                                    isMatch = true;
+                                }
+                                else if (!string.IsNullOrEmpty(autoDetectedMaterial))
+                                {
+                                    string[] parts = matPath.Replace(".mtrl", "").Split('_');
+                                    if (parts.Length > 0 && parts.Last().Equals(autoDetectedMaterial, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        isMatch = true;
+                                    }
+                                }
+                            }
+                            
+                            if (isMatch)
                             {
                                 primaryMeshes.Add(meshesCopy[i]);
                             }
@@ -2864,12 +2890,21 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                 if (candidates.Count > 0)
                 {
                     // First try to match by material name since we have multiple candidates for the same slot
-                    foreach (var c in candidates)
+                    string editFileNameNoExt = System.IO.Path.GetFileNameWithoutExtension(editFileName);
+                    string[] nameParts = editFileNameNoExt.Split('_');
+                    string lastSection = nameParts.Length > 0 ? nameParts[nameParts.Length - 1] : "";
+
+                    foreach (var c in candidates.OrderByDescending(p => p.MaterialName?.Length ?? 0))
                     {
                         if (!string.IsNullOrEmpty(c.MaterialName))
                         {
-                            if (editFileName.Contains($"_{c.MaterialName}", StringComparison.OrdinalIgnoreCase) || 
-                                (ContextCategoryKey != null && ContextCategoryKey.EndsWith($"_{c.MaterialName}", StringComparison.OrdinalIgnoreCase)))
+                            bool matchFile = editFileNameNoExt.EndsWith($"_{c.MaterialName}", StringComparison.OrdinalIgnoreCase) ||
+                                             editFileNameNoExt.Contains($"_{c.MaterialName}_", StringComparison.OrdinalIgnoreCase) ||
+                                             lastSection.Equals(c.MaterialName, StringComparison.OrdinalIgnoreCase);
+                            
+                            bool matchCategory = ContextCategoryKey != null && ContextCategoryKey.EndsWith($"_{c.MaterialName}", StringComparison.OrdinalIgnoreCase);
+
+                            if (matchFile || matchCategory)
                             {
                                 _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via explicit slot key and MaterialName: {c.DisplayName}");
                                 return c;

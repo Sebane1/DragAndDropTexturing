@@ -2136,15 +2136,55 @@ namespace RoleplayingVoice
                         }
                         if (_textureHistory[categoryKey].Count == 0 && !hasContextualLayers)
                         {
-                            string emptyPath = Path.Combine(Plugin.PluginInterface.AssemblyLocation.Directory?.FullName!, "empty_base.png");
-                            if (!File.Exists(emptyPath))
+                            if (categoryKey.Contains("_gear_"))
                             {
-                                using (var emptyBmp = new System.Drawing.Bitmap(1024, 1024))
+                                localModName = localModName.Replace("Mod", categoryModName);
+                                string deleteModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
+                                
+                                try
                                 {
-                                    emptyBmp.Save(emptyPath, System.Drawing.Imaging.ImageFormat.Png);
+                                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, localModName, false, localModName);
                                 }
+                                catch { }
+
+                                if (Directory.Exists(deleteModPath))
+                                {
+                                    try
+                                    {
+                                        Directory.Delete(deleteModPath, true);
+                                    }
+                                    catch { }
+                                }
+                                
+                                try
+                                {
+                                    PenumbraAndGlamourerIpcWrapper.Instance.DeleteMod.Invoke(localModName, localModName);
+                                }
+                                catch
+                                {
+                                    try
+                                    {
+                                        PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(localModName, "");
+                                    }
+                                    catch { }
+                                }
+
+                                plugin.PluginLog.Info($"[Drag And Drop Texturing] Deleted/disabled empty clothing mod: {localModName}");
+                                PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                                return;
                             }
-                            AddToTextureSet(item, emptyPath, overrideType);
+                            else
+                            {
+                                string emptyPath = Path.Combine(Plugin.PluginInterface.AssemblyLocation.Directory?.FullName!, "empty_base.png");
+                                if (!File.Exists(emptyPath))
+                                {
+                                    using (var emptyBmp = new System.Drawing.Bitmap(1024, 1024))
+                                    {
+                                        emptyBmp.Save(emptyPath, System.Drawing.Imaging.ImageFormat.Png);
+                                    }
+                                }
+                                AddToTextureSet(item, emptyPath, overrideType);
+                            }
                         }
 
                         textureSets.Add(item);

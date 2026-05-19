@@ -383,9 +383,6 @@ public class MainWindow : Window, IDisposable
         var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
         if (ddt == null || localPlayer == null) return;
 
-        if (!ImGui.CollapsingHeader(Translator.LocalizeUI("Worn Gear (Quick Edit)"), ImGuiTreeNodeFlags.DefaultOpen))
-            return;
-
         ImGui.TextWrapped(Translator.LocalizeUI("Pull texture paths from gear your character is wearing. Each slot becomes an editable layer like body/face."));
         ImGui.Spacing();
 
@@ -456,31 +453,34 @@ public class MainWindow : Window, IDisposable
         var ddt = Plugin.DragAndDropTextures;
         if (ddt != null && ddt.TextureHistory != null)
         {
-            DrawWornGearQuickEdit();
-            ImGui.Separator();
-            ImGui.Spacing();
-            var keys = ddt.TextureHistory.Keys.Where(k => ddt.TextureHistory[k].Count > 0).ToList();
-            if (keys.Count == 0)
+            if (ImGui.BeginTabBar("ActiveLayersSubTabs"))
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No active textures dropped yet."));
-                ImGui.Spacing();
-                if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)")))
+                if (ImGui.BeginTabItem(Translator.LocalizeUI("Base Layers")))
                 {
-                    OpenImportDialog();
-                }
-                ImGui.SameLine();
-                if (ImGui.Button(Translator.LocalizeUI("Open Texture Painter")))
-                {
-                    Plugin.OpenPaintWindow();
-                }
-                return;
-            }
-
-            if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)")))
-            {
-                OpenImportDialog();
-            }
-            ImGui.Spacing();
+                    ImGui.Spacing();
+                    var keys = ddt.TextureHistory.Keys.Where(k => ddt.TextureHistory[k].Count > 0).ToList();
+                    if (keys.Count == 0)
+                    {
+                        ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No active textures dropped yet."));
+                        ImGui.Spacing();
+                        if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)")))
+                        {
+                            OpenImportDialog();
+                        }
+                        ImGui.SameLine();
+                        if (ImGui.Button(Translator.LocalizeUI("Open Texture Painter")))
+                        {
+                            Plugin.OpenPaintWindow();
+                        }
+                        ImGui.EndTabItem();
+                    }
+                    else
+                    {
+                        if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)")))
+                        {
+                            OpenImportDialog();
+                        }
+                        ImGui.Spacing();
 
             ImGui.BeginChild("ActiveLayersList", new Vector2(200, 0), true);
             for (int i = 0; i < keys.Count; i++)
@@ -641,6 +641,20 @@ public class MainWindow : Window, IDisposable
                 }
             }
             ImGui.EndChild();
+            
+            } // closes the else {
+            ImGui.EndTabItem();
+        }
+
+                if (ImGui.BeginTabItem(Translator.LocalizeUI("Worn Gear")))
+                {
+                    ImGui.Spacing();
+                    DrawWornGearQuickEdit();
+                    ImGui.EndTabItem();
+                }
+
+                ImGui.EndTabBar();
+            }
         }
     }
 
