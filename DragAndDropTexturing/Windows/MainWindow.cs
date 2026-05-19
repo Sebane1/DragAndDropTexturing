@@ -8,6 +8,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
 using System.Collections.Generic;
 using Dalamud.Interface.ImGuiFileDialog;
+using DragAndDropTexturing.Equipment;
 using DragAndDropTexturing.LanguageHelpers;
 
 namespace DragAndDropTexturing.Windows;
@@ -376,12 +377,87 @@ public class MainWindow : Window, IDisposable
             0, null, true);
     }
 
+    private void DrawWornGearQuickEdit()
+    {
+        var ddt = Plugin.DragAndDropTextures;
+        var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+        if (ddt == null || localPlayer == null) return;
+
+        if (!ImGui.CollapsingHeader(Translator.LocalizeUI("Worn Gear (Quick Edit)"), ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+
+        ImGui.TextWrapped(Translator.LocalizeUI("Pull texture paths from gear your character is wearing. Each slot becomes an editable layer like body/face."));
+        ImGui.Spacing();
+
+        if (ImGui.Button(Translator.LocalizeUI("Scan Worn Gear")))
+        {
+            ddt.RefreshWornGearCache();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button(Translator.LocalizeUI("Import All Slots")))
+        {
+            ddt.RefreshWornGearCache();
+            foreach (var piece in ddt.CachedWornGear)
+                ddt.ImportWornGearSlot(piece);
+        }
+
+        if (ddt.CachedWornGear == null || ddt.CachedWornGear.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No gear textures resolved yet. Click Scan while wearing items (not Emperor's New)."));
+            ImGui.Spacing();
+            return;
+        }
+
+        ImGui.Spacing();
+        if (ImGui.BeginTable("WornGearTable", 3, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        {
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Slot"), ImGuiTableColumnFlags.WidthFixed, 120);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Item"), ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Actions"), ImGuiTableColumnFlags.WidthFixed, 200);
+            ImGui.TableHeadersRow();
+
+            foreach (var piece in ddt.CachedWornGear)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.Text(piece.SlotKey);
+                ImGui.TableNextColumn();
+                ImGui.TextWrapped(piece.DisplayName);
+                if (!string.IsNullOrEmpty(piece.InternalBasePath) && ImGui.IsItemHovered())
+                    ImGui.SetTooltip(piece.InternalBasePath);
+
+                ImGui.TableNextColumn();
+                if (ImGui.Button(Translator.LocalizeUI("Import") + "##wg_" + piece.SlotKey))
+                    ddt.ImportWornGearSlot(piece);
+
+                string charName = localPlayer.Name.TextValue;
+                string layerKey = charName + "_gear_" + piece.SlotKey;
+                bool hasLayer = ddt.TextureHistory != null && ddt.TextureHistory.ContainsKey(layerKey) && ddt.TextureHistory[layerKey].Count > 0;
+                if (hasLayer)
+                {
+                    ImGui.SameLine();
+                    string editPath = ddt.TextureHistory[layerKey].LastOrDefault(f => !string.IsNullOrEmpty(f) && File.Exists(f));
+                    if (!string.IsNullOrEmpty(editPath) && ImGui.Button(Translator.LocalizeUI("Edit") + "##wge_" + piece.SlotKey))
+                        Plugin.OpenPaintWindow(editPath);
+                }
+            }
+
+            ImGui.EndTable();
+        }
+
+        ImGui.Spacing();
+    }
+
     private void DrawActiveLayers()
     {
         ImGui.Spacing();
         var ddt = Plugin.DragAndDropTextures;
         if (ddt != null && ddt.TextureHistory != null)
         {
+            DrawWornGearQuickEdit();
+            ImGui.Separator();
+            ImGui.Spacing();
             var keys = ddt.TextureHistory.Keys.Where(k => ddt.TextureHistory[k].Count > 0).ToList();
             if (keys.Count == 0)
             {

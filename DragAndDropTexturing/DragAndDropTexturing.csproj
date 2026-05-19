@@ -37,6 +37,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="Penumbra.GameData">
+      <HintPath>..\LooseTextureCompilerCore\Penumbra.GameData.dll</HintPath>
+    </Reference>
     <Reference Include="Penumbra.String">
       <HintPath>..\LooseTextureCompilerCore\Penumbra.String.dll</HintPath>
     </Reference>

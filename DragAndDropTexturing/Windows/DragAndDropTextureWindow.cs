@@ -28,6 +28,7 @@ using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Plugin.Services;
 using static FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation;
 using DragAndDropTexturing;
+using DragAndDropTexturing.Equipment;
 using DragAndDropTexturing.LanguageHelpers;
 using LooseTextureCompilerCore.ProjectCreation;
 using PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer;
@@ -86,6 +87,8 @@ namespace RoleplayingVoice
         List<Tuple<string, float>> boneSorting = new List<Tuple<string, float>>();
         private Dictionary<string, List<string>> _textureHistory = new Dictionary<string, List<string>>();
         public Dictionary<string, List<string>> TextureHistory { get => _textureHistory; set => _textureHistory = value; }
+        private readonly Dictionary<string, WornEquipmentPiece> _gearCategoryMeta = new();
+        public List<WornEquipmentPiece> CachedWornGear { get; private set; } = new();
 
         // Auto-regeneration tracking
         private System.Threading.Timer _regenerationDebounce;
@@ -778,6 +781,12 @@ namespace RoleplayingVoice
                                         bodyDragPart = BodyDragPart.Body;
                                     }
                                 }
+
+                                if (ImGui.GetIO().KeyCtrl)
+                                {
+                                    bodyDragPart = BodyDragPart.Clothing;
+                                }
+
                                 if (selectedPlayer.Value != null)
                                 {
                                     if ((DateTime.Now - _lastIpcCheckTime).TotalMilliseconds > 1000)
@@ -796,7 +805,13 @@ namespace RoleplayingVoice
                                         selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer)
                                     {
                                         ImGui.SetWindowFontScale(1.5f);
-                                        ImGui.TextUnformatted(Translator.LocalizeUI("Dragging texture onto") + $" {selectedPlayer.Key.Split(' ')[0]}'s {bodyDragPart.ToString()}:\n\t{string.Join("\n\t", m.Files.Select(Path.GetFileName))} " + debugInfo);
+                                        string partName = bodyDragPart.ToString();
+                                        if (bodyDragPart == BodyDragPart.Clothing)
+                                        {
+                                            string gearSlot = GetGearSlotFromBone(_closestBone);
+                                            partName = $"Clothing ({char.ToUpper(gearSlot[0]) + gearSlot.Substring(1).Replace('_', ' ')})";
+                                        }
+                                        ImGui.TextUnformatted(Translator.LocalizeUI("Dragging texture onto") + $" {selectedPlayer.Key.Split(' ')[0]}'s {partName}:\n\t{string.Join("\n\t", m.Files.Select(Path.GetFileName))} " + debugInfo);
                                     }
                                     else
                                     {
@@ -905,7 +920,25 @@ namespace RoleplayingVoice
                                         if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
                                         string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
                                         string categoryKey = selectedPlayer.Key + "_";
-                                        if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                                        if (bodyDragPart == BodyDragPart.Clothing)
+                                        {
+                                            string gearSlot = GetGearSlotFromBone(_closestBone) ?? "body";
+                                            categoryKey += "gear_" + gearSlot;
+                                        }
+                                        else if (fileName.Contains("_gear_"))
+                                        {
+                                            string slot = "body";
+                                            foreach (var s in new[] { "head", "body", "hands", "legs", "feet", "ears", "neck", "wrists", "ring_l", "ring_r" })
+                                            {
+                                                if (fileName.Contains("_gear_" + s))
+                                                {
+                                                    slot = s;
+                                                    break;
+                                                }
+                                            }
+                                            categoryKey += "gear_" + slot;
+                                        }
+                                        else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                                             fileName.Contains("bibo") || fileName.Contains("b+") ||
                                             fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
                                         else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
@@ -941,7 +974,25 @@ namespace RoleplayingVoice
                                         string fileName = Path.GetFileNameWithoutExtension(f).ToLower();
                                         string categoryKey = selectedPlayer.Key + "_";
                                         bool isBody = false;
-                                        if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                                        if (bodyDragPart == BodyDragPart.Clothing)
+                                        {
+                                            string gearSlot = GetGearSlotFromBone(_closestBone) ?? "body";
+                                            categoryKey += "gear_" + gearSlot;
+                                        }
+                                        else if (fileName.Contains("_gear_"))
+                                        {
+                                            string slot = "body";
+                                            foreach (var s in new[] { "head", "body", "hands", "legs", "feet", "ears", "neck", "wrists", "ring_l", "ring_r" })
+                                            {
+                                                if (fileName.Contains("_gear_" + s))
+                                                {
+                                                    slot = s;
+                                                    break;
+                                                }
+                                            }
+                                            categoryKey += "gear_" + slot;
+                                        }
+                                        else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                                             fileName.Contains("bibo") || fileName.Contains("b+") ||
                                             fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
                                         else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
@@ -1282,6 +1333,11 @@ namespace RoleplayingVoice
                             else if (tName.Contains("face") || tPath.Contains("obj/face"))
                             {
                                 category = "_face";
+                                requiresFullRedraw = true;
+                            }
+                            else if (tPath.Contains("obj/equipment") || tPath.Contains("chara/equipment") || tName.Contains("gear"))
+                            {
+                                category = "_gear";
                                 requiresFullRedraw = true;
                             }
 
@@ -1733,7 +1789,25 @@ namespace RoleplayingVoice
                     string categoryKey = selectedPlayer.Key + "_";
                     bool isBody = false;
 
-                    if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                    if (bodyDragPart == BodyDragPart.Clothing)
+                    {
+                        string gearSlot = GetGearSlotFromBone(_closestBone) ?? "body";
+                        categoryKey += "gear_" + gearSlot;
+                    }
+                    else if (fileName.Contains("_gear_"))
+                    {
+                        string slot = "body";
+                        foreach (var s in new[] { "head", "body", "hands", "legs", "feet", "ears", "neck", "wrists", "ring_l", "ring_r" })
+                        {
+                            if (fileName.Contains("_gear_" + s))
+                            {
+                                slot = s;
+                                break;
+                            }
+                        }
+                        categoryKey += "gear_" + slot;
+                    }
+                    else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                         fileName.Contains("bibo") || fileName.Contains("b+") ||
                         fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
                     else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
@@ -1999,6 +2073,30 @@ namespace RoleplayingVoice
                         categoryModName = "Eyebrows";
                         overrideType = "Normal";
                     }
+                    else if (categoryKey.Contains("_gear_"))
+                    {
+                        if (!_gearCategoryMeta.TryGetValue(categoryKey, out var gearMeta))
+                        {
+                            string slot = categoryKey.Split("_gear_")[1];
+                            var wornPieces = WornEquipmentResolver.ResolveWornGear(character, plugin);
+                            gearMeta = wornPieces.Find(p => p.SlotKey.Equals(slot, StringComparison.OrdinalIgnoreCase));
+                            if (gearMeta != null)
+                            {
+                                _gearCategoryMeta[categoryKey] = gearMeta;
+                            }
+                        }
+
+                        if (gearMeta != null)
+                        {
+                            item = ProjectHelper.CreateEquipmentTextureSet(
+                                gearMeta.DisplayName,
+                                gearMeta.InternalBasePath,
+                                gearMeta.InternalNormalPath,
+                                gearMeta.InternalMaskPath,
+                                gearMeta.InternalMaterialPath);
+                            categoryModName = "Gear " + gearMeta.SlotKey;
+                        }
+                    }
 
                     if (item != null)
                     {
@@ -2053,6 +2151,58 @@ namespace RoleplayingVoice
                     Plugin.PluginLog.Warning(e, e.Message);
                 }
             });
+        }
+
+        public void RefreshWornGearCache()
+        {
+            var localPlayer = plugin?.SafeGameObjectManager?.LocalPlayer as ICharacter;
+            if (localPlayer == null)
+            {
+                CachedWornGear = new List<WornEquipmentPiece>();
+                return;
+            }
+
+            CachedWornGear = WornEquipmentResolver.ResolveWornGear(localPlayer, plugin);
+        }
+
+        public void ImportWornGearSlot(WornEquipmentPiece piece)
+        {
+            if (piece == null || plugin == null) return;
+
+            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+            if (localPlayer == null)
+            {
+                plugin.Chat.PrintError("[Drag And Drop Texturing] No local player — cannot import worn gear.");
+                return;
+            }
+
+            Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+            string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
+            string source = !string.IsNullOrEmpty(piece.ResolvedBaseDiskPath) ? piece.ResolvedBaseDiskPath : piece.InternalBasePath;
+            string pngPath = WornEquipmentResolver.ExportResolvedTextureToPng(source, collection, exportDir, plugin);
+
+            if (string.IsNullOrEmpty(pngPath))
+            {
+                plugin.Chat.PrintError($"[Drag And Drop Texturing] Could not read texture for {piece.DisplayName}.");
+                return;
+            }
+
+            string categoryKey = $"{localPlayer.Name.TextValue}_gear_{piece.SlotKey}";
+            _gearCategoryMeta[categoryKey] = piece;
+
+            if (!_textureHistory.ContainsKey(categoryKey))
+                _textureHistory[categoryKey] = new List<string>();
+
+            if (!plugin.Configuration.EnableTextureStacking)
+                _textureHistory[categoryKey].Clear();
+
+            if (!_textureHistory[categoryKey].Contains(pngPath))
+                _textureHistory[categoryKey].Add(pngPath);
+
+            plugin.Configuration.Save();
+            UpdateWatchers();
+            RebuildCategory(categoryKey, false);
+            plugin.Chat.Print($"[Drag And Drop Texturing] Imported worn gear layer: {piece.DisplayName}");
         }
 
         private void ApplyDefaultSkinType(TextureSet item)
@@ -2178,6 +2328,38 @@ namespace RoleplayingVoice
             return 2; // Default to Gen3
         }
 
+        private string GetGearSlotFromBone(Bone bone)
+        {
+            if (bone == null || bone.HkaBone.Name.String == null) return "body";
+            string name = bone.HkaBone.Name.String.ToLower();
+
+            // Head slot: head, face, eyes, hair, helmet, ears, neck, teeth etc.
+            if (name.Contains("head") || name.Contains("kao") || name.Contains("mimi") || name.Contains("hair") || name.Contains("ear"))
+                return "head";
+
+            // Hands slot: hand, arm, wrist, finger
+            if (name.Contains("shou") || name.Contains("te") || name.Contains("ude") || name.Contains("arm") || name.Contains("wrist") || name.Contains("finger") || name.Contains("hand"))
+                return "hands";
+
+            // Feet slot: foot, leg, calf, ankle, toe, shoe
+            if (name.Contains("asi") || name.Contains("foot") || name.Contains("toe") || name.Contains("calf") || name.Contains("shin") || name.Contains("ankle") || name.Contains("shoe"))
+            {
+                if (name.Contains("asi_a") || name.Contains("thigh"))
+                    return "legs";
+                return "feet";
+            }
+
+            // Legs slot: leg, thigh, knee, pelvis, skirt, crotch, waist
+            if (name.Contains("leg") || name.Contains("knee") || name.Contains("momo") || name.Contains("waist") || name.Contains("hara") || name.Contains("hip") || name.Contains("kosi") || name.Contains("pelvis"))
+                return "legs";
+
+            // Body slot: chest, spine, neck, shoulder, back, breast
+            if (name.Contains("spine") || name.Contains("chest") || name.Contains("mune") || name.Contains("kubi") || name.Contains("neck") || name.Contains("kata") || name.Contains("shoulder") || name.Contains("back") || name.Contains("breast") || name.Contains("torso"))
+                return "body";
+
+            return "body"; // Default fallback
+        }
+
         private readonly string _xNormalPath;
     }
 }
@@ -2190,6 +2372,7 @@ namespace PenumbraAndGlamourerHelpers
         Eyes,
         Face,
         Body,
-        EyebrowsAndLashes
+        EyebrowsAndLashes,
+        Clothing,
     }
 }
