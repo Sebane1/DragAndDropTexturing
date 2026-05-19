@@ -1265,25 +1265,27 @@ namespace RoleplayingVoice
             });
         }
 
+        private readonly System.Threading.SemaphoreSlim _exportSemaphore = new System.Threading.SemaphoreSlim(1, 1);
+
         public async Task<bool> Export(bool finalize, List<TextureSet> exportTextureSets, string path,
             string name, KeyValuePair<string, ICharacter> character, int overrideRace = -1, int overrideClan = -1, int overrideGender = -1, int overrideFace = -1, bool isContextual = false)
         {
-            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
-            sw.Start();
-            plugin.PluginLog.Information("[Drag And Drop Debug] Export started!");
-            if (!_lockDuplicateGeneration)
+            await _exportSemaphore.WaitAsync();
+            try
             {
-                try
-                {
-                    plugin.PluginLog.Information("[Drag And Drop Texturing] Processing textures, please wait.");
-                    string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
-                    _textureProcessor.BasePath = modPath + @"\LooseTextureCompilerDLC";
-                    LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = _textureProcessor.BasePath;
-                    _exportStatus = "Initializing";
-                    _currentTarget = character.Value;
-                    _hideProgressUI = isContextual;
-                    _lockDuplicateGeneration = true;
-                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
+                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                plugin.PluginLog.Information("[Drag And Drop Debug] Export started!");
+                _lockDuplicateGeneration = true;
+
+                plugin.PluginLog.Information("[Drag And Drop Texturing] Processing textures, please wait.");
+                string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                _textureProcessor.BasePath = modPath + @"\LooseTextureCompilerDLC";
+                LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = _textureProcessor.BasePath;
+                _exportStatus = "Initializing";
+                _currentTarget = character.Value;
+                _hideProgressUI = isContextual;
+                Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
                     bool requiresFullRedraw = false;
 
                     // Extract currently equipped textures from Penumbra to use as underlay
@@ -1515,8 +1517,8 @@ namespace RoleplayingVoice
                 finally
                 {
                     _lockDuplicateGeneration = false;
+                    _exportSemaphore.Release();
                 }
-            }
             return true;
         }
 
@@ -1959,6 +1961,14 @@ namespace RoleplayingVoice
 
             Task.Run(async () =>
             {
+                int waitAttempts = 0;
+                while (_lockDuplicateGeneration && waitAttempts < 60)
+                {
+                    Thread.Sleep(1000);
+                    waitAttempts++;
+                }
+                if (_lockDuplicateGeneration) return;
+
                 try
                 {
                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
