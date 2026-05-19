@@ -1,15 +1,16 @@
-using System;
-using System.IO;
-using System.Linq;
-using System.Numerics;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
-using Dalamud.Bindings.ImGui;
-using System.Collections.Generic;
-using Dalamud.Interface.ImGuiFileDialog;
 using DragAndDropTexturing.Equipment;
 using DragAndDropTexturing.LanguageHelpers;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Numerics;
+using static Penumbra.GameData.Files.ShpkFile;
 
 namespace DragAndDropTexturing.Windows;
 
@@ -32,7 +33,8 @@ public class MainWindow : Window, IDisposable
         Plugin = plugin;
 
         var sheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Emote>();
-        if (sheet != null) {
+        if (sheet != null)
+        {
             _emotes = sheet.Where(x => !string.IsNullOrEmpty(x.Name.ExtractText())).OrderBy(x => x.Name.ExtractText()).ToList();
             _emoteNames = _emotes.Select(x => x.Name.ExtractText()).ToArray();
         }
@@ -48,7 +50,7 @@ public class MainWindow : Window, IDisposable
         {
             ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), "Background DLC download in progress. Settings locked.");
             ImGui.Spacing();
-            
+
             float progress = Plugin.DragAndDropTextures.DLCDownloadProgress;
             if (progress > 0f && progress < 1f)
             {
@@ -108,7 +110,7 @@ public class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         ImGui.Separator();
-        
+
         ImGui.Text(Translator.LocalizeUI("Language Override:"));
         int langOverride = Plugin.Configuration.LanguageOverride;
         string[] languagesWithAuto = new string[Translator.LanguageStrings.Length + 1];
@@ -117,13 +119,13 @@ public class MainWindow : Window, IDisposable
         {
             languagesWithAuto[i + 1] = Translator.LanguageStrings[i];
         }
-        
+
         int comboIndex = langOverride + 1;
         if (ImGui.Combo("##LanguageOverride", ref comboIndex, languagesWithAuto, languagesWithAuto.Length))
         {
             Plugin.Configuration.LanguageOverride = comboIndex - 1;
             Plugin.Configuration.Save();
-            
+
             if (Plugin.Configuration.LanguageOverride >= 0)
             {
                 Translator.UiLanguage = (LanguageEnum)Plugin.Configuration.LanguageOverride;
@@ -177,7 +179,7 @@ public class MainWindow : Window, IDisposable
                 ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected:") + $" {bodyString}");
             else
                 ImGui.TextColored(new Vector4(1.0f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected: Vanilla (No body mod found)"));
-            
+
             if (!string.IsNullOrEmpty(_cachedBodyModName))
             {
                 ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), Translator.LocalizeUI("Detected From Mod:") + $" {_cachedBodyModName}");
@@ -187,7 +189,7 @@ public class MainWindow : Window, IDisposable
         {
             ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), Translator.LocalizeUI("Player not loaded."));
         }
-        
+
         ImGui.Spacing();
         int fallbackBodyType = Plugin.Configuration.FallbackBodyType;
         string[] fallbackOptions = { Translator.LocalizeUI("Auto-Detect (Default)"), Translator.LocalizeUI("Vanilla"), "Bibo+", "Gen3 / Eve / Pythia", "TBSE", "Otopop" };
@@ -197,16 +199,16 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
         }
         ImGui.TextWrapped(Translator.LocalizeUI("Forces a specific body type to be used when automatic detection via Penumbra fails (e.g., if Penumbra connection issues occur)."));
-        
+
         ImGui.Separator();
-        
+
         ImGui.Spacing();
 
         if (ImGui.Button(Translator.LocalizeUI("Open 3D Model Preview (Experimental)")))
         {
             Plugin.MdlPreviewWindow.IsOpen = !Plugin.MdlPreviewWindow.IsOpen;
         }
-        
+
 
 
         ImGui.Spacing();
@@ -217,14 +219,14 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
         }
         ImGui.TextWrapped(Translator.LocalizeUI("When enabled, dragging multiple textures over time will stack them (layering). When disabled, dragging a new texture replaces the previous one."));
-        
+
         ImGui.Spacing();
         bool autoConvert = Plugin.Configuration.AutoUniversalConvert;
         if (ImGui.Checkbox(Translator.LocalizeUI("Auto Universal Convert"), ref autoConvert))
         {
             Plugin.Configuration.AutoUniversalConvert = autoConvert;
             Plugin.Configuration.Save();
-            
+
             var ddtForRebuild = Plugin.DragAndDropTextures;
             if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
             {
@@ -232,14 +234,14 @@ public class MainWindow : Window, IDisposable
             }
         }
         ImGui.TextWrapped(Translator.LocalizeUI("When enabled, textures are generated for all possible body types at once (Potentially slower generation)"));
-        
+
         ImGui.Spacing();
         bool generateNormals = Plugin.Configuration.GenerateNormals;
         if (ImGui.Checkbox(Translator.LocalizeUI("Generate Normals"), ref generateNormals))
         {
             Plugin.Configuration.GenerateNormals = generateNormals;
             Plugin.Configuration.Save();
-            
+
             var ddtForRebuild = Plugin.DragAndDropTextures;
             if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
             {
@@ -255,7 +257,7 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.Configuration.ExportCompression = exportQuality;
             Plugin.Configuration.Save();
-            
+
             var ddtForRebuild = Plugin.DragAndDropTextures;
             if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
             {
@@ -263,7 +265,7 @@ public class MainWindow : Window, IDisposable
             }
         }
         ImGui.TextWrapped(Translator.LocalizeUI("Selects the texture quality used for exports. Speed is faster to generate but results in larger file sizes. High Quality (BC7) offers the lowest file sizes for Dawntrail, but is performance heavy."));
-        
+
         ImGui.Spacing();
         float exportScale = Plugin.Configuration.ExportScale;
         int scaleIndex = exportScale == 1.0f ? 0 : exportScale == 0.5f ? 1 : 2;
@@ -272,7 +274,7 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.Configuration.ExportScale = scaleIndex == 0 ? 1.0f : scaleIndex == 1 ? 0.5f : 0.25f;
             Plugin.Configuration.Save();
-            
+
             var ddtForRebuild = Plugin.DragAndDropTextures;
             if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
             {
@@ -280,7 +282,7 @@ public class MainWindow : Window, IDisposable
             }
         }
         ImGui.TextWrapped(Translator.LocalizeUI("Downscales exported textures to save memory and file size at the cost of visual quality."));
-        
+
         ImGui.Spacing();
         bool autoDistanceExportQuality = Plugin.Configuration.AutoDistanceExportQuality;
         if (ImGui.Checkbox(Translator.LocalizeUI("Auto Distance Export Quality (Experimental)"), ref autoDistanceExportQuality))
@@ -289,7 +291,7 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
         }
         ImGui.TextWrapped(Translator.LocalizeUI("Automatically scales the export resolution based on how close the camera is to your character during the drop."));
-        
+
         ImGui.Spacing();
         var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
         var locOptions = Translator.LocalizeTextArray(options);
@@ -300,7 +302,7 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
         }
         ImGui.TextWrapped(Translator.LocalizeUI("Selects the base skin underlay type when a custom transparent tattoo is dropped. If the character's base body doesn't support the specific skin variant, it will fall back to its own default."));
-        
+
         ImGui.Spacing();
         bool usePriorityMod = Plugin.Configuration.UsePriorityBodyMod;
         if (ImGui.Checkbox(Translator.LocalizeUI("Use Textures From Priority Body Mod"), ref usePriorityMod))
@@ -308,7 +310,7 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.UsePriorityBodyMod = usePriorityMod;
             FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = usePriorityMod;
             Plugin.Configuration.Save();
-            
+
             var ddtForRebuild = Plugin.DragAndDropTextures;
             if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
             {
@@ -316,7 +318,7 @@ public class MainWindow : Window, IDisposable
             }
         }
         ImGui.TextWrapped(Translator.LocalizeUI("When enabled, the compiler will scan your Penumbra modlist and automatically inherit the body texture of your highest priority active skin mod as the underlay for transparent overlays."));
-        
+
         if (usePriorityMod)
         {
             ImGui.Spacing();
@@ -358,9 +360,9 @@ public class MainWindow : Window, IDisposable
     private void OpenImportDialog()
     {
         _fileDialogManager.OpenFileDialog(
-            Translator.LocalizeUI("Select textures to apply to your character"), 
-            "Texture Files{.png,.dds,.tex,.bmp,.psd}", 
-            (b, files) => 
+            Translator.LocalizeUI("Select textures to apply to your character"),
+            "Texture Files{.png,.dds,.tex,.bmp,.psd}",
+            (b, files) =>
             {
                 if (b && files != null && files.Count > 0)
                 {
@@ -368,12 +370,12 @@ public class MainWindow : Window, IDisposable
                     if (localPlayer != null && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter chara)
                     {
                         Plugin.DragAndDropTextures?.InjectFilesAndRebuild(
-                            files, 
-                            new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(localPlayer.Name.TextValue, chara), 
+                            files,
+                            new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(localPlayer.Name.TextValue, chara),
                             PenumbraAndGlamourerHelpers.BodyDragPart.Body);
                     }
                 }
-            }, 
+            },
             0, null, true);
     }
 
@@ -426,18 +428,21 @@ public class MainWindow : Window, IDisposable
 
                 ImGui.TableNextColumn();
                 string btnIdSuffix = piece.SlotKey + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
-                if (ImGui.Button(Translator.LocalizeUI("Import") + "##wg_" + btnIdSuffix))
-                    ddt.ImportWornGearSlot(piece);
-
                 string charName = localPlayer.Name.TextValue;
                 string layerKey = charName + "_gear_" + piece.SlotKey + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
                 bool hasLayer = ddt.TextureHistory != null && ddt.TextureHistory.ContainsKey(layerKey) && ddt.TextureHistory[layerKey].Count > 0;
+                if (!hasLayer)
+                {
+                    if (ImGui.Button(Translator.LocalizeUI("Import") + "##wg_" + btnIdSuffix))
+                        ddt.ImportWornGearSlot(piece);
+                }
                 if (hasLayer)
                 {
                     ImGui.SameLine();
-                    string editPath = ddt.TextureHistory[layerKey].LastOrDefault(f => !string.IsNullOrEmpty(f) && File.Exists(f));
-                    if (!string.IsNullOrEmpty(editPath) && ImGui.Button(Translator.LocalizeUI("Edit") + "##wge_" + btnIdSuffix))
-                        Plugin.OpenPaintWindow(editPath);
+                    ImGui.LabelText("##importedLabel","  Imported already!");
+                    //string editPath = ddt.TextureHistory[layerKey].LastOrDefault(f => !string.IsNullOrEmpty(f) && File.Exists(f));
+                    //if (!string.IsNullOrEmpty(editPath) && ImGui.Button(Translator.LocalizeUI("Edit") + "##wge_" + btnIdSuffix))
+                    //    Plugin.OpenPaintWindow(editPath);
                 }
             }
 
@@ -480,171 +485,187 @@ public class MainWindow : Window, IDisposable
                         {
                             OpenImportDialog();
                         }
+                        ImGui.SameLine();
+                        if (ImGui.Button(Translator.LocalizeUI("Add New Layer (Open Painter)##" + "asdasdaasd")))
+                        {
+                            Plugin.OpenPaintWindow();
+                        }
                         ImGui.Spacing();
 
-            ImGui.BeginChild("ActiveLayersList", new Vector2(200, 0), true);
-            for (int i = 0; i < keys.Count; i++)
-            {
-                bool isSelected = _selectedActiveLayerIndex == i;
-                if (ImGui.Selectable($"{keys[i]}##SelectActiveLayer_{i}", isSelected))
-                {
-                    _selectedActiveLayerIndex = i;
-                }
-            }
-            ImGui.EndChild();
-
-            ImGui.SameLine();
-
-            ImGui.BeginChild("ActiveLayerDetails", new Vector2(0, 0), true);
-            if (_selectedActiveLayerIndex >= 0 && _selectedActiveLayerIndex < keys.Count)
-            {
-                string key = keys[_selectedActiveLayerIndex];
-                var list = ddt.TextureHistory[key];
-                
-                ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Active Layers for:") + $" {key}");
-                ImGui.Separator();
-                
-                ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
-                if (ImGui.Button(Translator.LocalizeUI("Clear All") + "##" + key))
-                {
-                    list.Clear();
-                    ddt.RebuildCategory(key, false);
-                    Plugin.Configuration.Save();
-                    // Keep index bounded if list clears and we want to prevent out of bounds next frame
-                }
-                ImGui.EndDisabled();
-                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                {
-                    ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Clear All"));
-                }
-                
-                ImGui.SameLine();
-                if (ImGui.Button(Translator.LocalizeUI("Export to PSD") + "##" + key))
-                {
-                    ExportCategoryToPsd(key, list);
-                }
-                
-                bool changed = false;
-                for (int i = 0; i < list.Count; i++)
-                {
-                    string path = list[i] ?? "";
-                    
-                    var tex = GetPreviewTexture(path);
-                    var wrap = tex?.GetWrapOrDefault();
-                    
-                    if (wrap != null)
-                    {
-                        ImGui.Image(wrap.Handle, new Vector2(40, 40));
-                        ImGui.SameLine();
-                        // Adjust Y cursor to vertically align the InputText with the image
-                        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 10);
-                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 200);
-                    }
-                    else
-                    {
-                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
-                    }
-                    
-                    if (ImGui.InputText("##path_" + key + i, ref path, 1024))
-                    {
-                        list[i] = path;
-                    }
-                    if (ImGui.IsItemHovered())
-                    {
-                        if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTarget", out var files, out _))
+                        ImGui.BeginChild("ActiveLayersList", new Vector2(200, 0), true);
+                        for (int i = 0; i < keys.Count; i++)
                         {
-                            if (files.Count > 0)
+                            bool isSelected = _selectedActiveLayerIndex == i;
+                            string displayKey = keys[i];
+                            if (ddt.GearCategoryMeta != null && ddt.GearCategoryMeta.TryGetValue(keys[i], out var gearMeta))
                             {
-                                if (Path.GetExtension(files[0]).Equals(".psd", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    Plugin.PsdImportWindow.StartImport(files[0]);
-                                }
-                                else
-                                {
-                                    list[i] = files[0];
-                                    changed = true;
-                                }
+                                displayKey = $"{gearMeta.SlotKey}: {gearMeta.DisplayName}";
+                                if (!string.IsNullOrEmpty(gearMeta.MaterialName))
+                                    displayKey += $" ({gearMeta.MaterialName})";
+                            }
+
+                            if (ImGui.Selectable($"{displayKey}##SelectActiveLayer_{i}", isSelected))
+                            {
+                                _selectedActiveLayerIndex = i;
                             }
                         }
-                    }
-                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
-                    
-                    if (ImGui.Button(Translator.LocalizeUI("Up") + "##" + key + i) && i > 0)
-                    {
-                        var temp = list[i - 1];
-                        list[i - 1] = list[i];
-                        list[i] = temp;
-                        changed = true;
-                    }
-                    
-                    ImGui.SameLine();
-                    if (ImGui.Button(Translator.LocalizeUI("Down") + "##" + key + i) && i < list.Count - 1)
-                    {
-                        var temp = list[i + 1];
-                        list[i + 1] = list[i];
-                        list[i] = temp;
-                        changed = true;
-                    }
+                        ImGui.EndChild();
 
-                    ImGui.SameLine();
-                    ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
-                    if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
-                    {
-                        list.RemoveAt(i);
-                        i--;
-                        changed = true;
-                    }
-                    ImGui.EndDisabled();
-                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                    {
-                        ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove"));
-                    }
-
-                    // Edit button — opens the Texture Painter with this layer loaded
-                    if (!string.IsNullOrEmpty(path) && File.Exists(path))
-                    {
                         ImGui.SameLine();
-                        bool canEdit = true;
-                        string lowerPath = path.ToLower();
-                        if (lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe"))
-                            canEdit = Plugin.IsBodyAvailable("bibo");
-                        else if (lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia"))
-                            canEdit = Plugin.IsBodyAvailable("gen3");
-                        else if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody"))
-                            canEdit = Plugin.IsBodyAvailable("tbse");
 
-                        if (!canEdit) ImGui.BeginDisabled();
-                        if (ImGui.Button(Translator.LocalizeUI("Edit") + "##" + key + i))
+                        ImGui.BeginChild("ActiveLayerDetails", new Vector2(0, 0), true);
+                        if (_selectedActiveLayerIndex >= 0 && _selectedActiveLayerIndex < keys.Count)
                         {
-                            Plugin.OpenPaintWindow(path, key);
-                        }
-                        if (!canEdit)
-                        {
+                            string key = keys[_selectedActiveLayerIndex];
+                            var list = ddt.TextureHistory[key];
+
+                            string displayKey = key;
+                            if (ddt.GearCategoryMeta != null && ddt.GearCategoryMeta.TryGetValue(key, out var gearMetaDetail))
+                            {
+                                displayKey = $"{gearMetaDetail.SlotKey}: {gearMetaDetail.DisplayName}";
+                                if (!string.IsNullOrEmpty(gearMetaDetail.MaterialName))
+                                    displayKey += $" ({gearMetaDetail.MaterialName})";
+                            }
+
+                            ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Active Layers for:") + $" {displayKey}");
+                            ImGui.Separator();
+
+                            ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
+                            if (ImGui.Button(Translator.LocalizeUI("Clear All") + "##" + key))
+                            {
+                                list.Clear();
+                                ddt.RebuildCategory(key, false);
+                                Plugin.Configuration.Save();
+                                // Keep index bounded if list clears and we want to prevent out of bounds next frame
+                            }
                             ImGui.EndDisabled();
                             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                             {
-                                ImGui.SetTooltip(Translator.LocalizeUI("This layer requires a body mod that is not currently available in your Penumbra directory."));
+                                ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Clear All"));
+                            }
+
+                            ImGui.SameLine();
+                            if (ImGui.Button(Translator.LocalizeUI("Export to PSD") + "##" + key))
+                            {
+                                ExportCategoryToPsd(key, list);
+                            }
+
+                            bool changed = false;
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                string path = list[i] ?? "";
+
+                                var tex = GetPreviewTexture(path);
+                                var wrap = tex?.GetWrapOrDefault();
+
+                                if (wrap != null)
+                                {
+                                    ImGui.Image(wrap.Handle, new Vector2(40, 40));
+                                    ImGui.SameLine();
+                                    // Adjust Y cursor to vertically align the InputText with the image
+                                    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 10);
+                                    ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 200);
+                                }
+                                else
+                                {
+                                    ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
+                                }
+
+                                if (ImGui.InputText("##path_" + key + i, ref path, 1024))
+                                {
+                                    list[i] = path;
+                                }
+                                if (ImGui.IsItemHovered())
+                                {
+                                    if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTarget", out var files, out _))
+                                    {
+                                        if (files.Count > 0)
+                                        {
+                                            if (Path.GetExtension(files[0]).Equals(".psd", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                Plugin.PsdImportWindow.StartImport(files[0]);
+                                            }
+                                            else
+                                            {
+                                                list[i] = files[0];
+                                                changed = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
+
+                                if (ImGui.Button(Translator.LocalizeUI("Up") + "##" + key + i) && i > 0)
+                                {
+                                    var temp = list[i - 1];
+                                    list[i - 1] = list[i];
+                                    list[i] = temp;
+                                    changed = true;
+                                }
+
+                                ImGui.SameLine();
+                                if (ImGui.Button(Translator.LocalizeUI("Down") + "##" + key + i) && i < list.Count - 1)
+                                {
+                                    var temp = list[i + 1];
+                                    list[i + 1] = list[i];
+                                    list[i] = temp;
+                                    changed = true;
+                                }
+
+                                ImGui.SameLine();
+                                ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
+                                if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
+                                {
+                                    list.RemoveAt(i);
+                                    i--;
+                                    changed = true;
+                                }
+                                ImGui.EndDisabled();
+                                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                                {
+                                    ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove"));
+                                }
+
+                                // Edit button — opens the Texture Painter with this layer loaded
+                                if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                                {
+                                    ImGui.SameLine();
+                                    bool canEdit = true;
+                                    string lowerPath = path.ToLower();
+                                    if (lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe"))
+                                        canEdit = Plugin.IsBodyAvailable("bibo");
+                                    else if (lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia"))
+                                        canEdit = Plugin.IsBodyAvailable("gen3");
+                                    else if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody"))
+                                        canEdit = Plugin.IsBodyAvailable("tbse");
+
+                                    if (!canEdit) ImGui.BeginDisabled();
+                                    if (ImGui.Button(Translator.LocalizeUI("Edit") + "##" + key + i))
+                                    {
+                                        Plugin.OpenPaintWindow(path, key);
+                                    }
+                                    if (!canEdit)
+                                    {
+                                        ImGui.EndDisabled();
+                                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                                        {
+                                            ImGui.SetTooltip(Translator.LocalizeUI("This layer requires a body mod that is not currently available in your Penumbra directory."));
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (changed)
+                            {
+                                ddt.RebuildCategory(key, false);
+                                Plugin.Configuration.Save();
                             }
                         }
-                    }
-                }
+                        ImGui.EndChild();
 
-                if (ImGui.Button(Translator.LocalizeUI("Add New Layer (Open Painter)##") + key))
-                {
-                    Plugin.OpenPaintWindow();
+                    } // closes the else {
+                    ImGui.EndTabItem();
                 }
-
-                if (changed)
-                {
-                    ddt.RebuildCategory(key, false);
-                    Plugin.Configuration.Save();
-                }
-            }
-            ImGui.EndChild();
-            
-            } // closes the else {
-            ImGui.EndTabItem();
-        }
 
                 if (ImGui.BeginTabItem(Translator.LocalizeUI("Worn Gear")))
                 {
@@ -666,10 +687,10 @@ public class MainWindow : Window, IDisposable
             {
                 string exportFolder = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "Exports");
                 if (!System.IO.Directory.Exists(exportFolder)) System.IO.Directory.CreateDirectory(exportFolder);
-                
+
                 string safeName = string.Join("_", key.Split(System.IO.Path.GetInvalidFileNameChars()));
                 string psdPath = System.IO.Path.Combine(exportFolder, $"{safeName}.psd");
-                
+
                 int targetBody = -1;
                 if (key.EndsWith("_body", StringComparison.OrdinalIgnoreCase))
                 {
@@ -686,7 +707,7 @@ public class MainWindow : Window, IDisposable
 
                 using var collection = new ImageMagick.MagickImageCollection();
                 bool added = false;
-                
+
                 for (int i = 0; i < files.Count; i++)
                 {
                     string f = files[i];
@@ -708,7 +729,7 @@ public class MainWindow : Window, IDisposable
                                 }
                             }
                             if (sourceBody == -1) sourceBody = 2; // Default to Gen3
-                            
+
                             if (sourceBody != targetBody)
                             {
                                 string convertedPath = System.IO.Path.Combine(exportFolder, System.IO.Path.GetFileNameWithoutExtension(f) + "_converted.png");
@@ -739,7 +760,7 @@ public class MainWindow : Window, IDisposable
                         }
                     }
                 }
-                
+
                 if (added)
                 {
                     var composite = collection[0];
@@ -787,26 +808,26 @@ public class MainWindow : Window, IDisposable
             string path = recentLayers[i];
             var tex = GetPreviewTexture(path);
             var wrap = tex?.GetWrapOrDefault();
-            
+
             float originalY = ImGui.GetCursorPosY();
-            
+
             if (wrap != null)
             {
                 ImGui.Image(wrap.Handle, new Vector2(40, 40));
                 ImGui.SameLine();
             }
-            
+
             // Align all text and buttons to the middle of the 40px image
             if (wrap != null) ImGui.SetCursorPosY(originalY + 10);
-            
+
             ImGui.Text(Path.GetFileName(path));
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip(path);
             }
-            
+
             ImGui.SameLine(ImGui.GetWindowWidth() - 200);
-            
+
             if (ImGui.Button(Translator.LocalizeUI("Apply") + $"##history_{i}"))
             {
                 var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
@@ -829,7 +850,7 @@ public class MainWindow : Window, IDisposable
             {
                 ImGui.SetTooltip(Translator.LocalizeUI("Copy the full file path to your clipboard to paste into an Active Layer input box."));
             }
-            
+
             ImGui.SameLine();
             if (ImGui.Button($"X##remove_history_{i}"))
             {
@@ -841,7 +862,7 @@ public class MainWindow : Window, IDisposable
             {
                 ImGui.SetTooltip(Translator.LocalizeUI("Remove from history"));
             }
-            
+
             ImGui.SetCursorPosY(originalY + 45); // move to next line accounting for image height
         }
         ImGui.EndChild();
@@ -858,11 +879,11 @@ public class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         ImGui.Text(Translator.LocalizeUI("GPU Fallback Diagnostic Log:"));
-        
+
         string logPath = Path.Combine(Path.GetTempPath(), "GPU_Fallback_Error.txt");
         string benchPath = Path.Combine(Path.GetTempPath(), "GPU_Benchmark.txt");
         string exportBenchPath = Path.Combine(Path.GetTempPath(), "Export_Benchmark.txt");
-        
+
         if ((DateTime.Now - _lastErrorLogCheck).TotalSeconds > 2)
         {
             if (File.Exists(logPath))
@@ -873,7 +894,7 @@ public class MainWindow : Window, IDisposable
             {
                 _cachedErrorLog = Translator.LocalizeUI("No GPU fallback errors detected. (GPU acceleration is working fine!)");
             }
-            
+
             if (File.Exists(benchPath))
             {
                 try { _cachedBenchmarkLog = File.ReadAllText(benchPath); } catch { }
@@ -891,7 +912,7 @@ public class MainWindow : Window, IDisposable
             {
                 _cachedExportBenchmarkLog = Translator.LocalizeUI("No export benchmark data recorded yet.");
             }
-            
+
             _lastErrorLogCheck = DateTime.Now;
         }
 
@@ -907,17 +928,17 @@ public class MainWindow : Window, IDisposable
             if (File.Exists(logPath)) { try { File.Delete(logPath); } catch { } }
             _cachedErrorLog = Translator.LocalizeUI("No GPU fallback errors detected. (GPU acceleration is working fine!)");
         }
-        
+
         ImGui.Separator();
         ImGui.Spacing();
         ImGui.Text(Translator.LocalizeUI("Export Performance Benchmarks:"));
-        
+
         if (ImGui.Button(Translator.LocalizeUI("Copy Export Benchmark to Clipboard")))
         {
             if (_cachedExportBenchmarkLog != null)
                 ImGui.SetClipboardText(_cachedExportBenchmarkLog);
         }
-        
+
         if (_cachedExportBenchmarkLog != null)
         {
             ImGui.BeginChild("ExportBenchmarkLogChild", new Vector2(-1, 250), true);
@@ -926,7 +947,7 @@ public class MainWindow : Window, IDisposable
                 ImGui.SetScrollHereY(1.0f);
             ImGui.EndChild();
         }
-        
+
         if (ImGui.Button(Translator.LocalizeUI("Clear Export Benchmark")))
         {
             if (File.Exists(exportBenchPath)) { try { File.Delete(exportBenchPath); } catch { } }
@@ -936,7 +957,7 @@ public class MainWindow : Window, IDisposable
         ImGui.Separator();
         ImGui.Spacing();
         ImGui.Text(Translator.LocalizeUI("MergeImageLayers GPU Benchmarks:"));
-        
+
         if (ImGui.Button(Translator.LocalizeUI("Copy GPU Benchmark to Clipboard")))
         {
             if (_cachedBenchmarkLog != null)
@@ -951,7 +972,7 @@ public class MainWindow : Window, IDisposable
                 ImGui.SetScrollHereY(1.0f);
             ImGui.EndChild();
         }
-        
+
         if (ImGui.Button(Translator.LocalizeUI("Clear Benchmark Log")))
         {
             if (File.Exists(benchPath)) { try { File.Delete(benchPath); } catch { } }
@@ -967,7 +988,7 @@ public class MainWindow : Window, IDisposable
             Plugin.ContextualLayerManager.CreateNewLayer();
             _selectedContextualLayerIndex = Plugin.ContextualLayerManager.ContextualLayers.Count - 1;
         }
-        
+
         ImGui.SameLine();
         if (ImGui.Button(Translator.LocalizeUI("Open Saved Overlays Folder")))
         {
@@ -980,7 +1001,7 @@ public class MainWindow : Window, IDisposable
                 Verb = "open"
             });
         }
-        
+
         ImGui.SameLine();
         if (ImGui.Button(Translator.LocalizeUI("Scan for Saved Overlays")))
         {
@@ -1120,7 +1141,7 @@ public class MainWindow : Window, IDisposable
                     layer.AudioTriggerPath = audioPath;
                     changed = true;
                 }
-                
+
                 int reqSounds = layer.RequiredSoundsPerStack;
                 if (ImGui.InputInt(Translator.LocalizeUI("Required Sounds per Stack") + "##ContextSounds", ref reqSounds))
                 {
@@ -1136,7 +1157,7 @@ public class MainWindow : Window, IDisposable
                     layer.ChatRegex = chatRegex;
                     changed = true;
                 }
-                
+
                 bool emoteOnly = layer.ChatFilterCustomEmotesOnly;
                 if (ImGui.Checkbox(Translator.LocalizeUI("Only trigger on Emotes (/em or standard)") + "##ContextChatEmote", ref emoteOnly))
                 {
@@ -1175,7 +1196,7 @@ public class MainWindow : Window, IDisposable
             {
                 int startHour = layer.TargetTimeStartHour;
                 int endHour = layer.TargetTimeEndHour;
-                
+
                 if (ImGui.SliderInt(Translator.LocalizeUI("Start Hour (ET)") + "##ContextTimeStart", ref startHour, 0, 23))
                 {
                     layer.TargetTimeStartHour = startHour;
@@ -1196,7 +1217,7 @@ public class MainWindow : Window, IDisposable
                     layer.RequiredKillsPerStack = Math.Max(1, reqKills);
                     changed = true;
                 }
-                
+
                 if (!layer.ProceduralDecalMode)
                 {
                     int decay = layer.DecayIntervalSeconds;
@@ -1208,8 +1229,8 @@ public class MainWindow : Window, IDisposable
                 }
             }
 
-            if (layer.Trigger == TriggerType.Emote || 
-                layer.Trigger == TriggerType.Audio_Path_Load || 
+            if (layer.Trigger == TriggerType.Emote ||
+                layer.Trigger == TriggerType.Audio_Path_Load ||
                 layer.Trigger == TriggerType.Chat_Message ||
                 layer.Trigger == TriggerType.Swimming_State ||
                 layer.Trigger == TriggerType.Combat_State ||
@@ -1232,7 +1253,7 @@ public class MainWindow : Window, IDisposable
                 layer.TargetBodyPart = bodyParts[partIndex];
                 changed = true;
             }
-            
+
             bool decalMode = layer.ProceduralDecalMode;
             if (ImGui.Checkbox(Translator.LocalizeUI("Procedural Decal Mode") + "##ContextDecal", ref decalMode))
             {

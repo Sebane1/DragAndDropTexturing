@@ -88,6 +88,7 @@ namespace RoleplayingVoice
         private Dictionary<string, List<string>> _textureHistory = new Dictionary<string, List<string>>();
         public Dictionary<string, List<string>> TextureHistory { get => _textureHistory; set => _textureHistory = value; }
         private readonly Dictionary<string, WornEquipmentPiece> _gearCategoryMeta = new();
+        public Dictionary<string, WornEquipmentPiece> GearCategoryMeta { get => _gearCategoryMeta; }
         public List<WornEquipmentPiece> CachedWornGear { get; private set; } = new();
 
         // Auto-regeneration tracking

@@ -599,25 +599,25 @@ public static class WornEquipmentResolver
             string outName = Path.GetFileNameWithoutExtension(source) + "_" + sourceHash + "_worn" + slotSuffix + matSuffix + ".png";
             string outPath = Path.Combine(outputDir, outName);
 
-            if (File.Exists(outPath))
-            {
-                if (File.Exists(source))
-                {
-                    var sourceTime = File.GetLastWriteTimeUtc(source);
-                    var outTime = File.GetLastWriteTimeUtc(outPath);
-                    if (sourceTime <= outTime)
-                    {
-                        plugin?.PluginLog.Info($"[WornGear] Cached PNG found and source is not newer: {outPath}");
-                        return outPath;
-                    }
-                    plugin?.PluginLog.Info($"[WornGear] Source file {source} is newer than cached PNG {outPath}. Regenerating...");
-                }
-                else
-                {
-                    plugin?.PluginLog.Info($"[WornGear] Cached PNG found for vanilla game texture: {outPath}");
-                    return outPath;
-                }
-            }
+            //if (File.Exists(outPath))
+            //{
+            //    if (File.Exists(source))
+            //    {
+            //        var sourceTime = File.GetLastWriteTimeUtc(source);
+            //        var outTime = File.GetLastWriteTimeUtc(outPath);
+            //        if (sourceTime <= outTime)
+            //        {
+            //            plugin?.PluginLog.Info($"[WornGear] Cached PNG found and source is not newer: {outPath}");
+            //            return outPath;
+            //        }
+            //        plugin?.PluginLog.Info($"[WornGear] Source file {source} is newer than cached PNG {outPath}. Regenerating...");
+            //    }
+            //    else
+            //    {
+            //        plugin?.PluginLog.Info($"[WornGear] Cached PNG found for vanilla game texture: {outPath}");
+            //        return outPath;
+            //    }
+            //}
 
             System.Drawing.Bitmap bitmap = null;
 
