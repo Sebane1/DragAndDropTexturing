@@ -42,6 +42,11 @@ namespace DragAndDropTexturing.Windows
         private bool _needsComposite = true;
         private System.Drawing.Bitmap _cachedBaseBitmap = null;
         private string _cachedBaseBitmapPath = "";
+        
+        private System.Collections.Generic.List<string> _availableMaterials = new System.Collections.Generic.List<string>();
+        private string _selectedMaterial = null;
+        private string _customMaterialRegex = null;
+
         private static readonly HashSet<string> _primarySlots = new HashSet<string> { "Top", "Bottom" };
         private static readonly string[] _primarySlotArray = new[] { "Top", "Bottom" };
 
@@ -103,10 +108,23 @@ namespace DragAndDropTexturing.Windows
         private int _advancedBrushIndex = 0;
         private bool _hideExtraMeshes = true;
         public string EditSourcePath { get; set; } = null;  // When non-null, we're editing an existing layer file
+        
+        // Cache fields for thread-safe model loading
+        private string _cachedCharacterName = "";
+        private string _cachedStateBase64 = "";
+        private Guid _cachedCollectionId = Guid.Empty;
+        private int _cachedObjectIndex = 0;
+        private byte[] _cachedCharacterCustomize = Array.Empty<byte>();
+        private string _cachedResolvedTopPath = "";
+        private string _cachedResolvedBotPath = "";
+        private string _cachedModDirectory = "";
+        private int _cachedActiveBodyType = 0;
+        private List<DragAndDropTexturing.Equipment.WornEquipmentPiece> _cachedWornGear = null;
         private bool _editLayerLoaded = false;   // Whether we've loaded the source into the paint layer
         private volatile bool _isLoadingModels = false;
         private volatile bool _modelsLoaded = false;
         private List<ExtractedMesh> _loadedMeshes = new List<ExtractedMesh>();
+        private volatile string _clothingTexturePngOverride = null; // Set by LoadModelIntoSlot to override body skin
 
         private class FloatingLayer : IDisposable
         {
@@ -272,17 +290,7 @@ namespace DragAndDropTexturing.Windows
                     _rendererInitialized = true;
                     if (!_isLoadingModels && !_modelsLoaded)
                     {
-                        _isLoadingModels = true;
-                        Task.Run(() => {
-                            try {
-                                LoadPlayerModels();
-                            } catch (Exception ex) {
-                                _plugin.PluginLog.Error(ex, "[TexturePainter] Background model load failed");
-                            } finally {
-                                _modelsLoaded = true;
-                                _isLoadingModels = false;
-                            }
-                        });
+                        StartLoadPlayerModels();
                     }
                 }
             }
@@ -472,13 +480,7 @@ namespace DragAndDropTexturing.Windows
                                 {
                                     _overrideTopSelectedIndex = i;
                                     _renderer?.PushUndoSnapshot();
-                                    _modelsLoaded = false;
-                                    _isLoadingModels = true;
-                                    Task.Run(() => {
-                                        try { LoadPlayerModels(); }
-                                        catch (Exception ex) { _plugin.PluginLog.Error(ex, "[TexturePainter] Background top model load failed"); }
-                                        finally { _modelsLoaded = true; _isLoadingModels = false; }
-                                    });
+                                    StartLoadPlayerModels();
                                     _needsComposite = true;
                                 }
                                 if (isSelected) ImGui.SetItemDefaultFocus();
@@ -499,13 +501,7 @@ namespace DragAndDropTexturing.Windows
                                 {
                                     _overrideBotSelectedIndex = i;
                                     _renderer?.PushUndoSnapshot();
-                                    _modelsLoaded = false;
-                                    _isLoadingModels = true;
-                                    Task.Run(() => {
-                                        try { LoadPlayerModels(); }
-                                        catch (Exception ex) { _plugin.PluginLog.Error(ex, "[TexturePainter] Background bottom model load failed"); }
-                                        finally { _modelsLoaded = true; _isLoadingModels = false; }
-                                    });
+                                    StartLoadPlayerModels();
                                     _needsComposite = true;
                                 }
                                 if (isSelected) ImGui.SetItemDefaultFocus();
@@ -694,6 +690,37 @@ namespace DragAndDropTexturing.Windows
                 if (ImGui.Button(Translator.LocalizeUI("Left"))) { _renderer.CameraYaw = MathF.PI / 2f; _renderer.CameraPitch = 0f; }
                 ImGui.SameLine();
                 if (ImGui.Button(Translator.LocalizeUI("Right"))) { _renderer.CameraYaw = -MathF.PI / 2f; _renderer.CameraPitch = 0f; }
+
+                if (_availableMaterials.Count > 0)
+                {
+                    ImGui.SameLine();
+                    ImGui.SetNextItemWidth(250f);
+                    string preview = string.IsNullOrEmpty(_selectedMaterial) ? "Auto-Detect Material" : _selectedMaterial;
+                    if (ImGui.BeginCombo("##materialSelector", preview))
+                    {
+                        if (ImGui.Selectable("Auto-Detect Material", string.IsNullOrEmpty(_selectedMaterial)))
+                        {
+                            _selectedMaterial = null;
+                            _renderer?.PushUndoSnapshot();
+                            StartLoadPlayerModels();
+                            _needsComposite = true;
+                        }
+                        
+                        foreach (var mat in _availableMaterials)
+                        {
+                            if (ImGui.Selectable(mat, _selectedMaterial == mat))
+                            {
+                                _selectedMaterial = mat;
+                                _renderer?.PushUndoSnapshot();
+                                StartLoadPlayerModels();
+                                _needsComposite = true;
+                            }
+                        }
+                        ImGui.EndCombo();
+                    }
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip("Force the painter to bind to a specific material layer (bypassing filename auto-detection).");
+                }
+
                 ImGui.Separator();
             }
 
@@ -1280,21 +1307,124 @@ namespace DragAndDropTexturing.Windows
             _renderer?.Dispose();
             _cachedBaseBitmap?.Dispose();
         }
-private void LoadPlayerModels()
+        private void StartLoadPlayerModels()
+        {
+            if (_isLoadingModels) return;
+
+            var character = _plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+            if (character == null)
+            {
+                _plugin.PluginLog.Warning("[PSD Preview] LocalPlayer is null or not a character when starting load!");
+                return;
+            }
+
+            try
+            {
+                _cachedCharacterName = character.Name.TextValue;
+                _cachedObjectIndex = character.ObjectIndex;
+                _cachedCharacterCustomize = character.Customize.ToArray();
+
+                var stateBase64Result = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
+                _cachedStateBase64 = stateBase64Result.Item2;
+
+                _cachedCollectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+                _cachedModDirectory = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+
+                var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(_cachedStateBase64);
+                int ffxivRace = customization.Customize.Race.Value;
+                int ffxivClan = customization.Customize.Clan.Value;
+                int ffxivGender = customization.Customize.Gender.Value;
+
+                string GetFfxivModelRaceCode(int race, int clan, int gender)
+                {
+                    int code = 101;
+                    switch (race)
+                    {
+                        case 1: // Hyur
+                            code = clan == 2 ? 301 : 101; break;
+                        case 2: // Elezen
+                        case 4: // Miqo'te
+                        case 6: // Au Ra
+                        case 8: // Viera
+                            code = 101; break; // Gear for these races shares the Midlander base mesh
+                        case 3: // Lalafell
+                            code = 1101; break;
+                        case 5: // Roegadyn
+                            code = 901; break;
+                        case 7: // Hrothgar
+                            code = 1501; break;
+                    }
+                    if (gender == 1) code += 100; // Female is +100
+                    return $"c{code:D4}";
+                }
+
+                string trueRaceCode = GetFfxivModelRaceCode(ffxivRace, ffxivClan, ffxivGender);
+                string relativeTop = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
+                string relativeBot = $"chara/equipment/e0279/model/{trueRaceCode}e0279_dwn.mdl";
+
+                try
+                {
+                    PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(_cachedCollectionId, relativeTop, out _cachedResolvedTopPath);
+                }
+                catch { _cachedResolvedTopPath = ""; }
+
+                try
+                {
+                    PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(_cachedCollectionId, relativeBot, out _cachedResolvedBotPath);
+                }
+                catch { _cachedResolvedBotPath = ""; }
+
+                // Detect base body type and populate omni overrides on main thread to be fully safe
+                try
+                {
+                    _cachedActiveBodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(_cachedCollectionId, ffxivGender, out _, _plugin);
+                }
+                catch { _cachedActiveBodyType = 0; }
+
+                try
+                {
+                    bool prevOverrideMode = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode;
+                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = true;
+                    PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(_cachedCollectionId, ffxivGender, ffxivRace, _plugin);
+                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = prevOverrideMode;
+                }
+                catch { }
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error(ex, "Failed to cache player customization/collection on main thread");
+                return;
+            }
+
+            _modelsLoaded = false;
+            _isLoadingModels = true;
+
+            Task.Run(() => {
+                try 
+                {
+                    LoadPlayerModelsInternal();
+                } 
+                catch (Exception ex) 
+                {
+                    _plugin.PluginLog.Error(ex, "[TexturePainter] Background model load failed");
+                } 
+                finally 
+                {
+                    _modelsLoaded = true;
+                    _isLoadingModels = false;
+                }
+            });
+        }
+
+        private void LoadPlayerModelsInternal()
         {
             try
             {
-                var character = _plugin.SafeGameObjectManager.LocalPlayer;
-                if (character == null)
-                {
-                    _plugin.PluginLog.Warning("[PSD Preview] LocalPlayer is null!");
-                    return;
-                }
+                lock (_availableMaterials) { _availableMaterials.Clear(); }
 
-                _plugin.PluginLog.Info($"[PSD Preview] Attempting to load models for {character.Name}");
+                _plugin.PluginLog.Info($"[PSD Preview] Attempting to load models for {_cachedCharacterName}");
 
-                var stateBase64Result = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
-                var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64Result.Item2);
+                var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(_cachedStateBase64);
                 
                 // We always want to preview on the naked body. Since users use Penumbra to replace
                 // the Emperor's New clothes with naked bodies, we hardcode the equipment ID to e0279.
@@ -1333,7 +1463,7 @@ private void LoadPlayerModels()
                 string topPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
                 string botPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_dwn.mdl";
 
-                Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+                Guid collectionId = _cachedCollectionId;
                 _plugin.PluginLog.Info($"[PSD Preview] Collection ID: {collectionId}");
 
                 string overrideTopPath = null;
@@ -1342,16 +1472,108 @@ private void LoadPlayerModels()
                 string topSlotName = "Top";
                 string botSlotName = "Bottom";
 
-                if (!string.IsNullOrEmpty(EditSourcePath))
+                List<DragAndDropTexturing.Equipment.WornEquipmentPiece> wornGear = null;
+                try
                 {
-                    var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_(c\d+)(e\d+)_([a-z]+)_[a-z]+(_worn)?\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    wornGear = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveWornGear(
+                        _cachedCharacterName,
+                        _cachedCharacterCustomize,
+                        customization,
+                        collectionId,
+                        _plugin
+                    );
+                    _cachedWornGear = wornGear;
+                }
+                catch (Exception ex)
+                {
+                    _plugin.PluginLog.Warning($"Failed to pull worn gear: {ex.Message}");
+                }
+
+                DragAndDropTexturing.Equipment.WornEquipmentPiece matchedPiece = FindMatchingWornPiece(EditSourcePath, wornGear, collectionId);
+                if (matchedPiece != null)
+                {
+                    isGear = true;
+                    string suffix = matchedPiece.SlotKey == "body" ? "top" :
+                                    matchedPiece.SlotKey == "legs" ? "dwn" :
+                                    matchedPiece.SlotKey == "feet" ? "sho" :
+                                    matchedPiece.SlotKey == "hands" ? "glv" :
+                                    matchedPiece.SlotKey == "head" ? "met" : "top";
+
+                    string eCode = !string.IsNullOrEmpty(matchedPiece.EquipSetId) ? matchedPiece.EquipSetId : "e0279";
+
+                    _plugin.PluginLog.Info($"[PSD Preview] Matched worn gear piece via helper: {matchedPiece.SlotKey} {eCode} {suffix}");
+
+                    if (suffix == "top")
+                    {
+                        topSlotName = "Top";
+                        topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        botSlotName = "PreviewBottom";
+                        botPath = null;
+                    }
+                    else if (suffix == "dwn")
+                    {
+                        botSlotName = "Bottom";
+                        botPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        topSlotName = "PreviewTop";
+                        topPath = null;
+                    }
+                    else if (suffix == "sho")
+                    {
+                        topSlotName = "Shoes";
+                        topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        botPath = null;
+                    }
+                    else if (suffix == "glv")
+                    {
+                        topSlotName = "Gloves";
+                        topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        botPath = null;
+                    }
+                    else if (suffix == "met")
+                    {
+                        topSlotName = "Head";
+                        topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        botPath = null;
+                    }
+
+                    // Load contextual background slots (e.g. legs when editing top, body when editing bottom)
+                    if (suffix == "top" && wornGear != null)
+                    {
+                        var legsPiece = wornGear.FirstOrDefault(p => p.SlotKey == "legs");
+                        if (legsPiece != null && !string.IsNullOrEmpty(legsPiece.InternalBasePath))
+                        {
+                            var match = System.Text.RegularExpressions.Regex.Match(legsPiece.InternalBasePath, @"equipment/(e\d+)");
+                            if (match.Success)
+                            {
+                                string legsECode = match.Groups[1].Value;
+                                botPath = $"chara/equipment/{legsECode}/model/{trueRaceCode}{legsECode}_dwn.mdl";
+                            }
+                        }
+                    }
+                    else if (suffix == "dwn" && wornGear != null)
+                    {
+                        var bodyPiece = wornGear.FirstOrDefault(p => p.SlotKey == "body");
+                        if (bodyPiece != null && !string.IsNullOrEmpty(bodyPiece.InternalBasePath))
+                        {
+                            var match = System.Text.RegularExpressions.Regex.Match(bodyPiece.InternalBasePath, @"equipment/(e\d+)");
+                            if (match.Success)
+                            {
+                                string bodyECode = match.Groups[1].Value;
+                                topPath = $"chara/equipment/{bodyECode}/model/{trueRaceCode}{bodyECode}_top.mdl";
+                            }
+                        }
+                    }
+                }
+                else if (!string.IsNullOrEmpty(EditSourcePath))
+                {
+                    var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_(c\d+)(e\d+)_([a-z]+)_([a-z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                     if (gearMatch.Success)
                     {
                         string cCode = gearMatch.Groups[1].Value;
                         string eCode = gearMatch.Groups[2].Value;
                         string suffix = gearMatch.Groups[3].Value;
                         
-                        _plugin.PluginLog.Info($"[PSD Preview] Detected worn gear edit: {cCode} {eCode} {suffix}");
+                        _plugin.PluginLog.Info($"[PSD Preview] Detected worn gear edit via fallback regex: {cCode} {eCode} {suffix}");
                         
                         isGear = true;
                         
@@ -1387,22 +1609,15 @@ private void LoadPlayerModels()
                             topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
                             botPath = null;
                         }
-                        else
-                        {
-                            topSlotName = "Top";
-                            topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
-                            botPath = null;
-                        }
 
                         try
                         {
-                            var wornGear = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveWornGear((Dalamud.Game.ClientState.Objects.Types.ICharacter)Plugin.ObjectTable.LocalPlayer, _plugin);
                             if (suffix == "top")
                             {
-                                var legsPiece = wornGear.FirstOrDefault(p => p.SlotKey == "legs");
+                                var legsPiece = wornGear?.FirstOrDefault(p => p.SlotKey == "legs");
                                 if (legsPiece != null && !string.IsNullOrEmpty(legsPiece.InternalBasePath))
                                 {
-                                    var match = System.Text.RegularExpressions.Regex.Match(legsPiece.InternalBasePath, @"chara/equipment/(e\d+)");
+                                    var match = System.Text.RegularExpressions.Regex.Match(legsPiece.InternalBasePath, @"equipment/(e\d+)");
                                     if (match.Success)
                                     {
                                         string legsECode = match.Groups[1].Value;
@@ -1412,10 +1627,10 @@ private void LoadPlayerModels()
                             }
                             else if (suffix == "dwn")
                             {
-                                var bodyPiece = wornGear.FirstOrDefault(p => p.SlotKey == "body");
+                                var bodyPiece = wornGear?.FirstOrDefault(p => p.SlotKey == "body");
                                 if (bodyPiece != null && !string.IsNullOrEmpty(bodyPiece.InternalBasePath))
                                 {
-                                    var match = System.Text.RegularExpressions.Regex.Match(bodyPiece.InternalBasePath, @"chara/equipment/(e\d+)");
+                                    var match = System.Text.RegularExpressions.Regex.Match(bodyPiece.InternalBasePath, @"equipment/(e\d+)");
                                     if (match.Success)
                                     {
                                         string bodyECode = match.Groups[1].Value;
@@ -1426,7 +1641,7 @@ private void LoadPlayerModels()
                         }
                         catch (Exception ex)
                         {
-                            _plugin.PluginLog.Warning($"Failed to pull worn gear for preview context: {ex.Message}");
+                            _plugin.PluginLog.Warning($"Failed to resolve context slot: {ex.Message}");
                         }
                     }
                 }
@@ -1452,7 +1667,7 @@ private void LoadPlayerModels()
 
                             _overrideTopPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeTop);
                             _overrideBotPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeBot);
-                            int activeBodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string _, _plugin);
+                            int activeBodyType = _cachedActiveBodyType;
                             bool activeMatchesLayer = false;
                             if (activeBodyType == 1 && _targetKeyword == "bibo") activeMatchesLayer = true;
                             if (activeBodyType == 2 && _targetKeyword == "gen3") activeMatchesLayer = true;
@@ -1460,8 +1675,8 @@ private void LoadPlayerModels()
 
                             if (activeMatchesLayer)
                             {
-                                PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collectionId, topPath, out string resolvedTopPath);
-                                PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collectionId, botPath, out string resolvedBotPath);
+                                string resolvedTopPath = _cachedResolvedTopPath;
+                                string resolvedBotPath = _cachedResolvedBotPath;
                                 
                                 _overrideTopSelectedIndex = Math.Max(0, _overrideTopPathList.FindIndex(x => string.Equals(x.DiskPath, resolvedTopPath, StringComparison.OrdinalIgnoreCase)));
                                 _overrideBotSelectedIndex = Math.Max(0, _overrideBotPathList.FindIndex(x => string.Equals(x.DiskPath, resolvedBotPath, StringComparison.OrdinalIgnoreCase)));
@@ -1489,29 +1704,24 @@ private void LoadPlayerModels()
                 );
                 _mainThreadActions.Enqueue(() => UpdateMeshVisibility());
 
-                bool prevOverrideMode = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode;
-                FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = true;
-                PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collectionId, ffxivGender, ffxivRace, _plugin);
-                FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = prevOverrideMode;
-
                 string lowerPath = _topModelDiskPath?.ToLower() ?? "";
                 bool isGen3 = false, isBibo = false, isTbse = false;
                 
                 if (!isGear)
                 {
                     isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") 
-                    || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia") || lowerPath.Contains("riderthicc");
+                             || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia") || lowerPath.Contains("riderthicc");
                     isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") 
-                   || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe");
+                             || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe");
                     isTbse = lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody");
 
                     if (!isGen3 && !isBibo && !isTbse)
                     {
-                        int bodyIndex = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string detectedName, _plugin);
+                        int bodyIndex = _cachedActiveBodyType;
                         if (bodyIndex == 3) isTbse = true;
                         if (bodyIndex == 2) isGen3 = true;
                         if (bodyIndex == 1) isBibo = true;
-                        _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3', 'bibo', or 'tbse'. Fallback detection returned: {detectedName} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : isTbse ? "TBSE" : "Unknown")})");
+                        _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3', 'bibo', or 'tbse'. Fallback detection returned: {bodyIndex} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : isTbse ? "TBSE" : "Unknown")})");
                     }
                 }
 
@@ -1581,6 +1791,7 @@ private void LoadPlayerModels()
                 bool isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) && 
                     (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
                      EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                     EditSourcePath.IndexOf("_n_", StringComparison.OrdinalIgnoreCase) >= 0 ||
                      EditSourcePath.EndsWith("_n.png", StringComparison.OrdinalIgnoreCase) ||
                      EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase));
 
@@ -1606,7 +1817,7 @@ private void LoadPlayerModels()
                 if (_activeBaseTexturePng == null || baseIsBlack)
                 {
                     _plugin.PluginLog.Info("[PSD Preview] Base texture from priority mod was missing or fully black. Falling back to DLC underlay skin type.");
-                    string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                    string modPath = _cachedModDirectory;
                     string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
                     string dlcBase = null;
                     if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
@@ -1633,7 +1844,7 @@ private void LoadPlayerModels()
 
                 if (_activeNormalTexturePng == null || normIsBlack)
                 {
-                    string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                    string modPath = _cachedModDirectory;
                     string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
                     string dlcNorm = null;
                     if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
@@ -1655,6 +1866,14 @@ private void LoadPlayerModels()
                     }
                 }
 
+                // If LoadModelIntoSlot found a clothing texture, use it instead of the body skin
+                if (!string.IsNullOrEmpty(_clothingTexturePngOverride))
+                {
+                    _plugin.PluginLog.Info($"[PSD Preview] Overriding body skin with clothing texture: {_clothingTexturePngOverride}");
+                    _activeBaseTexturePng = _clothingTexturePngOverride;
+                    _clothingTexturePngOverride = null;
+                }
+
                 _mainThreadActions.Enqueue(() => {
                     UploadBaseTextureToGpu();
                 });
@@ -1665,7 +1884,7 @@ private void LoadPlayerModels()
             }
         }
 
-private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
+        private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
         {
             try
             {
@@ -1740,26 +1959,63 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                     var meshesCopy = new System.Collections.Generic.List<ExtractedMesh>(meshes);
                     // Store CPU mesh data for procedural stamp triangle selection
                     lock (_loadedMeshes) { _loadedMeshes.AddRange(meshesCopy); }
+                    
+                    lock (_availableMaterials)
+                    {
+                        foreach (var m in meshesCopy)
+                        {
+                            if (!string.IsNullOrEmpty(m.MaterialPath))
+                            {
+                                string cleanMat = m.MaterialPath.Replace("/mt_", "").Replace(".mtrl", "");
+                                if (!_availableMaterials.Contains(cleanMat)) _availableMaterials.Add(cleanMat);
+                            }
+                        }
+                    }
 
                     int primaryIndex = 0;
                     string searchPattern = null;
 
-                    if (!string.IsNullOrEmpty(EditSourcePath))
+                    if (!string.IsNullOrEmpty(_selectedMaterial))
+                    {
+                        searchPattern = _selectedMaterial.ToLower();
+                    }
+                    else if (!string.IsNullOrEmpty(EditSourcePath))
                     {
                         _plugin.PluginLog.Info($"[PSD Preview] Evaluating EditSourcePath for isolation pattern: {EditSourcePath}");
                         
-                        var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+(e\d+)_([a-z]+)_([a-z]+)(_worn)?\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_(c\d+)(e\d+)_([a-z]+)_([a-z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                         var bodyMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+([bfth]\d+)_([a-z]+)\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
                         if (gearMatch.Success)
                         {
-                            searchPattern = $"{gearMatch.Groups[1].Value}_{gearMatch.Groups[2].Value}".ToLower();
+                            searchPattern = $"{gearMatch.Groups[2].Value}_{gearMatch.Groups[3].Value}_{gearMatch.Groups[4].Value}".ToLower();
                         }
                         else if (bodyMatch.Success)
                         {
                             searchPattern = bodyMatch.Groups[1].Value.ToLower();
                         }
+                        else
+                        {
+                            var matchedPiece = FindMatchingWornPiece(EditSourcePath, _cachedWornGear, collectionId);
+                            if (matchedPiece != null)
+                            {
+                                string eCode = !string.IsNullOrEmpty(matchedPiece.EquipSetId) ? matchedPiece.EquipSetId : "e0279";
+                                string suffix = matchedPiece.SlotKey == "body" ? "top" :
+                                                matchedPiece.SlotKey == "legs" ? "dwn" :
+                                                matchedPiece.SlotKey == "feet" ? "sho" :
+                                                matchedPiece.SlotKey == "hands" ? "glv" :
+                                                matchedPiece.SlotKey == "head" ? "met" : "top";
+                                searchPattern = $"{eCode}_{suffix}".ToLower();
+                            }
+                        }
                     }
+
+                    bool isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) && 
+                        (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                         EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                         EditSourcePath.IndexOf("_n_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         EditSourcePath.EndsWith("_n.png", StringComparison.OrdinalIgnoreCase) ||
+                         EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase));
 
                     var primaryMeshes = new System.Collections.Generic.List<ExtractedMesh>();
                     var secondaryMeshes = new System.Collections.Generic.List<ExtractedMesh>();
@@ -1786,6 +2042,105 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                             for (int i = 1; i < meshesCopy.Count; i++) secondaryMeshes.Add(meshesCopy[i]);
                         }
 
+                        // Dynamically reload the texture from the active material's .mtrl file
+                        if (primaryMeshes.Count > 0)
+                        {
+                            string rawMatPath = primaryMeshes[0].MaterialPath;
+                            _plugin.PluginLog.Info($"[Texture Painter] Attempting dynamic texture reload from material: {rawMatPath}");
+                            
+                            // Strip leading slash
+                            string matFileName = rawMatPath;
+                            if (matFileName.StartsWith("/")) matFileName = matFileName.Substring(1);
+                            
+                            // Extract equipment code from the material filename
+                            var mtrlMatch = System.Text.RegularExpressions.Regex.Match(matFileName, @"mt_c\d+e(\d+)");
+                            
+                            // Build candidate mtrl paths to try
+                            var mtrlCandidates = new List<string>();
+                            if (mtrlMatch.Success)
+                            {
+                                string eCode = mtrlMatch.Groups[1].Value;
+                                // Try multiple variant directories
+                                for (int v = 1; v <= 10; v++)
+                                {
+                                    mtrlCandidates.Add($"chara/equipment/e{eCode}/material/v{v:D4}/{matFileName}");
+                                }
+                                mtrlCandidates.Add($"chara/equipment/e{eCode}/material/{matFileName}");
+                            }
+                            // Also try the raw path directly
+                            mtrlCandidates.Add(matFileName);
+                            
+                            string resolvedMtrlDisk = null;
+                            string resolvedMtrlGamePath = null;
+                            foreach (var candidate in mtrlCandidates)
+                            {
+                                if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, candidate, out string disk))
+                                {
+                                    resolvedMtrlDisk = disk;
+                                    resolvedMtrlGamePath = candidate;
+                                    _plugin.PluginLog.Info($"[Texture Painter] Resolved mtrl: {candidate} -> {disk}");
+                                    break;
+                                }
+                            }
+                            
+                            if (string.IsNullOrEmpty(resolvedMtrlDisk))
+                            {
+                                resolvedMtrlDisk = rawMatPath; // Fallback to raw game path
+                                _plugin.PluginLog.Info($"[Texture Painter] Mtrl not overridden by Penumbra. Falling back to vanilla game path: {resolvedMtrlDisk}");
+                            }
+                            
+                            if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(resolvedMtrlDisk, out string baseP, out string normP, out string maskP))
+                            {
+                                _plugin.PluginLog.Info($"[Texture Painter] Mtrl textures — base: {baseP}, norm: {normP}, mask: {maskP}");
+                                
+                                // Resolve the correct texture map based on edit context
+                                isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) && 
+                                    (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                                     EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                                     EditSourcePath.IndexOf("_n_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                     EditSourcePath.EndsWith("_n.png", StringComparison.OrdinalIgnoreCase) ||
+                                     EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase));
+
+                                bool isEditingMask = !string.IsNullOrEmpty(EditSourcePath) && 
+                                    (EditSourcePath.IndexOf("mask", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                                     EditSourcePath.IndexOf("_m_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                     EditSourcePath.EndsWith("_m.png", StringComparison.OrdinalIgnoreCase) ||
+                                     EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase));
+
+                                string texToLoad = isEditingNormal ? normP : (isEditingMask ? maskP : baseP);
+                                string resolvedTexDisk = null;
+                                
+                                if (!string.IsNullOrEmpty(texToLoad))
+                                {
+                                    if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, texToLoad, out string texDisk))
+                                    {
+                                        resolvedTexDisk = texDisk;
+                                    }
+                                }
+                                
+                                // Export to PNG and set as the active base texture
+                                string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
+                                string pngPath = DragAndDropTexturing.Equipment.WornEquipmentResolver.ExportResolvedTextureToPng(
+                                    texToLoad, collectionId, exportDir, _plugin);
+                                
+                                if (!string.IsNullOrEmpty(pngPath))
+                                {
+                                    _plugin.PluginLog.Info($"[Texture Painter] Clothing texture resolved for override: {pngPath}");
+                                    _clothingTexturePngOverride = pngPath;
+                                    _editLayerLoaded = false;
+                                    _needsComposite = true;
+                                }
+                                else
+                                {
+                                    _plugin.PluginLog.Warning($"[Texture Painter] Failed to export texture {texToLoad} to PNG");
+                                }
+                            }
+                            else
+                            {
+                                _plugin.PluginLog.Warning($"[Texture Painter] Could not read textures from mtrl path: {resolvedMtrlDisk}");
+                            }
+                        }
+
                         _plugin.PluginLog.Info($"[PSD Preview] Auto-selected {primaryMeshes.Count} meshes as paintable layer for '{searchPattern}'.");
                     }
                     else
@@ -1804,6 +2159,93 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                             counter++;
                         }
                     });
+
+                    // Load secondary mesh textures on background thread, then queue GPU upload
+                    int secCounter = 1;
+                    foreach (var sm in secondaryMeshes)
+                    {
+                        if (string.IsNullOrEmpty(sm.MaterialPath))
+                        {
+                            secCounter++;
+                            continue;
+                        }
+                        
+                        string smMatFileName = sm.MaterialPath;
+                        if (smMatFileName.StartsWith("/")) smMatFileName = smMatFileName.Substring(1);
+                        
+                        var smMtrlMatch = System.Text.RegularExpressions.Regex.Match(smMatFileName, @"mt_c\d+e(\d+)");
+                        var smMtrlCandidates = new List<string>();
+                        if (smMtrlMatch.Success)
+                        {
+                            string eCode = smMtrlMatch.Groups[1].Value;
+                            for (int v = 1; v <= 10; v++)
+                            {
+                                smMtrlCandidates.Add($"chara/equipment/e{eCode}/material/v{v:D4}/{smMatFileName}");
+                            }
+                            smMtrlCandidates.Add($"chara/equipment/e{eCode}/material/{smMatFileName}");
+                        }
+                        smMtrlCandidates.Add(smMatFileName);
+                        
+                        string resolvedSmMtrlDisk = null;
+                        foreach (var candidate in smMtrlCandidates)
+                        {
+                            if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, candidate, out string disk))
+                            {
+                                resolvedSmMtrlDisk = disk;
+                                break;
+                            }
+                        }
+                        
+                        if (string.IsNullOrEmpty(resolvedSmMtrlDisk))
+                        {
+                            resolvedSmMtrlDisk = smMatFileName; // Fallback to raw game path
+                            _plugin.PluginLog.Info($"[Texture Painter] Secondary mesh mtrl not overridden by Penumbra. Falling back to vanilla game path: {resolvedSmMtrlDisk}");
+                        }
+                        
+                        if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(resolvedSmMtrlDisk, out string smBaseP, out string smNormP, out string smMaskP))
+                        {
+                            bool isEditingMask = !string.IsNullOrEmpty(EditSourcePath) && 
+                                (EditSourcePath.IndexOf("mask", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                                 EditSourcePath.IndexOf("_m_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                 EditSourcePath.EndsWith("_m.png", StringComparison.OrdinalIgnoreCase) ||
+                                 EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase));
+
+                            string smTexToLoad = isEditingNormal ? smNormP : (isEditingMask ? smMaskP : smBaseP);
+                            if (!string.IsNullOrEmpty(smTexToLoad))
+                            {
+                                string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
+                                string smPngPath = DragAndDropTexturing.Equipment.WornEquipmentResolver.ExportResolvedTextureToPng(
+                                    smTexToLoad, collectionId, exportDir, _plugin);
+                                    
+                                if (!string.IsNullOrEmpty(smPngPath) && File.Exists(smPngPath))
+                                {
+                                    try
+                                    {
+                                        using var bmp = new System.Drawing.Bitmap(smPngPath);
+                                        var smRect = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
+                                        var smBmpData = bmp.LockBits(smRect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                                        int bytes = Math.Abs(smBmpData.Stride) * bmp.Height;
+                                        byte[] rgba = new byte[bytes];
+                                        System.Runtime.InteropServices.Marshal.Copy(smBmpData.Scan0, rgba, 0, bytes);
+                                        bmp.UnlockBits(smBmpData);
+                                        
+                                        string targetSlot = $"{slot}_{secCounter}";
+                                        int w = bmp.Width;
+                                        int h = bmp.Height;
+                                        _mainThreadActions.Enqueue(() => {
+                                            _renderer.LoadTexture(targetSlot, rgba, w, h);
+                                        });
+                                        _plugin.PluginLog.Info($"[Texture Painter] Loaded secondary texture for slot {targetSlot}: {smPngPath}");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _plugin.PluginLog.Error(ex, $"[Texture Painter] Failed to load secondary texture {smPngPath}");
+                                    }
+                                }
+                            }
+                        }
+                        secCounter++;
+                    }
                 }
                 else
                 {
@@ -1936,11 +2378,19 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
             if (_renderer == null || string.IsNullOrEmpty(_activeBaseTexturePng)) return;
             try
             {
+                _plugin.PluginLog.Info($"[GPU Upload] UploadBaseTextureToGpu called with path: {_activeBaseTexturePng}");
+                _plugin.PluginLog.Info($"[GPU Upload] Cached path: {_cachedBaseBitmapPath ?? "NULL"}, same={_cachedBaseBitmapPath == _activeBaseTexturePng}");
                 if (_cachedBaseBitmapPath != _activeBaseTexturePng || _cachedBaseBitmap == null)
                 {
+                    _plugin.PluginLog.Info($"[GPU Upload] Cache miss — loading new bitmap from: {_activeBaseTexturePng}");
                     _cachedBaseBitmap?.Dispose();
                     _cachedBaseBitmap = new System.Drawing.Bitmap(_activeBaseTexturePng);
                     _cachedBaseBitmapPath = _activeBaseTexturePng;
+                    _plugin.PluginLog.Info($"[GPU Upload] Loaded bitmap: {_cachedBaseBitmap.Width}x{_cachedBaseBitmap.Height}");
+                }
+                else
+                {
+                    _plugin.PluginLog.Info($"[GPU Upload] Cache hit — reusing existing bitmap");
                 }
                 int w = _cachedBaseBitmap.Width;
                 int h = _cachedBaseBitmap.Height;
@@ -2268,6 +2718,132 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                 _activeProceduralJob = null;
                 request.OnComplete?.Invoke(null);
             }
+        }
+
+        private static string CleanTexFilename(string filename)
+        {
+            if (string.IsNullOrEmpty(filename)) return "";
+            string name = Path.GetFileNameWithoutExtension(filename).ToLowerInvariant();
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"_worn$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"_[a-f0-9]{7,8}$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"_[dnm]$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            name = System.Text.RegularExpressions.Regex.Replace(name, @"^v\d+_", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return name;
+        }
+
+        private DragAndDropTexturing.Equipment.WornEquipmentPiece FindMatchingWornPiece(
+            string editSourcePath,
+            System.Collections.Generic.List<DragAndDropTexturing.Equipment.WornEquipmentPiece> wornGear,
+            Guid collectionId)
+        {
+            if (string.IsNullOrEmpty(editSourcePath) || wornGear == null)
+            {
+                _plugin.PluginLog.Warning($"[FindMatchingWornPiece] editSourcePath or wornGear is null. Path: '{editSourcePath}'");
+                return null;
+            }
+
+            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Starting search. Path: '{editSourcePath}', Collection: '{collectionId}', Worn Pieces: {wornGear.Count}");
+            foreach (var piece in wornGear)
+            {
+                _plugin.PluginLog.Info($"[FindMatchingWornPiece] Piece in inventory: Slot={piece.SlotKey}, ItemId={piece.ItemId}, Base='{piece.InternalBasePath}', Norm='{piece.InternalNormalPath}', Mask='{piece.InternalMaskPath}'");
+            }
+
+            string normalizedEditPath = editSourcePath.Replace("/", "\\").ToLowerInvariant();
+            string editFileName = Path.GetFileNameWithoutExtension(normalizedEditPath);
+            _plugin.PluginLog.Info($"[FindMatchingWornPiece] editFileName cleaned: '{editFileName}'");
+
+            // 1. Try regex match for gear filename convention (e.g. v01_c0101e0497_dwn_n_worn)
+            var flexibleMatch = System.Text.RegularExpressions.Regex.Match(editFileName, @"e(\d+)_([a-z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (flexibleMatch.Success)
+            {
+                string eNum = flexibleMatch.Groups[1].Value;
+                string suffix = flexibleMatch.Groups[2].Value.ToLowerInvariant();
+                string targetSlot = suffix == "top" ? "body" : suffix == "dwn" ? "legs" : suffix == "sho" ? "feet" : suffix == "glv" ? "hands" : suffix == "met" ? "head" : null;
+                _plugin.PluginLog.Info($"[FindMatchingWornPiece] Flexible regex matched: eNum={eNum}, suffix={suffix}, targetSlot={targetSlot}");
+                if (targetSlot != null)
+                {
+                    var candidates = wornGear.Where(p => p.SlotKey == targetSlot).ToList();
+                    if (candidates.Count > 0)
+                    {
+                        foreach (var c in candidates)
+                        {
+                            if (!string.IsNullOrEmpty(c.MaterialName) && editFileName.Contains(c.MaterialName.ToLowerInvariant()))
+                            {
+                                _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via suffix and material name: {c.DisplayName}");
+                                return c;
+                            }
+                        }
+                        _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via suffix fallback (first candidate): {candidates[0].DisplayName}");
+                        return candidates[0];
+                    }
+                }
+            }
+
+            // 1b. Fallback: Search for slot keywords in the filename if no eCode matches
+            string detectedSlotKey = null;
+            if (editFileName.Contains("top") || editFileName.Contains("body") || editFileName.Contains("shirt"))
+                detectedSlotKey = "body";
+            else if (editFileName.Contains("legs") || editFileName.Contains("down") || editFileName.Contains("dwn") || editFileName.Contains("pants"))
+                detectedSlotKey = "legs";
+            else if (editFileName.Contains("shoes") || editFileName.Contains("boots") || editFileName.Contains("sho") || editFileName.Contains("feet"))
+                detectedSlotKey = "feet";
+            else if (editFileName.Contains("gloves") || editFileName.Contains("hands") || editFileName.Contains("glv"))
+                detectedSlotKey = "hands";
+            else if (editFileName.Contains("head") || editFileName.Contains("hat") || editFileName.Contains("met") || editFileName.Contains("visor"))
+                detectedSlotKey = "head";
+
+            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Detected Slot Key from filename: '{detectedSlotKey}'");
+            if (detectedSlotKey != null)
+            {
+                var candidates = wornGear.Where(p => p.SlotKey == detectedSlotKey).ToList();
+                if (candidates.Count > 0)
+                {
+                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via detected Slot Key: {candidates[0].DisplayName}");
+                    return candidates[0];
+                }
+            }
+
+            // 2. Scan resolved paths and match base, normal, mask paths
+            string cleanEdit = CleanTexFilename(editFileName);
+            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Clean edit normalized: '{cleanEdit}'");
+            foreach (var piece in wornGear)
+            {
+                string[] pathsToCheck = { piece.InternalBasePath, piece.InternalNormalPath, piece.InternalMaskPath };
+                foreach (var path in pathsToCheck)
+                {
+                    if (string.IsNullOrEmpty(path)) continue;
+
+                    string cleanPath = CleanTexFilename(path);
+                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Comparing cleanEdit '{cleanEdit}' to cleanPath '{cleanPath}' (raw: '{path}')");
+                    if (cleanEdit == cleanPath || cleanEdit.Contains(cleanPath) || cleanPath.Contains(cleanEdit))
+                    {
+                        _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via clean path comparison: {piece.DisplayName}");
+                        return piece;
+                    }
+
+                    try
+                    {
+                        PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collectionId, path, out string resolved);
+                        if (!string.IsNullOrEmpty(resolved))
+                        {
+                            string cleanResolved = CleanTexFilename(resolved);
+                            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Penumbra resolved path: '{resolved}', cleanResolved: '{cleanResolved}'");
+                            if (cleanEdit == cleanResolved || cleanEdit.Contains(cleanResolved) || cleanResolved.Contains(cleanEdit))
+                            {
+                                _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via clean resolved path comparison: {piece.DisplayName}");
+                                return piece;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _plugin.PluginLog.Warning($"[FindMatchingWornPiece] ResolvePath invocation failed for path '{path}': {ex.Message}");
+                    }
+                }
+            }
+
+            _plugin.PluginLog.Warning($"[FindMatchingWornPiece] No match found!");
+            return null;
         }
     }
 }

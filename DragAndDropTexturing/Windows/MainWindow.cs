@@ -428,17 +428,18 @@ public class MainWindow : Window, IDisposable
                     ImGui.SetTooltip(piece.InternalBasePath);
 
                 ImGui.TableNextColumn();
-                if (ImGui.Button(Translator.LocalizeUI("Import") + "##wg_" + piece.SlotKey))
+                string btnIdSuffix = piece.SlotKey + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
+                if (ImGui.Button(Translator.LocalizeUI("Import") + "##wg_" + btnIdSuffix))
                     ddt.ImportWornGearSlot(piece);
 
                 string charName = localPlayer.Name.TextValue;
-                string layerKey = charName + "_gear_" + piece.SlotKey;
+                string layerKey = charName + "_gear_" + piece.SlotKey + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
                 bool hasLayer = ddt.TextureHistory != null && ddt.TextureHistory.ContainsKey(layerKey) && ddt.TextureHistory[layerKey].Count > 0;
                 if (hasLayer)
                 {
                     ImGui.SameLine();
                     string editPath = ddt.TextureHistory[layerKey].LastOrDefault(f => !string.IsNullOrEmpty(f) && File.Exists(f));
-                    if (!string.IsNullOrEmpty(editPath) && ImGui.Button(Translator.LocalizeUI("Edit") + "##wge_" + piece.SlotKey))
+                    if (!string.IsNullOrEmpty(editPath) && ImGui.Button(Translator.LocalizeUI("Edit") + "##wge_" + btnIdSuffix))
                         Plugin.OpenPaintWindow(editPath);
                 }
             }

@@ -493,14 +493,22 @@ float4 PS(PS_IN input) : SV_TARGET
         private unsafe void UploadUvMaps(int width, int height, float[] posData, float[] normData) {
             if (_device == null) return;
 
-            _positionMapTex?.Dispose();
-            PositionMapSRV?.Dispose();
-            _normalMapTex?.Dispose();
-            NormalMapSRV?.Dispose();
-
             fixed (float* pPos = posData)
             fixed (float* pNorm = normData)
             {
+                if (_positionMapTex != null && _normalMapTex != null && 
+                    _positionMapTex.Description.Width == width && _positionMapTex.Description.Height == height)
+                {
+                    _context.UpdateSubresource(_positionMapTex, 0, null, (IntPtr)pPos, width * 16, 0);
+                    _context.UpdateSubresource(_normalMapTex, 0, null, (IntPtr)pNorm, width * 16, 0);
+                    return;
+                }
+
+                _positionMapTex?.Dispose();
+                PositionMapSRV?.Dispose();
+                _normalMapTex?.Dispose();
+                NormalMapSRV?.Dispose();
+
                 var texDesc = new Texture2DDescription
                 {
                     Width = width,

@@ -1232,7 +1232,7 @@ namespace RoleplayingVoice
                     ActiveBodyOverrides.Clear();
                     if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
 
-                    var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                    var character = Plugin.ObjectTable.LocalPlayer as ICharacter;
                     if (character == null) return;
 
                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
@@ -1542,7 +1542,7 @@ namespace RoleplayingVoice
                     try
                     {
                         if (plugin?.SafeGameObjectManager?.LocalPlayer == null) continue;
-                        var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                        var character = Plugin.ObjectTable.LocalPlayer as ICharacter;
                         if (character == null) continue;
 
                         // Verify Penumbra can return mod data
@@ -1569,7 +1569,7 @@ namespace RoleplayingVoice
                 if (charKeys.Count == 0) return;
 
                 // Snapshot the current customization
-                var character2 = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                var character2 = Plugin.ObjectTable.LocalPlayer as ICharacter;
                 if (character2 == null) return;
                 var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character2);
                 if (Plugin.Configuration.LastKnownFace == customization.Customize.Face.Value &&
@@ -1616,7 +1616,7 @@ namespace RoleplayingVoice
                 if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
                 if (e.GameObjectPtr != plugin.SafeGameObjectManager.LocalPlayer.Address) return;
 
-                var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                var character = Plugin.ObjectTable.LocalPlayer as ICharacter;
                 if (character == null) return;
 
                 var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
@@ -1931,7 +1931,7 @@ namespace RoleplayingVoice
             ICharacter character = null;
             if (plugin.SafeGameObjectManager.LocalPlayer != null && plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue == charName)
             {
-                character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+                character = Plugin.ObjectTable.LocalPlayer as ICharacter;
             }
             else
             {
@@ -2077,9 +2077,19 @@ namespace RoleplayingVoice
                     {
                         if (!_gearCategoryMeta.TryGetValue(categoryKey, out var gearMeta))
                         {
-                            string slot = categoryKey.Split("_gear_")[1];
+                            string suffixPart = categoryKey.Split("_gear_")[1];
+                            string slot = suffixPart;
+                            string matName = "";
+                            int underscoreIdx = suffixPart.IndexOf('_');
+                            if (underscoreIdx > 0)
+                            {
+                                slot = suffixPart.Substring(0, underscoreIdx);
+                                matName = suffixPart.Substring(underscoreIdx + 1);
+                            }
+
                             var wornPieces = WornEquipmentResolver.ResolveWornGear(character, plugin);
-                            gearMeta = wornPieces.Find(p => p.SlotKey.Equals(slot, StringComparison.OrdinalIgnoreCase));
+                            gearMeta = wornPieces.Find(p => p.SlotKey.Equals(slot, StringComparison.OrdinalIgnoreCase) &&
+                                (string.IsNullOrEmpty(matName) || p.MaterialName.Equals(matName, StringComparison.OrdinalIgnoreCase)));
                             if (gearMeta != null)
                             {
                                 _gearCategoryMeta[categoryKey] = gearMeta;
@@ -2094,7 +2104,7 @@ namespace RoleplayingVoice
                                 gearMeta.InternalNormalPath,
                                 gearMeta.InternalMaskPath,
                                 gearMeta.InternalMaterialPath);
-                            categoryModName = "Gear " + gearMeta.SlotKey;
+                            categoryModName = "Gear " + gearMeta.SlotKey + (string.IsNullOrEmpty(gearMeta.MaterialName) ? "" : " " + gearMeta.MaterialName);
                         }
                     }
 
@@ -2155,7 +2165,7 @@ namespace RoleplayingVoice
 
         public void RefreshWornGearCache()
         {
-            var localPlayer = plugin?.SafeGameObjectManager?.LocalPlayer as ICharacter;
+            var localPlayer = Plugin.ObjectTable.LocalPlayer as ICharacter;
             if (localPlayer == null)
             {
                 CachedWornGear = new List<WornEquipmentPiece>();
@@ -2169,7 +2179,7 @@ namespace RoleplayingVoice
         {
             if (piece == null || plugin == null) return;
 
-            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+            var localPlayer = Plugin.ObjectTable.LocalPlayer as ICharacter;
             if (localPlayer == null)
             {
                 plugin.Chat.PrintError("[Drag And Drop Texturing] No local player — cannot import worn gear.");
@@ -2187,7 +2197,7 @@ namespace RoleplayingVoice
                 return;
             }
 
-            string categoryKey = $"{localPlayer.Name.TextValue}_gear_{piece.SlotKey}";
+            string categoryKey = $"{localPlayer.Name.TextValue}_gear_{piece.SlotKey}" + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
             _gearCategoryMeta[categoryKey] = piece;
 
             if (!_textureHistory.ContainsKey(categoryKey))
