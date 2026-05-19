@@ -213,10 +213,10 @@ namespace RoleplayingVoice
         private void FileWatcher_Changed(object sender, System.IO.FileSystemEventArgs e)
         {
             if ((DateTime.Now - _lastRebuildTime).TotalMilliseconds < 500) return; // Debounce
-            
+
             bool triggered = false;
             HashSet<string> categoriesToRebuild = new HashSet<string>();
-            
+
             lock (_watcherLock)
             {
                 foreach (var kvp in _textureHistory)
@@ -474,7 +474,7 @@ namespace RoleplayingVoice
                 {
                     string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
                     var charKeys = _textureHistory.Keys.Where(k => k.StartsWith(charName + "_") && _textureHistory[k].Count > 0).ToList();
-                    
+
                     if (charKeys.Count > 0)
                     {
                         unsafe
@@ -485,7 +485,7 @@ namespace RoleplayingVoice
                                 var camPos = cameraManager->CurrentCamera->Object.Position;
                                 var playerPos = plugin.SafeGameObjectManager.LocalPlayer.Position;
                                 float distance = System.Numerics.Vector3.Distance(camPos, playerPos);
-                                
+
                                 int currentBracket = 0;
                                 if (distance < 2.5f) currentBracket = 2; // High
                                 else if (distance < 6.0f) currentBracket = 1; // Mid
@@ -494,7 +494,7 @@ namespace RoleplayingVoice
                                 if (_lastDistanceBracket != -1 && _lastDistanceBracket != currentBracket)
                                 {
                                     plugin.PluginLog.Information($"[Drag And Drop Texturing] Camera crossed distance threshold ({distance}m). Auto-triggering export.");
-                                    
+
                                     List<string> partsToRegenerate = new List<string>();
                                     foreach (var key in charKeys)
                                     {
@@ -502,13 +502,13 @@ namespace RoleplayingVoice
                                         if (partSuffix.Contains("face") || partSuffix.Contains("eye")) continue;
                                         partsToRegenerate.Add(partSuffix);
                                     }
-                                    
+
                                     if (partsToRegenerate.Count > 0)
                                     {
                                         ScheduleRegeneration(charName, partsToRegenerate.ToArray(), true);
                                     }
                                 }
-                                
+
                                 _lastDistanceBracket = currentBracket;
                             }
                         }
@@ -536,7 +536,7 @@ namespace RoleplayingVoice
                         ImGui.Text("The dropped texture could not be automatically identified.");
                         ImGui.Text($"File: {Path.GetFileName(_fileToClassify)}");
                         ImGui.Separator();
-                        
+
                         if (_classificationIsBody)
                         {
                             ImGui.Text("1. Select UV Layout:");
@@ -546,12 +546,12 @@ namespace RoleplayingVoice
                             ImGui.RadioButton("Gen2 / Vanilla", ref _classificationSelectedUV, 3);
                             ImGui.Spacing();
                         }
-                        
+
                         ImGui.Text("2. Select Texture Map Type:");
                         ImGui.RadioButton("Base / Diffuse", ref _classificationSelectedMap, 0); ImGui.SameLine();
                         ImGui.RadioButton("Normal Map", ref _classificationSelectedMap, 1); ImGui.SameLine();
                         ImGui.RadioButton("Mask", ref _classificationSelectedMap, 2);
-                        
+
                         ImGui.Separator();
                         if (ImGui.Button("Confirm", new Vector2(120, 0)))
                         {
@@ -876,15 +876,26 @@ namespace RoleplayingVoice
                                 {
                                     HashSet<string> droppedCategories = new HashSet<string>();
                                     var psdFiles = files.Where(f => Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
+                                    var clmpFiles = files.Where(f => Path.GetExtension(f).Equals(".clmp", StringComparison.OrdinalIgnoreCase)).ToList();
                                     files = files.Where(f => !Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
 
                                     if (psdFiles.Count > 0)
                                     {
                                         var capturedPlayer = selectedPlayer;
                                         var capturedPart = bodyDragPart;
-                                        plugin.PsdImportWindow.StartImport(psdFiles[0], extractedPngs => {
+                                        plugin.PsdImportWindow.StartImport(psdFiles[0], extractedPngs =>
+                                        {
                                             return InjectFilesAndRebuild(extractedPngs, capturedPlayer, capturedPart);
                                         });
+                                    }
+
+                                    if (clmpFiles.Count > 0)
+                                    {
+                                        foreach (var clmpFile in clmpFiles)
+                                        {
+                                            plugin.ContextualLayerManager.ImportLayerFromFile(clmpFile, true);
+                                        }
+                                        return;
                                     }
 
                                     if (files.Count == 0) return;
@@ -971,7 +982,7 @@ namespace RoleplayingVoice
                                                 string[] parts = format.Split('|');
                                                 string prefix = parts.Length > 0 && !string.IsNullOrEmpty(parts[0]) ? parts[0] + "_" : "";
                                                 string suffix = parts.Length > 1 && !string.IsNullOrEmpty(parts[1]) ? "_" + parts[1] : "";
-                                                
+
                                                 string newPath = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, prefix + Path.GetFileNameWithoutExtension(f) + suffix + Path.GetExtension(f));
                                                 File.Copy(f, newPath, true);
                                                 f = newPath;
@@ -1321,24 +1332,24 @@ namespace RoleplayingVoice
                                 // Update BackupTexturePaths so the assembly pipeline
                                 // uses the freshly-extracted textures (not stale static presets)
                                 // This is required for all categories so the extracted normal map is preserved.
-                                    bool hasValidBase = !string.IsNullOrEmpty(baseTex);
-                                    bool hasValidNorm = !string.IsNullOrEmpty(normTex);
+                                bool hasValidBase = !string.IsNullOrEmpty(baseTex);
+                                bool hasValidNorm = !string.IsNullOrEmpty(normTex);
 
-                                    string finalBase = i.BackupTexturePaths != null ? i.BackupTexturePaths.Base : "";
-                                    string finalNorm = i.BackupTexturePaths != null ? i.BackupTexturePaths.Normal : "";
+                                string finalBase = i.BackupTexturePaths != null ? i.BackupTexturePaths.Base : "";
+                                string finalNorm = i.BackupTexturePaths != null ? i.BackupTexturePaths.Normal : "";
 
-                                    // We must always overwrite finalBase/finalNorm with the newly extracted textures.
-                                    // The static presets in BackupTexturePaths point to dead 'res\textures\...' paths 
-                                    // which are only valid in the standalone compiler, not the runtime plugin.
-                                    if (hasValidBase)
-                                        finalBase = baseTex;
-                                    if (hasValidNorm)
-                                        finalNorm = normTex;
+                                // We must always overwrite finalBase/finalNorm with the newly extracted textures.
+                                // The static presets in BackupTexturePaths point to dead 'res\textures\...' paths 
+                                // which are only valid in the standalone compiler, not the runtime plugin.
+                                if (hasValidBase)
+                                    finalBase = baseTex;
+                                if (hasValidNorm)
+                                    finalNorm = normTex;
 
-                                    if (!string.IsNullOrEmpty(finalBase) && !string.IsNullOrEmpty(finalNorm))
-                                        i.BackupTexturePaths = new BackupTexturePaths(finalBase, finalNorm);
-                                    else if (!string.IsNullOrEmpty(finalBase))
-                                        i.BackupTexturePaths = new BackupTexturePaths(finalBase);
+                                if (!string.IsNullOrEmpty(finalBase) && !string.IsNullOrEmpty(finalNorm))
+                                    i.BackupTexturePaths = new BackupTexturePaths(finalBase, finalNorm);
+                                else if (!string.IsNullOrEmpty(finalBase))
+                                    i.BackupTexturePaths = new BackupTexturePaths(finalBase);
                             }
                         }
                     }
@@ -1360,16 +1371,16 @@ namespace RoleplayingVoice
                                     var camPos = cameraManager->CurrentCamera->Object.Position;
                                     var playerPos = character.Value.Position;
                                     float distance = System.Numerics.Vector3.Distance(camPos, playerPos);
-                                    
+
                                     plugin.PluginLog.Information($"[Drag And Drop Texturing] Camera Distance = {distance}m. Auto Quality Enabled = {Plugin.Configuration.AutoDistanceExportQuality}");
-                                    
+
                                     if (Plugin.Configuration.AutoDistanceExportQuality)
                                     {
                                         // Scale based on distance. 
                                         if (distance < 2.5f) exportScale = 1.0f; // Close up, High Quality
                                         else if (distance < 6.0f) exportScale = 0.5f; // Mid-range, Half Quality
                                         else exportScale = 0.25f; // Far away, Quarter Quality
-                                        
+
                                         plugin.PluginLog.Information($"[Drag And Drop Texturing] Auto Distance Export Quality: Scale applied = {exportScale}");
                                     }
                                 }
@@ -1761,7 +1772,7 @@ namespace RoleplayingVoice
                             string[] parts = format.Split('|');
                             string prefix = parts.Length > 0 && !string.IsNullOrEmpty(parts[0]) ? parts[0] + "_" : "";
                             string suffix = parts.Length > 1 && !string.IsNullOrEmpty(parts[1]) ? "_" + parts[1] : "";
-                            
+
                             string newPath = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, prefix + Path.GetFileNameWithoutExtension(file) + suffix + Path.GetExtension(file));
                             System.IO.File.Copy(file, newPath, true);
                             file = newPath;
@@ -1773,17 +1784,17 @@ namespace RoleplayingVoice
                     }
 
                     if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
-                    
+
                     if (!plugin.Configuration.EnableTextureStacking && !droppedCategories.Contains(categoryKey))
                     {
                         _textureHistory[categoryKey].Clear();
                     }
-                    
+
                     if (!_textureHistory[categoryKey].Contains(file))
                     {
                         _textureHistory[categoryKey].Add(file);
                     }
-                    
+
                     if (plugin.Configuration.RecentLayers.Contains(file))
                         plugin.Configuration.RecentLayers.Remove(file);
                     plugin.Configuration.RecentLayers.Insert(0, file);
@@ -1815,13 +1826,14 @@ namespace RoleplayingVoice
           ".dds",
           ".bmp",
           ".tex",
-          ".psd"
+          ".psd",
+          ".clmp"
         };
         public void RebuildAllCategories()
         {
             if (_textureHistory == null || _textureHistory.Count == 0) return;
             var keys = _textureHistory.Keys.ToList();
-            
+
             Task.Run(() =>
             {
                 foreach (var key in keys)
@@ -2145,11 +2157,13 @@ namespace RoleplayingVoice
             }
 
             string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
-            if (gender != 0) {
+            if (gender != 0)
+            {
                 if (fileName.Contains("bibo") || fileName.Contains("b+")) return 1;
                 if (fileName.Contains("gen3") || System.Text.RegularExpressions.Regex.IsMatch(fileName, @"(^|[^a-z])eve([^a-z]|$)") || fileName.Contains("exqb") || fileName.Contains("pythia") || fileName.Contains("gaia")) return 2;
             }
-            if (gender != 1) {
+            if (gender != 1)
+            {
                 if (fileName.Contains("tbse")) return 3;
             }
             if (fileName.Contains("gen2") || fileName.Contains("body") || fileName.Contains("mata")) return 0;
