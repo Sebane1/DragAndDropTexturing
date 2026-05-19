@@ -477,7 +477,6 @@ public class MainWindow : Window, IDisposable
                         {
                             Plugin.OpenPaintWindow();
                         }
-                        ImGui.EndTabItem();
                     }
                     else
                     {
