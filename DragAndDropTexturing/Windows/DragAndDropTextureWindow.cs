@@ -1581,6 +1581,21 @@ namespace RoleplayingVoice
                     Plugin.Configuration.LastKnownGender == customization.Customize.Gender.Value)
                 {
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Initial rebuild skipped: Customization exactly matches last session.");
+                    
+                    // Repopulate GearCategoryMeta so the UI retains the human-readable names for currently worn gear
+                    try
+                    {
+                        var wornPieces = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveWornGear(character2, plugin);
+                        foreach (var piece in wornPieces)
+                        {
+                            string categoryKey = $"{charName}_gear_{piece.SlotKey}" + 
+                                (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName) +
+                                (string.IsNullOrEmpty(piece.ModName) ? "" : "_[" + piece.ModName + "]");
+                            _gearCategoryMeta[categoryKey] = piece;
+                        }
+                    }
+                    catch { }
+                    
                     return;
                 }
 
@@ -2091,6 +2106,15 @@ namespace RoleplayingVoice
                             string suffixPart = categoryKey.Split("_gear_")[1];
                             string slot = suffixPart;
                             string matName = "";
+                            string modName = "";
+                            
+                            int bracketIdx = suffixPart.IndexOf("_[" );
+                            if (bracketIdx > 0)
+                            {
+                                modName = suffixPart.Substring(bracketIdx + 2).TrimEnd(']');
+                                suffixPart = suffixPart.Substring(0, bracketIdx);
+                            }
+
                             int underscoreIdx = suffixPart.IndexOf('_');
                             if (underscoreIdx > 0)
                             {
@@ -2098,9 +2122,10 @@ namespace RoleplayingVoice
                                 matName = suffixPart.Substring(underscoreIdx + 1);
                             }
 
-                            var wornPieces = WornEquipmentResolver.ResolveWornGear(character, plugin);
+                            var wornPieces = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveWornGear(character, plugin);
                             gearMeta = wornPieces.Find(p => p.SlotKey.Equals(slot, StringComparison.OrdinalIgnoreCase) &&
-                                (string.IsNullOrEmpty(matName) || p.MaterialName.Equals(matName, StringComparison.OrdinalIgnoreCase)));
+                                (string.IsNullOrEmpty(matName) || p.MaterialName.Equals(matName, StringComparison.OrdinalIgnoreCase)) &&
+                                (string.IsNullOrEmpty(modName) || p.ModName.Equals(modName, StringComparison.OrdinalIgnoreCase)));
                             if (gearMeta != null)
                             {
                                 _gearCategoryMeta[categoryKey] = gearMeta;
@@ -2248,7 +2273,9 @@ namespace RoleplayingVoice
                 return;
             }
 
-            string categoryKey = $"{localPlayer.Name.TextValue}_gear_{piece.SlotKey}" + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
+            string categoryKey = $"{localPlayer.Name.TextValue}_gear_{piece.SlotKey}" + 
+                (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName) +
+                (string.IsNullOrEmpty(piece.ModName) ? "" : "_[" + piece.ModName + "]");
             _gearCategoryMeta[categoryKey] = piece;
 
             if (!_textureHistory.ContainsKey(categoryKey))
