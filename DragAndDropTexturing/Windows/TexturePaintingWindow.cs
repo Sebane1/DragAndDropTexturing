@@ -1338,7 +1338,100 @@ private void LoadPlayerModels()
 
                 string overrideTopPath = null;
                 string overrideBotPath = null;
+                bool isGear = false;
+                string topSlotName = "Top";
+                string botSlotName = "Bottom";
+
                 if (!string.IsNullOrEmpty(EditSourcePath))
+                {
+                    var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_(c\d+)(e\d+)_([a-z]+)_[a-z]+(_worn)?\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (gearMatch.Success)
+                    {
+                        string cCode = gearMatch.Groups[1].Value;
+                        string eCode = gearMatch.Groups[2].Value;
+                        string suffix = gearMatch.Groups[3].Value;
+                        
+                        _plugin.PluginLog.Info($"[PSD Preview] Detected worn gear edit: {cCode} {eCode} {suffix}");
+                        
+                        isGear = true;
+                        
+                        if (suffix == "top")
+                        {
+                            topSlotName = "Top";
+                            topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                            botSlotName = "PreviewBottom";
+                            botPath = null;
+                        }
+                        else if (suffix == "dwn")
+                        {
+                            botSlotName = "Bottom";
+                            botPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                            topSlotName = "PreviewTop";
+                            topPath = null;
+                        }
+                        else if (suffix == "sho")
+                        {
+                            topSlotName = "Shoes";
+                            topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                            botPath = null;
+                        }
+                        else if (suffix == "glv")
+                        {
+                            topSlotName = "Gloves";
+                            topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                            botPath = null;
+                        }
+                        else if (suffix == "met")
+                        {
+                            topSlotName = "Head";
+                            topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                            botPath = null;
+                        }
+                        else
+                        {
+                            topSlotName = "Top";
+                            topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                            botPath = null;
+                        }
+
+                        try
+                        {
+                            var wornGear = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveWornGear((Dalamud.Game.ClientState.Objects.Types.ICharacter)Plugin.ObjectTable.LocalPlayer, _plugin);
+                            if (suffix == "top")
+                            {
+                                var legsPiece = wornGear.FirstOrDefault(p => p.SlotKey == "legs");
+                                if (legsPiece != null && !string.IsNullOrEmpty(legsPiece.InternalBasePath))
+                                {
+                                    var match = System.Text.RegularExpressions.Regex.Match(legsPiece.InternalBasePath, @"chara/equipment/(e\d+)");
+                                    if (match.Success)
+                                    {
+                                        string legsECode = match.Groups[1].Value;
+                                        botPath = $"chara/equipment/{legsECode}/model/{trueRaceCode}{legsECode}_dwn.mdl";
+                                    }
+                                }
+                            }
+                            else if (suffix == "dwn")
+                            {
+                                var bodyPiece = wornGear.FirstOrDefault(p => p.SlotKey == "body");
+                                if (bodyPiece != null && !string.IsNullOrEmpty(bodyPiece.InternalBasePath))
+                                {
+                                    var match = System.Text.RegularExpressions.Regex.Match(bodyPiece.InternalBasePath, @"chara/equipment/(e\d+)");
+                                    if (match.Success)
+                                    {
+                                        string bodyECode = match.Groups[1].Value;
+                                        topPath = $"chara/equipment/{bodyECode}/model/{trueRaceCode}{bodyECode}_top.mdl";
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _plugin.PluginLog.Warning($"Failed to pull worn gear for preview context: {ex.Message}");
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(EditSourcePath) && !isGear)
                 {
                     if (_overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
                     {
@@ -1391,8 +1484,8 @@ private void LoadPlayerModels()
                 var topSlotPath = overrideTopPath ?? topPath;
                 var botSlotPath = overrideBotPath ?? botPath;
                 System.Threading.Tasks.Parallel.Invoke(
-                    () => LoadModelIntoSlot("Top", topSlotPath, collectionId),
-                    () => LoadModelIntoSlot("Bottom", botSlotPath, collectionId)
+                    () => { if (topSlotPath != null) LoadModelIntoSlot(topSlotName, topSlotPath, collectionId); },
+                    () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId); }
                 );
                 _mainThreadActions.Enqueue(() => UpdateMeshVisibility());
 
@@ -1401,20 +1494,25 @@ private void LoadPlayerModels()
                 PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collectionId, ffxivGender, ffxivRace, _plugin);
                 FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = prevOverrideMode;
 
-                string lowerPath = _topModelDiskPath.ToLower();
-                bool isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") 
-                || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia") || lowerPath.Contains("riderthicc");
-                bool isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") 
-               || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe");
-                bool isTbse = lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody");
-
-                if (!isGen3 && !isBibo && !isTbse)
+                string lowerPath = _topModelDiskPath?.ToLower() ?? "";
+                bool isGen3 = false, isBibo = false, isTbse = false;
+                
+                if (!isGear)
                 {
-                    int bodyIndex = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string detectedName, _plugin);
-                    if (bodyIndex == 3) isTbse = true;
-                    if (bodyIndex == 2) isGen3 = true;
-                    if (bodyIndex == 1) isBibo = true;
-                    _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3', 'bibo', or 'tbse'. Fallback detection returned: {detectedName} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : isTbse ? "TBSE" : "Unknown")})");
+                    isGen3 = lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") 
+                    || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia") || lowerPath.Contains("riderthicc");
+                    isBibo = lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") 
+                   || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe");
+                    isTbse = lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody");
+
+                    if (!isGen3 && !isBibo && !isTbse)
+                    {
+                        int bodyIndex = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string detectedName, _plugin);
+                        if (bodyIndex == 3) isTbse = true;
+                        if (bodyIndex == 2) isGen3 = true;
+                        if (bodyIndex == 1) isBibo = true;
+                        _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3', 'bibo', or 'tbse'. Fallback detection returned: {detectedName} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : isTbse ? "TBSE" : "Unknown")})");
+                    }
                 }
 
                 _isGen3Preview = isGen3;
@@ -1620,7 +1718,17 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                 }
                 else
                 {
-                    _plugin.PluginLog.Warning($"[PSD Preview] Could not find physical file for '{diskPath}'. Skipping Lumina.");
+                    _plugin.PluginLog.Warning($"[PSD Preview] Could not find physical file for '{diskPath}'. Falling back to Lumina FFXIV data.");
+                    var ffxivFile = DragAndDropTexturing.Plugin.DataManager.GetFile(path);
+                    if (ffxivFile != null && ffxivFile.Data != null)
+                    {
+                        meshes = MdlParser.ParseFromBytes(ffxivFile.Data, out string parseStatus);
+                        _plugin.PluginLog.Info($"[PSD Preview] Successfully parsed FFXIV native model from bytes: {parseStatus}");
+                    }
+                    else
+                    {
+                        _plugin.PluginLog.Error($"[PSD Preview] Could not find FFXIV native file for '{path}'.");
+                    }
                 }
 
                 if (slot == "Top") _topModelDiskPath = diskPath;
@@ -1632,11 +1740,65 @@ private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
                     var meshesCopy = new System.Collections.Generic.List<ExtractedMesh>(meshes);
                     // Store CPU mesh data for procedural stamp triangle selection
                     lock (_loadedMeshes) { _loadedMeshes.AddRange(meshesCopy); }
-                    _mainThreadActions.Enqueue(() => {
-                        _renderer.LoadMeshes(slot, new System.Collections.Generic.List<ExtractedMesh> { meshesCopy[0] });
-                        for (int i = 1; i < meshesCopy.Count; i++)
+
+                    int primaryIndex = 0;
+                    bool isGearLayer = (slot == "Top" || slot == "Bottom" || slot == "Shoes" || slot == "Gloves" || slot == "Head") && !string.IsNullOrEmpty(EditSourcePath);
+                    string searchPattern = null;
+
+                    if (isGearLayer)
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+(e\d+)_([a-z]+)_([a-z]+)(_worn)?\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (match.Success)
                         {
-                            _renderer.LoadMeshes($"{slot}_{i}", new System.Collections.Generic.List<ExtractedMesh> { meshesCopy[i] });
+                            searchPattern = $"{match.Groups[1].Value}_{match.Groups[2].Value}".ToLower();
+                        }
+                        else
+                        {
+                            isGearLayer = false;
+                        }
+                    }
+
+                    var primaryMeshes = new System.Collections.Generic.List<ExtractedMesh>();
+                    var secondaryMeshes = new System.Collections.Generic.List<ExtractedMesh>();
+
+                    if (isGearLayer && searchPattern != null)
+                    {
+                        for (int i = 0; i < meshesCopy.Count; i++)
+                        {
+                            string matPath = meshesCopy[i].MaterialPath;
+                            if (!string.IsNullOrEmpty(matPath) && matPath.ToLower().Contains(searchPattern))
+                            {
+                                primaryMeshes.Add(meshesCopy[i]);
+                            }
+                            else
+                            {
+                                secondaryMeshes.Add(meshesCopy[i]);
+                            }
+                        }
+                        
+                        if (primaryMeshes.Count == 0)
+                        {
+                            _plugin.PluginLog.Warning($"[PSD Preview] Could not find any mesh matching '{searchPattern}' in MaterialPaths. Defaulting to Mesh[0].");
+                            primaryMeshes.Add(meshesCopy[0]);
+                            for (int i = 1; i < meshesCopy.Count; i++) secondaryMeshes.Add(meshesCopy[i]);
+                        }
+
+                        _plugin.PluginLog.Info($"[PSD Preview] Auto-selected {primaryMeshes.Count} meshes as paintable layer for '{searchPattern}'.");
+                    }
+                    else
+                    {
+                        primaryMeshes.Add(meshesCopy[0]);
+                        for (int i = 1; i < meshesCopy.Count; i++) secondaryMeshes.Add(meshesCopy[i]);
+                    }
+
+                    _mainThreadActions.Enqueue(() => {
+                        _renderer.LoadMeshes(slot, primaryMeshes);
+                        
+                        int counter = 1;
+                        foreach (var sm in secondaryMeshes)
+                        {
+                            _renderer.LoadMeshes($"{slot}_{counter}", new System.Collections.Generic.List<ExtractedMesh> { sm });
+                            counter++;
                         }
                     });
                 }

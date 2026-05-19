@@ -13,6 +13,7 @@ namespace DragAndDropTexturing.Windows
         public List<Vector2> UVs = new();
         public List<Vector3> Normals = new();
         public List<uint> Indices = new();
+        public string MaterialPath = "";
     }
 
     public class MdlParser
@@ -201,10 +202,22 @@ namespace DragAndDropTexturing.Windows
         /// </summary>
         public static List<ExtractedMesh> ParseFromDisk(string filePath, out string statusMessage)
         {
+            try
+            {
+                return ParseFromBytes(File.ReadAllBytes(filePath), out statusMessage);
+            }
+            catch (Exception ex)
+            {
+                statusMessage = "File read error: " + ex.Message;
+                return GetDummyCube();
+            }
+        }
+
+        public static List<ExtractedMesh> ParseFromBytes(byte[] fileData, out string statusMessage)
+        {
             statusMessage = "";
             try
             {
-                byte[] fileData = File.ReadAllBytes(filePath);
                 using var ms = new MemoryStream(fileData);
                 using var reader = new BinaryReader(ms);
 
@@ -258,6 +271,24 @@ namespace DragAndDropTexturing.Windows
                 int pathCount = reader.ReadInt32();
                 int pathBlockSize = reader.ReadInt32();
                 byte[] pathBlock = reader.ReadBytes(pathBlockSize);
+
+                var stringBlock = new List<string>();
+                var mtrlStrings = new List<string>();
+                int strStart = 0;
+                for (int i = 0; i < pathBlockSize; i++)
+                {
+                    if (pathBlock[i] == 0)
+                    {
+                        if (i > strStart)
+                        {
+                            string s = System.Text.Encoding.ASCII.GetString(pathBlock, strStart, i - strStart);
+                            stringBlock.Add(s);
+                            if (s.EndsWith(".mtrl", StringComparison.OrdinalIgnoreCase))
+                                mtrlStrings.Add(s);
+                        }
+                        strStart = i + 1;
+                    }
+                }
 
                 // === MdlModelData (56 bytes — exact TexTools MdlModelData.Read) ===
                 float radius = reader.ReadSingle();         // 4
@@ -345,13 +376,13 @@ namespace DragAndDropTexturing.Windows
                 //           VertexDataOffset[3](12), VertexDataEntrySize[3](3), VertexStreamCount(1) = 36
                 // IMPORTANT: TexTools reads VertexCount as Int32 (not UInt16+padding)!
                 var meshStructs = new List<(int vertexCount, int indexCount, int startIndex,
-                    int[] vbOffset, byte[] vbStride)>();
+                    int[] vbOffset, byte[] vbStride, short materialIndex)>();
 
                 for (int m = 0; m < meshCount; m++)
                 {
                     int vtxCount = reader.ReadInt32();        // 4 (TexTools uses ReadInt32 for this)
                     int idxCount = reader.ReadInt32();         // 4
-                    reader.ReadInt16();                        // MaterialIndex
+                    short matIndex = reader.ReadInt16();                        // MaterialIndex
                     reader.ReadInt16();                        // SubMeshIndex
                     reader.ReadInt16();                        // SubMeshCount
                     reader.ReadInt16();                        // BoneTableIndex
@@ -361,7 +392,7 @@ namespace DragAndDropTexturing.Windows
                     reader.ReadByte();                          // VertexStreamCount                 // 1
                     // Total: 36 ✓
 
-                    meshStructs.Add((vtxCount, idxCount, startIdx, vbOff, vbStr));
+                    meshStructs.Add((vtxCount, idxCount, startIdx, vbOff, vbStr, matIndex));
                 }
 
                 // === Extract geometry from data region ===
@@ -376,6 +407,11 @@ namespace DragAndDropTexturing.Windows
 
                     var mesh = meshStructs[meshIdx];
                     var extracted = new ExtractedMesh();
+                    
+                    if (mesh.materialIndex >= 0 && mesh.materialIndex < mtrlStrings.Count)
+                    {
+                        extracted.MaterialPath = mtrlStrings[mesh.materialIndex];
+                    }
 
                     // Read indices (16-bit unsigned, 2 bytes each)
                     // startIndex is an index into the index buffer (not byte offset)
