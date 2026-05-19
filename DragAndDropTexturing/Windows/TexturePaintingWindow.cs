@@ -1275,12 +1275,19 @@ namespace DragAndDropTexturing.Windows
                     {
                         if (isEditMode)
                         {
-                            // Edit mode: rebuild all categories since the file was updated in-place
                             _plugin.PluginLog.Info($"[Texture Painter] Edit mode - triggering full rebuild for '{targetChar.Name.TextValue}'");
-                            _plugin.DragAndDropTextures.InjectFilesAndRebuild(
-                                new List<string> { outPath },
-                                new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
-                                PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                            if (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.StartsWith(targetChar.Name.TextValue))
+                            {
+                                string suffix = ContextCategoryKey.Substring(targetChar.Name.TextValue.Length);
+                                _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { suffix }, true);
+                            }
+                            else
+                            {
+                                _plugin.DragAndDropTextures.InjectFilesAndRebuild(
+                                    new List<string> { outPath },
+                                    new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
+                                    PenumbraAndGlamourerHelpers.BodyDragPart.Unknown);
+                            }
                         }
                         else
                         {
