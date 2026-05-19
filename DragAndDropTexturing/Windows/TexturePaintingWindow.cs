@@ -47,8 +47,11 @@ namespace DragAndDropTexturing.Windows
         private string _selectedMaterial = null;
         private string _customMaterialRegex = null;
 
-        private static readonly HashSet<string> _primarySlots = new HashSet<string> { "Top", "Bottom" };
-        private static readonly string[] _primarySlotArray = new[] { "Top", "Bottom" };
+        private readonly HashSet<string> _primarySlots = new HashSet<string> { "Top", "Bottom" };
+        private string[] _primarySlotArray = new[] { "Top", "Bottom" };
+        private static readonly HashSet<string> _mainModelSlots = new HashSet<string> {
+            "Top", "Bottom", "PreviewTop", "PreviewBottom", "Shoes", "Gloves", "Head"
+        };
 
         private float _brushHardness = 0.5f;
         private float _brushOpacity = 1.0f;
@@ -108,6 +111,7 @@ namespace DragAndDropTexturing.Windows
         private int _advancedBrushIndex = 0;
         private bool _hideExtraMeshes = true;
         public string EditSourcePath { get; set; } = null;  // When non-null, we're editing an existing layer file
+        public string ContextCategoryKey { get; set; } = null; // Original category key from UI for precise slot targeting
         
         // Cache fields for thread-safe model loading
         private string _cachedCharacterName = "";
@@ -235,6 +239,7 @@ namespace DragAndDropTexturing.Windows
 
         public override void OnOpen()
         {
+            _mainThreadActions.Clear();
             _tempDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "Paint_Temp");
             Directory.CreateDirectory(_tempDir);
 
@@ -267,9 +272,10 @@ namespace DragAndDropTexturing.Windows
         /// Opens the painter in edit mode, loading the specified image file as the initial paint layer content.
         /// Committing will overwrite this file instead of creating a new one.
         /// </summary>
-        public void OpenForEditing(string filePath)
+        public void OpenForEditing(string filePath, string categoryKey = null)
         {
             EditSourcePath = filePath;
+            ContextCategoryKey = categoryKey;
             _editLayerLoaded = false;
             IsOpen = true;
         }
@@ -1120,7 +1126,7 @@ namespace DragAndDropTexturing.Windows
             {
                 foreach (var slot in _renderer.GetAllSlotNames())
                 {
-                    if (!_primarySlots.Contains(slot))
+                    if (!_mainModelSlots.Contains(slot))
                         _renderer.HiddenSlots.Add(slot);
                 }
             }
@@ -1304,8 +1310,11 @@ namespace DragAndDropTexturing.Windows
 
         public void Dispose()
         {
+            _mainThreadActions.Clear();
             _renderer?.Dispose();
+            _renderer = null;
             _cachedBaseBitmap?.Dispose();
+            _cachedBaseBitmap = null;
         }
         private void StartLoadPlayerModels()
         {
@@ -1469,6 +1478,7 @@ namespace DragAndDropTexturing.Windows
                 string overrideTopPath = null;
                 string overrideBotPath = null;
                 bool isGear = false;
+                string activeSuffix = null;
                 string topSlotName = "Top";
                 string botSlotName = "Bottom";
 
@@ -1498,6 +1508,7 @@ namespace DragAndDropTexturing.Windows
                                     matchedPiece.SlotKey == "feet" ? "sho" :
                                     matchedPiece.SlotKey == "hands" ? "glv" :
                                     matchedPiece.SlotKey == "head" ? "met" : "top";
+                    activeSuffix = suffix;
 
                     string eCode = !string.IsNullOrEmpty(matchedPiece.EquipSetId) ? matchedPiece.EquipSetId : "e0279";
 
@@ -1576,6 +1587,7 @@ namespace DragAndDropTexturing.Windows
                         _plugin.PluginLog.Info($"[PSD Preview] Detected worn gear edit via fallback regex: {cCode} {eCode} {suffix}");
                         
                         isGear = true;
+                        activeSuffix = suffix;
                         
                         if (suffix == "top")
                         {
@@ -1694,6 +1706,27 @@ namespace DragAndDropTexturing.Windows
                     overrideTopPath = _overrideTopPathList[_overrideTopSelectedIndex].DiskPath;
                 if (_overrideBotPathList.Count > 0 && _overrideBotSelectedIndex >= 0 && _overrideBotSelectedIndex < _overrideBotPathList.Count)
                     overrideBotPath = _overrideBotPathList[_overrideBotSelectedIndex].DiskPath;
+
+                lock (_primarySlots)
+                {
+                    _primarySlots.Clear();
+                    if (isGear && activeSuffix != null)
+                    {
+                        string primarySlot = activeSuffix == "top" ? "Top" :
+                                             activeSuffix == "dwn" ? "Bottom" :
+                                             activeSuffix == "sho" ? "Shoes" :
+                                             activeSuffix == "glv" ? "Gloves" :
+                                             activeSuffix == "met" ? "Head" : "Top";
+                        _primarySlots.Add(primarySlot);
+                        _primarySlotArray = new[] { primarySlot };
+                    }
+                    else
+                    {
+                        _primarySlots.Add("Top");
+                        _primarySlots.Add("Bottom");
+                        _primarySlotArray = new[] { "Top", "Bottom" };
+                    }
+                }
 
                 // Load both model slots in parallel since they're independent
                 var topSlotPath = overrideTopPath ?? topPath;
@@ -2005,7 +2038,8 @@ namespace DragAndDropTexturing.Windows
                                                 matchedPiece.SlotKey == "feet" ? "sho" :
                                                 matchedPiece.SlotKey == "hands" ? "glv" :
                                                 matchedPiece.SlotKey == "head" ? "met" : "top";
-                                searchPattern = $"{eCode}_{suffix}".ToLower();
+                                string matSuffix = !string.IsNullOrEmpty(matchedPiece.MaterialName) ? $"_{matchedPiece.MaterialName.ToLower()}" : "";
+                                searchPattern = $"{eCode}_{suffix}{matSuffix}".ToLower();
                             }
                         }
                     }
@@ -2120,19 +2154,54 @@ namespace DragAndDropTexturing.Windows
                                 
                                 // Export to PNG and set as the active base texture
                                 string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
+                                string targetSlotKey = slot.Contains("Top") ? "body" :
+                                                       slot.Contains("Bottom") ? "legs" :
+                                                       slot == "Shoes" ? "feet" :
+                                                       slot == "Gloves" ? "hands" :
+                                                       slot == "Head" ? "head" : null;
                                 string pngPath = DragAndDropTexturing.Equipment.WornEquipmentResolver.ExportResolvedTextureToPng(
-                                    texToLoad, collectionId, exportDir, _plugin);
+                                    texToLoad, collectionId, exportDir, _plugin, targetSlotKey);
                                 
-                                if (!string.IsNullOrEmpty(pngPath))
+                                if (!slot.Contains("Preview"))
                                 {
-                                    _plugin.PluginLog.Info($"[Texture Painter] Clothing texture resolved for override: {pngPath}");
-                                    _clothingTexturePngOverride = pngPath;
-                                    _editLayerLoaded = false;
-                                    _needsComposite = true;
+                                    if (!string.IsNullOrEmpty(pngPath))
+                                    {
+                                        _plugin.PluginLog.Info($"[Texture Painter] Clothing texture resolved for override: {pngPath}");
+                                        _clothingTexturePngOverride = pngPath;
+                                        _editLayerLoaded = false;
+                                        _needsComposite = true;
+                                    }
+                                    else
+                                    {
+                                        _plugin.PluginLog.Warning($"[Texture Painter] Failed to export texture {texToLoad} to PNG");
+                                    }
                                 }
                                 else
                                 {
-                                    _plugin.PluginLog.Warning($"[Texture Painter] Failed to export texture {texToLoad} to PNG");
+                                    if (!string.IsNullOrEmpty(pngPath) && File.Exists(pngPath))
+                                    {
+                                        try
+                                        {
+                                            using var bmp = new System.Drawing.Bitmap(pngPath);
+                                            var rect = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
+                                            var bmpData = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                                            int bytes = Math.Abs(bmpData.Stride) * bmp.Height;
+                                            byte[] rgba = new byte[bytes];
+                                            System.Runtime.InteropServices.Marshal.Copy(bmpData.Scan0, rgba, 0, bytes);
+                                            bmp.UnlockBits(bmpData);
+                                            
+                                            int w = bmp.Width;
+                                            int h = bmp.Height;
+                                            _mainThreadActions.Enqueue(() => {
+                                                _renderer.LoadTexture(slot, rgba, w, h);
+                                            });
+                                            _plugin.PluginLog.Info($"[Texture Painter] Loaded preview texture for slot {slot}: {pngPath}");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            _plugin.PluginLog.Error(ex, $"[Texture Painter] Failed to load preview texture {pngPath} for slot {slot}");
+                                        }
+                                    }
                                 }
                             }
                             else
@@ -2214,8 +2283,13 @@ namespace DragAndDropTexturing.Windows
                             if (!string.IsNullOrEmpty(smTexToLoad))
                             {
                                 string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
+                                string targetSlotKey = slot.Contains("Top") ? "body" :
+                                                       slot.Contains("Bottom") ? "legs" :
+                                                       slot == "Shoes" ? "feet" :
+                                                       slot == "Gloves" ? "hands" :
+                                                       slot == "Head" ? "head" : null;
                                 string smPngPath = DragAndDropTexturing.Equipment.WornEquipmentResolver.ExportResolvedTextureToPng(
-                                    smTexToLoad, collectionId, exportDir, _plugin);
+                                    smTexToLoad, collectionId, exportDir, _plugin, targetSlotKey);
                                     
                                 if (!string.IsNullOrEmpty(smPngPath) && File.Exists(smPngPath))
                                 {
@@ -2752,6 +2826,66 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
             string editFileName = Path.GetFileNameWithoutExtension(normalizedEditPath);
             _plugin.PluginLog.Info($"[FindMatchingWornPiece] editFileName cleaned: '{editFileName}'");
 
+            string detectedSlotKey = null;
+            
+            if (!string.IsNullOrEmpty(ContextCategoryKey))
+            {
+                if (ContextCategoryKey.Contains("_gear_body")) detectedSlotKey = "body";
+                else if (ContextCategoryKey.Contains("_gear_legs")) detectedSlotKey = "legs";
+                else if (ContextCategoryKey.Contains("_gear_feet")) detectedSlotKey = "feet";
+                else if (ContextCategoryKey.Contains("_gear_hands")) detectedSlotKey = "hands";
+                else if (ContextCategoryKey.Contains("_gear_head")) detectedSlotKey = "head";
+            }
+
+            if (detectedSlotKey == null)
+            {
+                if (editFileName.Contains("_worn_body"))
+                    detectedSlotKey = "body";
+                else if (editFileName.Contains("_worn_legs"))
+                    detectedSlotKey = "legs";
+                else if (editFileName.Contains("_worn_feet"))
+                    detectedSlotKey = "feet";
+                else if (editFileName.Contains("_worn_hands"))
+                    detectedSlotKey = "hands";
+                else if (editFileName.Contains("_worn_head"))
+                    detectedSlotKey = "head";
+            }
+
+            if (detectedSlotKey != null)
+            {
+                var candidates = wornGear.Where(p => p.SlotKey == detectedSlotKey).ToList();
+                if (candidates.Count > 0)
+                {
+                    // First try to match by material name since we have multiple candidates for the same slot
+                    foreach (var c in candidates)
+                    {
+                        if (!string.IsNullOrEmpty(c.MaterialName))
+                        {
+                            if (editFileName.Contains($"_{c.MaterialName}", StringComparison.OrdinalIgnoreCase) || 
+                                (ContextCategoryKey != null && ContextCategoryKey.EndsWith($"_{c.MaterialName}", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via explicit slot key and MaterialName: {c.DisplayName}");
+                                return c;
+                            }
+                        }
+                    }
+
+                    var flexibleMatchE = System.Text.RegularExpressions.Regex.Match(editFileName, @"e(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (flexibleMatchE.Success)
+                    {
+                        string eNum = flexibleMatchE.Groups[1].Value;
+                        var matchedCandidate = candidates.FirstOrDefault(p => !string.IsNullOrEmpty(p.EquipSetId) && p.EquipSetId.Contains(eNum));
+                        if (matchedCandidate != null)
+                        {
+                            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via explicit slot key and eCode: {matchedCandidate.DisplayName}");
+                            return matchedCandidate;
+                        }
+                    }
+                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via explicit slot key fallback: {candidates[0].DisplayName}");
+                    return candidates[0];
+                }
+            }
+
             // 1. Try regex match for gear filename convention (e.g. v01_c0101e0497_dwn_n_worn)
             var flexibleMatch = System.Text.RegularExpressions.Regex.Match(editFileName, @"e(\d+)_([a-z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (flexibleMatch.Success)
@@ -2780,7 +2914,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
             }
 
             // 1b. Fallback: Search for slot keywords in the filename if no eCode matches
-            string detectedSlotKey = null;
+            detectedSlotKey = null;
             if (editFileName.Contains("top") || editFileName.Contains("body") || editFileName.Contains("shirt"))
                 detectedSlotKey = "body";
             else if (editFileName.Contains("legs") || editFileName.Contains("down") || editFileName.Contains("dwn") || editFileName.Contains("pants"))

@@ -28,6 +28,8 @@ namespace DragAndDropTexturing.Windows
 
         private ID3D11Texture2D _gpuBaseTex;
         private ID3D11ShaderResourceView _gpuBaseSRV;
+        private int _baseTexWidth = 0;
+        private int _baseTexHeight = 0;
 
         private ID3D11Texture2D _gpuCompositeTex;
         private ID3D11UnorderedAccessView _gpuCompositeUAV;
@@ -41,6 +43,7 @@ namespace DragAndDropTexturing.Windows
         private ID3D11SamplerState _stampSampler;
         private int _paintTexWidth, _paintTexHeight;
         private bool _gpuPaintReady;
+        private bool _disposed;
 
         // Undo / Redo system
         private List<ID3D11Texture2D> _undoStack = new List<ID3D11Texture2D>();
@@ -115,7 +118,7 @@ namespace DragAndDropTexturing.Windows
 
         public void Resize(int width, int height)
         {
-            if (width <= 0 || height <= 0 || _device == null) return;
+            if (_disposed || width <= 0 || height <= 0 || _device == null) return;
             
             Width = width;
             Height = height;
@@ -894,7 +897,7 @@ float4 PS(PS_IN input) : SV_TARGET
 
         public void Render()
         {
-            if (_context == null || _renderTargetView == null) return;
+            if (_disposed || _context == null || _renderTargetView == null) return;
 
             try
             {
@@ -1436,7 +1439,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
         public void InitGpuPaint(int width, int height)
         {
-            if (_device == null) return;
+            if (_disposed || _device == null) return;
 
             // Dispose old resources
             DisposeGpuPaint();
@@ -1521,9 +1524,9 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
         public void SetBaseTexture(IntPtr bgraPixels, int width, int height)
         {
-            if (_device == null || bgraPixels == IntPtr.Zero) return;
+            if (_disposed || _device == null || bgraPixels == IntPtr.Zero) return;
 
-            if (_gpuBaseTex != null && _paintTexWidth == width && _paintTexHeight == height)
+            if (_gpuBaseTex != null && _gpuBaseTex.NativePointer != IntPtr.Zero && _baseTexWidth == width && _baseTexHeight == height)
             {
                 _context.UpdateSubresource(_gpuBaseTex, 0, null, bgraPixels, width * 4, 0);
                 return;
@@ -1545,11 +1548,13 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
             _gpuBaseTex = _device.CreateTexture2D(texDesc, new Vortice.Direct3D11.SubresourceData(bgraPixels, width * 4));
             _gpuBaseSRV = _device.CreateShaderResourceView(_gpuBaseTex);
+            _baseTexWidth = width;
+            _baseTexHeight = height;
         }
 
         public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, float hardness, Vector4 color, int blendMode = 0, int shapeMode = 0, float flow = 1.0f, float angle = 0f, float noiseScale = 0f, float noiseAmount = 0f, float seed = 0f)
         {
-            if (!_gpuPaintReady || _context == null) return;
+            if (_disposed || !_gpuPaintReady || _context == null) return;
 
             var brushParams = new BrushParams
             {
@@ -1988,6 +1993,9 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
+
             foreach (var model in _models.Values)
             {
                 // Don't dispose TextureSRV if it's the shared composite SRV

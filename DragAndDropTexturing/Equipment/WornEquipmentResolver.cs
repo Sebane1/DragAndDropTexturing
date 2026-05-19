@@ -14,7 +14,12 @@ namespace DragAndDropTexturing.Equipment;
 public sealed class WornEquipmentPiece
 {
     public string SlotKey { get; init; } = "";
-    public string DisplayName { get; init; } = "";
+    private string _displayName = "";
+    public string DisplayName
+    {
+        get => string.IsNullOrEmpty(ModName) ? _displayName : $"{_displayName} [{ModName}]";
+        init => _displayName = value;
+    }
     public ulong ItemId { get; init; }
     public string EquipSetId { get; init; } = "";
     public string InternalBasePath { get; init; } = "";
@@ -22,6 +27,29 @@ public sealed class WornEquipmentPiece
     public string InternalMaskPath { get; init; } = "";
     public string InternalMaterialPath { get; init; } = "";
     public string ResolvedBaseDiskPath { get; init; } = "";
+
+    public string ModName
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(ResolvedBaseDiskPath)) return "";
+            try
+            {
+                string penumbraDir = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                if (string.IsNullOrEmpty(penumbraDir)) return "";
+                if (ResolvedBaseDiskPath.StartsWith(penumbraDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    string relative = ResolvedBaseDiskPath.Substring(penumbraDir.Length).TrimStart('\\', '/');
+                    int slashIndex = relative.IndexOfAny(new[] { '\\', '/' });
+                    if (slashIndex > 0)
+                        return relative.Substring(0, slashIndex);
+                    return relative;
+                }
+            }
+            catch { }
+            return "";
+        }
+    }
 
     public string MaterialName
     {
@@ -524,7 +552,7 @@ public static class WornEquipmentResolver
         }
     }
 
-    public static string ExportResolvedTextureToPng(string diskOrGamePath, Guid collection, string outputDir, Plugin plugin)
+    public static string ExportResolvedTextureToPng(string diskOrGamePath, Guid collection, string outputDir, Plugin plugin, string slotKey = null, string materialName = null)
     {
         if (string.IsNullOrEmpty(diskOrGamePath)) return null;
         Directory.CreateDirectory(outputDir);
@@ -553,7 +581,9 @@ public static class WornEquipmentResolver
             // Build a unique output name — modders reuse generic filenames like mask.tex
             // in different subdirectories, so include a hash of the full path for uniqueness.
             string sourceHash = source.GetHashCode().ToString("X8");
-            string outName = Path.GetFileNameWithoutExtension(source) + "_" + sourceHash + "_worn.png";
+            string slotSuffix = !string.IsNullOrEmpty(slotKey) ? $"_{slotKey}" : "";
+            string matSuffix = !string.IsNullOrEmpty(materialName) ? $"_{materialName}" : "";
+            string outName = Path.GetFileNameWithoutExtension(source) + "_" + sourceHash + "_worn" + slotSuffix + matSuffix + ".png";
             string outPath = Path.Combine(outputDir, outName);
 
             if (File.Exists(outPath))

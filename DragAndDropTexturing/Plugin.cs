@@ -49,7 +49,7 @@ public sealed class Plugin : IDalamudPlugin
     public MdlPreviewWindow MdlPreviewWindow { get; init; }
     public List<TexturePaintingWindow> TexturePaintingWindows { get; init; } = new();
 
-    public void OpenPaintWindow(string editPath = null)
+    public void OpenPaintWindow(string editPath = null, string categoryKey = null)
     {
         if (editPath != null)
         {
@@ -68,7 +68,7 @@ public sealed class Plugin : IDalamudPlugin
         if (editPath != null)
         {
             window.WindowName = $"Texture Painter - {Path.GetFileName(editPath)}###PaintWindow_{Guid.NewGuid()}";
-            window.OpenForEditing(editPath);
+            window.OpenForEditing(editPath, categoryKey);
         }
         else
         {

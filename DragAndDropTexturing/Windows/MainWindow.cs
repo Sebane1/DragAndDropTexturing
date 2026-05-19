@@ -616,7 +616,7 @@ public class MainWindow : Window, IDisposable
                         if (!canEdit) ImGui.BeginDisabled();
                         if (ImGui.Button(Translator.LocalizeUI("Edit") + "##" + key + i))
                         {
-                            Plugin.OpenPaintWindow(path);
+                            Plugin.OpenPaintWindow(path, key);
                         }
                         if (!canEdit)
                         {

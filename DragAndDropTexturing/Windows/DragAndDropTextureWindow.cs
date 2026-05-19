@@ -1931,7 +1931,7 @@ namespace RoleplayingVoice
             ICharacter character = null;
             if (plugin.SafeGameObjectManager.LocalPlayer != null && plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue == charName)
             {
-                character = Plugin.ObjectTable.LocalPlayer as ICharacter;
+                character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
             }
             else
             {
@@ -2104,7 +2104,7 @@ namespace RoleplayingVoice
                                 gearMeta.InternalNormalPath,
                                 gearMeta.InternalMaskPath,
                                 gearMeta.InternalMaterialPath);
-                            categoryModName = "Gear " + gearMeta.SlotKey + (string.IsNullOrEmpty(gearMeta.MaterialName) ? "" : " " + gearMeta.MaterialName);
+                            categoryModName = "Gear " + gearMeta.SlotKey + (string.IsNullOrEmpty(gearMeta.MaterialName) ? "" : " " + gearMeta.MaterialName) + (string.IsNullOrEmpty(gearMeta.ModName) ? "" : " [" + gearMeta.ModName + "]");
                         }
                     }
 
@@ -2189,7 +2189,7 @@ namespace RoleplayingVoice
             Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
             string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
             string source = !string.IsNullOrEmpty(piece.ResolvedBaseDiskPath) ? piece.ResolvedBaseDiskPath : piece.InternalBasePath;
-            string pngPath = WornEquipmentResolver.ExportResolvedTextureToPng(source, collection, exportDir, plugin);
+            string pngPath = WornEquipmentResolver.ExportResolvedTextureToPng(source, collection, exportDir, plugin, piece.SlotKey, piece.MaterialName);
 
             if (string.IsNullOrEmpty(pngPath))
             {
