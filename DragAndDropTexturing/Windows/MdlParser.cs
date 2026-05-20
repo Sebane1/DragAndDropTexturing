@@ -221,7 +221,7 @@ namespace DragAndDropTexturing.Windows
                 using var ms = new MemoryStream(fileData);
                 using var reader = new BinaryReader(ms);
 
-                // === ModelFileHeader (0x44 = 68 bytes) ===
+                // ModelFileHeader (0x44 = 68 bytes)
                 // TexTools reads version as ushort at offset 0, but Lumina reads uint32.
                 // We read it as uint32 to stay consistent. The low bits are the version number.
                 uint versionRaw = reader.ReadUInt32();
@@ -245,7 +245,7 @@ namespace DragAndDropTexturing.Windows
 
                 // Now at 0x44 (68) — start of vertex declarations
 
-                // === VertexDeclarations (136 bytes each) ===
+                //VertexDeclarations (136 bytes each)
                 const int VERTEX_ELEMENT_SIZE = 8;
                 const int MAX_VERTEX_ELEMENTS = 17; // 17 * 8 = 136
 
@@ -267,7 +267,7 @@ namespace DragAndDropTexturing.Windows
                     vertexDeclarations.Add(elements);
                 }
 
-                // === Path Data (TexTools: PathCount + PathBlockSize + PathBlock) ===
+                // Path Data (TexTools: PathCount + PathBlockSize + PathBlock)
                 int pathCount = reader.ReadInt32();
                 int pathBlockSize = reader.ReadInt32();
                 byte[] pathBlock = reader.ReadBytes(pathBlockSize);
@@ -290,7 +290,7 @@ namespace DragAndDropTexturing.Windows
                     }
                 }
 
-                // === MdlModelData (56 bytes — exact TexTools MdlModelData.Read) ===
+                //MdlModelData (56 bytes — exact TexTools MdlModelData.Read)
                 float radius = reader.ReadSingle();         // 4
                 short meshCount = reader.ReadInt16();         // 2
                 short attributeCount = reader.ReadInt16();    // 2
@@ -322,11 +322,11 @@ namespace DragAndDropTexturing.Windows
                 reader.ReadInt16(); // Unknown17                // 2
                 // Total: 56 bytes ✓
 
-                // === ElementIds (32 bytes each: uint ElementId, uint ParentBone, float3 Translate, float3 Rotate) ===
+                //ElementIds (32 bytes each: uint ElementId, uint ParentBone, float3 Translate, float3 Rotate)
                 // TexTools: br.ReadBytes(mdlModelData.ElementIdCount * 32)
                 reader.ReadBytes(elementIdCount * 32);
 
-                // === LOD structs (56 bytes each × 3) ===
+                //LOD structs (56 bytes each × 3)
                 // TexTools reads exactly: MeshIndex(2), MeshCount(2), ModelLodRange(4), TextureLodRange(4),
                 //   WaterMesh(4), ShadowMesh(4), TerrainShadowMesh(4), FogMesh(4),
                 //   EdgeGeoSize(4), EdgeGeoOffset(4), PolygonCount(4), Unknown1(4),
@@ -362,7 +362,7 @@ namespace DragAndDropTexturing.Windows
                     }
                 }
 
-                // === ExtraLods (if HasExtraMeshes flag is set in Flags2 bit 0x10) ===
+                //ExtraLods (if HasExtraMeshes flag is set in Flags2 bit 0x10)
                 bool hasExtraMeshes = (flags2 & 0x10) != 0;
                 if (hasExtraMeshes)
                 {
@@ -370,7 +370,7 @@ namespace DragAndDropTexturing.Windows
                     reader.ReadBytes(3 * 12 * 4);
                 }
 
-                // === Mesh Structs (36 bytes each) ===
+                //Mesh Structs (36 bytes each)
                 // TexTools: VertexCount(4!), IndexCount(4), MaterialIndex(2), SubMeshIndex(2),
                 //           SubMeshCount(2), BoneTableIndex(2), IndexDataOffset(4),
                 //           VertexDataOffset[3](12), VertexDataEntrySize[3](3), VertexStreamCount(1) = 36
@@ -395,7 +395,7 @@ namespace DragAndDropTexturing.Windows
                     meshStructs.Add((vtxCount, idxCount, startIdx, vbOff, vbStr, matIndex));
                 }
 
-                // === Extract geometry from data region ===
+                //Extract geometry from data region
                 // The vertex/index data offsets in the FileHeader (vertexOffset[], indexOffset[])
                 // are absolute byte positions within the file.
                 var extractedMeshes = new List<ExtractedMesh>();

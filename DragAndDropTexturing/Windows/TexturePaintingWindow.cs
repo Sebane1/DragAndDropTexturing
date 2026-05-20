@@ -50,7 +50,7 @@ namespace DragAndDropTexturing.Windows
         private readonly HashSet<string> _primarySlots = new HashSet<string> { "Top", "Bottom" };
         private string[] _primarySlotArray = new[] { "Top", "Bottom" };
         private static readonly HashSet<string> _mainModelSlots = new HashSet<string> {
-            "Top", "Bottom", "PreviewTop", "PreviewBottom", "Shoes", "Gloves", "Head"
+            "Top", "Bottom", "PreviewTop", "PreviewBottom", "Shoes", "Gloves", "Head", "Face"
         };
 
         private float _brushHardness = 0.5f;
@@ -1477,6 +1477,24 @@ namespace DragAndDropTexturing.Windows
                     return $"c{code:D4}";
                 }
 
+                string GetFaceRaceCode(int race, int clan, int gender)
+                {
+                    int code = 101; 
+                    switch (race)
+                    {
+                        case 1: code = gender == 0 ? 101 : 201; break; // Hyur
+                        case 2: code = gender == 0 ? 501 : 601; break; // Elezen
+                        case 3: code = gender == 0 ? 1101 : 1201; break; // Lalafell
+                        case 4: code = gender == 0 ? 701 : 801; break; // Miqo'te
+                        case 5: code = gender == 0 ? 901 : 1011; break; // Roegadyn
+                        case 6: code = gender == 0 ? 1301 : 1401; break; // Au Ra
+                        case 7: code = gender == 0 ? 1501 : 1601; break; // Hrothgar
+                        case 8: code = gender == 0 ? 1701 : 1801; break; // Viera
+                    }
+                    if (race == 1 && clan == 2) code = gender == 0 ? 301 : 401; // Highlander
+                    return $"c{code:D4}";
+                }
+
                 string trueRaceCode = GetFfxivModelRaceCode(ffxivRace, ffxivClan, ffxivGender);
                 string relativeTop = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
                 string relativeBot = $"chara/equipment/e0279/model/{trueRaceCode}e0279_dwn.mdl";
@@ -1576,6 +1594,24 @@ namespace DragAndDropTexturing.Windows
                     return $"c{code:D4}";
                 }
 
+                string GetFaceRaceCode(int race, int clan, int gender)
+                {
+                    int code = 101; 
+                    switch (race)
+                    {
+                        case 1: code = gender == 0 ? 101 : 201; break; // Hyur
+                        case 2: code = gender == 0 ? 501 : 601; break; // Elezen
+                        case 3: code = gender == 0 ? 1101 : 1201; break; // Lalafell
+                        case 4: code = gender == 0 ? 701 : 801; break; // Miqo'te
+                        case 5: code = gender == 0 ? 901 : 1011; break; // Roegadyn
+                        case 6: code = gender == 0 ? 1301 : 1401; break; // Au Ra
+                        case 7: code = gender == 0 ? 1501 : 1601; break; // Hrothgar
+                        case 8: code = gender == 0 ? 1701 : 1801; break; // Viera
+                    }
+                    if (race == 1 && clan == 2) code = gender == 0 ? 301 : 401; // Highlander
+                    return $"c{code:D4}";
+                }
+
                 string trueRaceCode = GetFfxivModelRaceCode(ffxivRace, ffxivClan, ffxivGender);
                 _plugin.PluginLog.Info($"[PSD Preview] True FFXIV Model RaceCode resolved to: {trueRaceCode}");
 
@@ -1583,6 +1619,20 @@ namespace DragAndDropTexturing.Windows
                 string botPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_dwn.mdl";
                 string glvPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_glv.mdl";
                 string shoPath = $"chara/equipment/e0279/model/{trueRaceCode}e0279_sho.mdl";
+
+                string faceRaceCode = GetFaceRaceCode(ffxivRace, ffxivClan, ffxivGender);
+                int faceId = customization.Customize.Face.Value;
+                string fCode = $"f{faceId:D4}";
+                string facePath = $"chara/human/{faceRaceCode}/obj/face/{fCode}/model/{faceRaceCode}{fCode}_fac.mdl";
+
+                bool isFaceEditLocal = (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0));
+                if (isFaceEditLocal)
+                {
+                    topPath = null;
+                    botPath = null;
+                    glvPath = null;
+                    shoPath = null;
+                }
 
                 Guid collectionId = _cachedCollectionId;
                 _plugin.PluginLog.Info($"[PSD Preview] Collection ID: {collectionId}");
@@ -1836,11 +1886,20 @@ namespace DragAndDropTexturing.Windows
                     }
                     else
                     {
-                        _primarySlots.Add("Top");
-                        _primarySlots.Add("Bottom");
-                        _primarySlots.Add("Gloves");
-                        _primarySlots.Add("Shoes");
-                        _primarySlotArray = new[] { "Top", "Bottom", "Gloves", "Shoes" };
+                        if (isFaceEditLocal)
+                        {
+                            _primarySlots.Add("Face");
+                            _primarySlotArray = new[] { "Face" };
+                        }
+                        else
+                        {
+                            _primarySlots.Add("Top");
+                            _primarySlots.Add("Bottom");
+                            _primarySlots.Add("Gloves");
+                            _primarySlots.Add("Shoes");
+                            _primarySlots.Add("Face");
+                            _primarySlotArray = new[] { "Top", "Bottom", "Gloves", "Shoes", "Face" };
+                        }
                     }
                 }
 
@@ -1850,8 +1909,9 @@ namespace DragAndDropTexturing.Windows
                 System.Threading.Tasks.Parallel.Invoke(
                     () => { if (topSlotPath != null) LoadModelIntoSlot(topSlotName, topSlotPath, collectionId); },
                     () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId); },
-                    () => { if (!isGear) LoadModelIntoSlot(glvSlotName, glvPath, collectionId); },
-                    () => { if (!isGear) LoadModelIntoSlot(shoSlotName, shoPath, collectionId); }
+                    () => { if (!isGear && glvPath != null) LoadModelIntoSlot(glvSlotName, glvPath, collectionId); },
+                    () => { if (!isGear && shoPath != null) LoadModelIntoSlot(shoSlotName, shoPath, collectionId); },
+                    () => { if (!isGear && facePath != null) LoadModelIntoSlot("Face", facePath, collectionId); }
                 );
                 _mainThreadActions.Enqueue(() => UpdateMeshVisibility());
 
@@ -1904,46 +1964,49 @@ namespace DragAndDropTexturing.Windows
                 string baseTexPath = null;
                 string normTexPath = null;
                 string maskTexPath = null;
-                if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
+                if (!isFaceEditLocal)
                 {
-                    baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
-                    normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
-                    maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
-                }
-                else if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
-                {
-                    baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
-                    normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
-                    maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
-                }
-                else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
-                {
-                    baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
-                    normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
-                    maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Mask;
-                }
-                else
-                {
-                    if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
-                    {
-                        baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
-                        normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
-                        maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
-                        isBibo = true;
-                    }
-                    else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
+                    if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
                         maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
-                        isGen3 = true;
                     }
-                    else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
+                    else if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
+                    {
+                        baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
+                        normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
+                        maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
+                    }
+                    else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
                         maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Mask;
-                        isTbse = true;
+                    }
+                    else
+                    {
+                        if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
+                        {
+                            baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
+                            normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
+                            maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
+                            isBibo = true;
+                        }
+                        else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
+                        {
+                            baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
+                            normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
+                            maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
+                            isGen3 = true;
+                        }
+                        else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
+                        {
+                            baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
+                            normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
+                            maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Mask;
+                            isTbse = true;
+                        }
                     }
                 }
                 bool isEditingNormal = (!string.IsNullOrEmpty(EditSourcePath) && 
@@ -1986,25 +2049,48 @@ namespace DragAndDropTexturing.Windows
 
                 if (_activeBaseTexturePng == null || baseIsBlack)
                 {
-                    _plugin.PluginLog.Info("[PSD Preview] Base texture from priority mod was missing or fully black. Falling back to DLC underlay skin type.");
-                    string modPath = _cachedModDirectory;
-                    string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
-                    string dlcBase = null;
-                    if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
-                        dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
-                    else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
-                        dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
-                    else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes.Count > 0)
-                        dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                    if (!isFaceEditLocal)
+                    {
+                        _plugin.PluginLog.Info("[PSD Preview] Base texture from priority mod was missing or fully black. Falling back to DLC underlay skin type.");
+                        string modPath = _cachedModDirectory;
+                        string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
+                        string dlcBase = null;
+                        if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
+                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                        else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
+                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                        else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes.Count > 0)
+                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
 
-                    _activeBaseTexturePng = TexToTempPng(dlcBase, out baseIsBlack);
+                        _activeBaseTexturePng = TexToTempPng(dlcBase, out baseIsBlack);
+                    }
 
                     if (_activeBaseTexturePng == null || baseIsBlack)
                     {
                         _plugin.PluginLog.Info("[PSD Preview] DLC fallback failed. Extracting vanilla texture via Lumina.");
                         int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
-                        string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(isEditingNormal ? 1 : 0, ffxivGenderInt, 0, ffxivRace, 0, false);
-                        string vanillaBasePng = ExtractVanillaTexViaLumina(vanillaBodyTexPath);
+                        string vanillaBasePng = null;
+                        bool isFaceEdit = (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0));
+                        if (isFaceEdit)
+                        {
+                            string[] texSuffixes = isEditingNormal ? new[] { "norm", "n" } : new[] { "base", "d" };
+                            string[] asymPrefixes = new[] { "", "b_", "a_" };
+                            foreach (var asym in asymPrefixes)
+                            {
+                                foreach (var suf in texSuffixes)
+                                {
+                                    string vanillaFaceTexPath = $"chara/human/{faceRaceCode}/obj/face/{fCode}/texture/{faceRaceCode}{fCode}_fac_{asym}{suf}.tex";
+                                    vanillaBasePng = ExtractVanillaTexViaLumina(vanillaFaceTexPath);
+                                    if (!string.IsNullOrEmpty(vanillaBasePng)) break;
+                                }
+                                if (!string.IsNullOrEmpty(vanillaBasePng)) break;
+                            }
+                        }
+                        else
+                        {
+                            string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(isEditingNormal ? 1 : 0, ffxivGenderInt, 0, ffxivRace, 0, false);
+                            vanillaBasePng = ExtractVanillaTexViaLumina(vanillaBodyTexPath);
+                        }
                         if (!string.IsNullOrEmpty(vanillaBasePng))
                         {
                             _activeBaseTexturePng = vanillaBasePng;
@@ -2014,21 +2100,44 @@ namespace DragAndDropTexturing.Windows
 
                 if (_activeNormalTexturePng == null || normIsBlack)
                 {
-                    string modPath = _cachedModDirectory;
-                    string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
-                    string dlcNorm = null;
-                    if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
-                        dlcNorm = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\'));
-                    else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
-                        dlcNorm = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\'));
+                    if (!isFaceEditLocal)
+                    {
+                        string modPath = _cachedModDirectory;
+                        string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
+                        string dlcNorm = null;
+                        if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
+                            dlcNorm = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\'));
+                        else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
+                            dlcNorm = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\'));
 
-                    _activeNormalTexturePng = TexToTempPng(dlcNorm, out normIsBlack);
+                        _activeNormalTexturePng = TexToTempPng(dlcNorm, out normIsBlack);
+                    }
 
                     if (_activeNormalTexturePng == null || normIsBlack)
                     {
                         int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
-                        string vanillaNormTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(1, ffxivGenderInt, 0, ffxivRace, 0, false);
-                        string vanillaNormPng = ExtractVanillaTexViaLumina(vanillaNormTexPath);
+                        string vanillaNormPng = null;
+                        bool isFaceEdit = (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0));
+                        if (isFaceEdit)
+                        {
+                            string[] texSuffixes = new[] { "norm", "n" };
+                            string[] asymPrefixes = new[] { "", "b_", "a_" };
+                            foreach (var asym in asymPrefixes)
+                            {
+                                foreach (var suf in texSuffixes)
+                                {
+                                    string vanillaFaceNormPath = $"chara/human/{faceRaceCode}/obj/face/{fCode}/texture/{faceRaceCode}{fCode}_fac_{asym}{suf}.tex";
+                                    vanillaNormPng = ExtractVanillaTexViaLumina(vanillaFaceNormPath);
+                                    if (!string.IsNullOrEmpty(vanillaNormPng)) break;
+                                }
+                                if (!string.IsNullOrEmpty(vanillaNormPng)) break;
+                            }
+                        }
+                        else
+                        {
+                            string vanillaNormTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(1, ffxivGenderInt, 0, ffxivRace, 0, false);
+                            vanillaNormPng = ExtractVanillaTexViaLumina(vanillaNormTexPath);
+                        }
                         if (!string.IsNullOrEmpty(vanillaNormPng))
                         {
                             _activeNormalTexturePng = vanillaNormPng;
@@ -2187,6 +2296,11 @@ namespace DragAndDropTexturing.Windows
                                 autoDetectedMaterial = System.IO.Path.GetFileNameWithoutExtension(EditSourcePath).Split('_').LastOrDefault();
                             }
                         }
+                    }
+
+                    if (slot == "Face")
+                    {
+                        searchPattern = "fac_a";
                     }
 
                     bool isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) && 
@@ -2503,43 +2617,63 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
-private string TexToTempPng(string texPath, out bool isBlack)
+        private System.Drawing.Bitmap PadToSquareLeftAligned(System.Drawing.Bitmap original)
+        {
+            if (original == null || original.Width == original.Height)
+                return original;
+
+            int size = Math.Max(original.Width, original.Height);
+            var padded = new System.Drawing.Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = System.Drawing.Graphics.FromImage(padded))
+            {
+                g.Clear(System.Drawing.Color.Transparent);
+                g.DrawImageUnscaled(original, 0, 0);
+            }
+            return padded;
+        }
+
+        private string TexToTempPng(string texPath, out bool isBlack)
         {
             isBlack = false;
             if (string.IsNullOrEmpty(texPath) || !File.Exists(texPath)) return null;
-            if (texPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    // Quick IsBlack check by sampling a few pixels instead of loading entire 4K bitmap
-                    using (var fs = new FileStream(texPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                    using (var image = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(fs))
-                    {
-                        isBlack = IsImageBlackFast(image);
-                    }
-                }
-                catch { }
-                return texPath;
-            }
-            
+
             try
             {
-                string outPath = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(texPath) + "_base.png");
+                string ext = Path.GetExtension(texPath).ToLower();
+                string outPath = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(texPath) + (ext == ".png" ? "_padded.png" : "_base.png"));
                 
-                using (var bitmap = FFXIVLooseTextureCompiler.ImageProcessing.TexIO.ResolveBitmap(texPath))
+                System.Drawing.Bitmap rawBitmap = null;
+                if (ext == ".png")
                 {
-                    if (bitmap != null)
+                    rawBitmap = new System.Drawing.Bitmap(texPath);
+                }
+                else
+                {
+                    rawBitmap = FFXIVLooseTextureCompiler.ImageProcessing.TexIO.ResolveBitmap(texPath);
+                }
+
+                if (rawBitmap != null)
+                {
+                    using (rawBitmap)
                     {
-                        isBlack = IsImageBlack(bitmap);
-                        if (!File.Exists(outPath) || isBlack)
+                        var bitmap = PadToSquareLeftAligned(rawBitmap);
+                        try
                         {
-                            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveBitmapFast(bitmap, outPath);
+                            isBlack = IsImageBlack(bitmap);
+                            if (!File.Exists(outPath) || isBlack)
+                            {
+                                FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveBitmapFast(bitmap, outPath);
+                            }
+                            return outPath;
                         }
-                        return outPath;
+                        finally
+                        {
+                            if (bitmap != rawBitmap) bitmap.Dispose();
+                        }
                     }
                 }
             }
-            catch (Exception ex) { _plugin.PluginLog.Error(ex, $"Failed to convert tex to png: {texPath}"); }
+            catch (Exception ex) { _plugin.PluginLog.Error(ex, $"Failed to convert/pad tex to png: {texPath}"); }
             return null;
         }
 
@@ -2590,18 +2724,29 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
 
                 using (var stream = new MemoryStream(texFile.Data))
                 {
-                    var bitmap = FFXIVLooseTextureCompiler.ImageProcessing.TexIO.TexToBitmap(stream);
-                    if (bitmap != null)
+                    var rawBitmap = FFXIVLooseTextureCompiler.ImageProcessing.TexIO.TexToBitmap(stream);
+                    if (rawBitmap != null)
                     {
-                        string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
-                        Directory.CreateDirectory(tempDir);
-                        string safeName = internalGamePath.Replace("/", "_").Replace("\\", "_");
-                        string tempPath = Path.Combine(tempDir, safeName + ".png");
-                        if (!File.Exists(tempPath))
+                        using (rawBitmap)
                         {
-                            bitmap.Save(tempPath, System.Drawing.Imaging.ImageFormat.Png);
+                            var bitmap = PadToSquareLeftAligned(rawBitmap);
+                            try
+                            {
+                                string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
+                                Directory.CreateDirectory(tempDir);
+                                string safeName = internalGamePath.Replace("/", "_").Replace("\\", "_");
+                                string tempPath = Path.Combine(tempDir, safeName + "_padded.png");
+                                if (!File.Exists(tempPath))
+                                {
+                                    bitmap.Save(tempPath, System.Drawing.Imaging.ImageFormat.Png);
+                                }
+                                return tempPath;
+                            }
+                            finally
+                            {
+                                if (bitmap != rawBitmap) bitmap.Dispose();
+                            }
                         }
-                        return tempPath;
                     }
                 }
             }
@@ -2656,8 +2801,28 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                     try
                     {
                         using var editBmp = new System.Drawing.Bitmap(EditSourcePath);
-                        // Resize to match paint texture if needed
-                        using var resized = new System.Drawing.Bitmap(editBmp, w, h);
+                        // Resize or pad to match paint texture if needed
+                        using var resized = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        using (var g = System.Drawing.Graphics.FromImage(resized))
+                        {
+                            g.Clear(System.Drawing.Color.Transparent);
+                            if (editBmp.Width == w && editBmp.Height == h)
+                            {
+                                g.DrawImageUnscaled(editBmp, 0, 0);
+                            }
+                            else if (Math.Abs((float)editBmp.Width / editBmp.Height - (float)w / h) > 0.01f)
+                            {
+                                // Aspect ratios differ (e.g. 512x1024 onto 1024x1024). Pad left-aligned.
+                                float scale = (float)h / editBmp.Height;
+                                int drawWidth = (int)(editBmp.Width * scale);
+                                int drawHeight = h;
+                                g.DrawImage(editBmp, 0, 0, drawWidth, drawHeight);
+                            }
+                            else
+                            {
+                                g.DrawImage(editBmp, 0, 0, w, h);
+                            }
+                        }
                         var editRect = new System.Drawing.Rectangle(0, 0, w, h);
                         var editData = resized.LockBits(editRect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                         byte[] rgba = new byte[w * h * 4];
