@@ -169,6 +169,8 @@ namespace DragAndDropTexturing.Windows
         private int _overrideTopSelectedIndex = 0;
         private int _overrideBotSelectedIndex = 0;
         private string _targetKeyword = null;
+        private string _newLayerType = "Base";
+        private readonly string[] _newLayerTypes = { "Base", "Normal", "Mask", "Glow" };
 
         // Procedural Decal Stamp Queue
         private class DecalPixelData
@@ -432,6 +434,30 @@ namespace DragAndDropTexturing.Windows
             {
                 ImGui.SameLine();
                 ImGui.TextColored(new Vector4(0.5f, 1f, 0.5f, 1f), $"Editing: {Path.GetFileName(EditSourcePath)}");
+            }
+            else
+            {
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(100);
+                if (ImGui.BeginCombo("Layer Type", _newLayerType))
+                {
+                    foreach (var type in _newLayerTypes)
+                    {
+                        bool isSelected = (_newLayerType == type);
+                        if (ImGui.Selectable(type, isSelected))
+                        {
+                            if (_newLayerType != type)
+                            {
+                                _newLayerType = type;
+                                _renderer?.PushUndoSnapshot();
+                                StartLoadPlayerModels();
+                                _needsComposite = true;
+                            }
+                        }
+                        if (isSelected) ImGui.SetItemDefaultFocus();
+                    }
+                    ImGui.EndCombo();
+                }
             }
             ImGui.SameLine();
             if (ImGui.Button(Translator.LocalizeUI("Clear Paint")))
@@ -1246,8 +1272,12 @@ namespace DragAndDropTexturing.Windows
                 // New layer mode: create a new file
                 string importDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
                 if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
-                string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "vanilla";
-                outPath = Path.Combine(importDir, $"{bodyTag}_base_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
+                string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "gen2";
+                string suffix = "_base";
+                if (_newLayerType == "Normal") suffix = "_n";
+                else if (_newLayerType == "Mask") suffix = "_m";
+                else if (_newLayerType == "Glow") suffix = "_glow";
+                outPath = Path.Combine(importDir, $"{bodyTag}{suffix}_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
                 _plugin.PluginLog.Info($"[Texture Painter] New layer mode. BodyTag={bodyTag}, OutPath={outPath}");
             }
             
@@ -1261,6 +1291,8 @@ namespace DragAndDropTexturing.Windows
                 using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 var rect = new System.Drawing.Rectangle(0, 0, w, h);
                 var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                
+                
                 System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
                 bmp.UnlockBits(data);
                 bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
@@ -1279,7 +1311,7 @@ namespace DragAndDropTexturing.Windows
                             if (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.StartsWith(targetChar.Name.TextValue))
                             {
                                 string suffix = ContextCategoryKey.Substring(targetChar.Name.TextValue.Length);
-                                _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { suffix }, true);
+                                _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { suffix }, true, false);
                             }
                             else
                             {
@@ -1291,11 +1323,19 @@ namespace DragAndDropTexturing.Windows
                         }
                         else
                         {
-                            _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with BodyDragPart.Body");
+                            PenumbraAndGlamourerHelpers.BodyDragPart targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Body;
+                            if (!string.IsNullOrEmpty(ContextCategoryKey))
+                            {
+                                if (ContextCategoryKey.Contains("_gear_")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Clothing;
+                                else if (ContextCategoryKey.Contains("_face")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Face;
+                                else if (ContextCategoryKey.Contains("_eyes")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Eyes;
+                                else if (ContextCategoryKey.Contains("_eyebrows")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.EyebrowsAndLashes;
+                            }
+                            _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with targetPart={targetPart}");
                             _plugin.DragAndDropTextures.InjectFilesAndRebuild(
                                 new List<string> { outPath },
                                 new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
-                                PenumbraAndGlamourerHelpers.BodyDragPart.Body);
+                                targetPart);
                         }
                     }
                     else
@@ -1323,7 +1363,8 @@ namespace DragAndDropTexturing.Windows
             _cachedBaseBitmap?.Dispose();
             _cachedBaseBitmap = null;
         }
-        private void StartLoadPlayerModels()
+
+        private void StartLoadPlayerModels()
         {
             if (_isLoadingModels) return;
 
@@ -1800,20 +1841,24 @@ namespace DragAndDropTexturing.Windows
 
                 string baseTexPath = null;
                 string normTexPath = null;
+                string maskTexPath = null;
                 if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
                 {
                     baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
                     normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
+                    maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
                 }
                 else if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
                 {
                     baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
                     normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
+                    maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
                 }
                 else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
                 {
                     baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
                     normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
+                    maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Mask;
                 }
                 else
                 {
@@ -1821,31 +1866,46 @@ namespace DragAndDropTexturing.Windows
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
+                        maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
                         isBibo = true;
                     }
                     else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
+                        maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
                         isGen3 = true;
                     }
                     else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
+                        maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Mask;
                         isTbse = true;
                     }
                 }
-                bool isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) && 
+                bool isEditingNormal = (!string.IsNullOrEmpty(EditSourcePath) && 
                     (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
                      EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
                      EditSourcePath.IndexOf("_n_", StringComparison.OrdinalIgnoreCase) >= 0 ||
                      EditSourcePath.EndsWith("_n.png", StringComparison.OrdinalIgnoreCase) ||
-                     EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase));
+                     EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase))) ||
+                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Normal");
+
+                bool isEditingMask = (!string.IsNullOrEmpty(EditSourcePath) && 
+                    (EditSourcePath.IndexOf("mask", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                     EditSourcePath.IndexOf("_m_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     EditSourcePath.EndsWith("_m.png", StringComparison.OrdinalIgnoreCase) ||
+                     EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase))) ||
+                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Mask");
 
                 if (isEditingNormal)
                 {
                     baseTexPath = normTexPath;
+                }
+                else if (isEditingMask)
+                {
+                    baseTexPath = maskTexPath;
                 }
 
                 _plugin.PluginLog.Info($"[PSD Preview] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
@@ -2169,18 +2229,20 @@ namespace DragAndDropTexturing.Windows
                                 _plugin.PluginLog.Info($"[Texture Painter] Mtrl textures — base: {baseP}, norm: {normP}, mask: {maskP}");
                                 
                                 // Resolve the correct texture map based on edit context
-                                isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) && 
+                                isEditingNormal = (!string.IsNullOrEmpty(EditSourcePath) && 
                                     (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
                                      EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
                                      EditSourcePath.IndexOf("_n_", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                      EditSourcePath.EndsWith("_n.png", StringComparison.OrdinalIgnoreCase) ||
-                                     EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase));
+                                     EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase))) ||
+                                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Normal");
 
-                                bool isEditingMask = !string.IsNullOrEmpty(EditSourcePath) && 
+                                bool isEditingMask = (!string.IsNullOrEmpty(EditSourcePath) && 
                                     (EditSourcePath.IndexOf("mask", StringComparison.OrdinalIgnoreCase) >= 0 || 
                                      EditSourcePath.IndexOf("_m_", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                      EditSourcePath.EndsWith("_m.png", StringComparison.OrdinalIgnoreCase) ||
-                                     EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase));
+                                     EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase))) ||
+                                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Mask");
 
                                 string texToLoad = isEditingNormal ? normP : (isEditingMask ? maskP : baseP);
                                 string resolvedTexDisk = null;
@@ -2314,11 +2376,12 @@ namespace DragAndDropTexturing.Windows
                         
                         if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(resolvedSmMtrlDisk, out string smBaseP, out string smNormP, out string smMaskP))
                         {
-                            bool isEditingMask = !string.IsNullOrEmpty(EditSourcePath) && 
+                            bool isEditingMask = (!string.IsNullOrEmpty(EditSourcePath) && 
                                 (EditSourcePath.IndexOf("mask", StringComparison.OrdinalIgnoreCase) >= 0 || 
                                  EditSourcePath.IndexOf("_m_", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                  EditSourcePath.EndsWith("_m.png", StringComparison.OrdinalIgnoreCase) ||
-                                 EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase));
+                                 EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase))) ||
+                                 (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Mask");
 
                             string smTexToLoad = isEditingNormal ? smNormP : (isEditingMask ? smMaskP : smBaseP);
                             if (!string.IsNullOrEmpty(smTexToLoad))
@@ -2536,6 +2599,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                         var editRect = new System.Drawing.Rectangle(0, 0, w, h);
                         var editData = resized.LockBits(editRect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                         byte[] rgba = new byte[w * h * 4];
+                        bool isEditingGlow = EditSourcePath.IndexOf("_g.", StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("glow", StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.EndsWith("_g.png", StringComparison.OrdinalIgnoreCase) || EditSourcePath.IndexOf("_g_", StringComparison.OrdinalIgnoreCase) >= 0;
                         unsafe
                         {
                             byte* src = (byte*)editData.Scan0;
@@ -2734,6 +2798,19 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                     using var outBmp = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                     var outRect = new System.Drawing.Rectangle(0, 0, width, height);
                     var outData = outBmp.LockBits(outRect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    
+                    if (uvSuffix == "_g")
+                    {
+                        for (int i = 0; i < generatedPixels.Length; i += 4)
+                        {
+                            float alpha = generatedPixels[i + 3] / 255f;
+                            generatedPixels[i + 0] = (byte)(generatedPixels[i + 0] * alpha); // B
+                            generatedPixels[i + 1] = (byte)(generatedPixels[i + 1] * alpha); // G
+                            generatedPixels[i + 2] = (byte)(generatedPixels[i + 2] * alpha); // R
+                            generatedPixels[i + 3] = 255; // A (Fully Opaque)
+                        }
+                    }
+                    
                     System.Runtime.InteropServices.Marshal.Copy(generatedPixels, 0, outData.Scan0, generatedPixels.Length);
                     outBmp.UnlockBits(outData);
                     outBmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);

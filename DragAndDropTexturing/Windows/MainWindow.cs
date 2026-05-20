@@ -517,6 +517,7 @@ public class MainWindow : Window, IDisposable
                         {
                             string key = keys[_selectedActiveLayerIndex];
                             var list = ddt.TextureHistory[key];
+                            var tintList = ddt.TextureHistoryTints != null && ddt.TextureHistoryTints.ContainsKey(key) ? ddt.TextureHistoryTints[key] : null;
 
                             string displayKey = key;
                             if (ddt.GearCategoryMeta != null && ddt.GearCategoryMeta.TryGetValue(key, out var gearMetaDetail))
@@ -533,6 +534,7 @@ public class MainWindow : Window, IDisposable
                             if (ImGui.Button(Translator.LocalizeUI("Clear All") + "##" + key))
                             {
                                 list.Clear();
+                                if (tintList != null) tintList.Clear();
                                 ddt.RebuildCategory(key, false);
                                 Plugin.Configuration.Save();
                                 // Keep index bounded if list clears and we want to prevent out of bounds next frame
@@ -587,6 +589,7 @@ public class MainWindow : Window, IDisposable
                                             else
                                             {
                                                 list[i] = files[0];
+                                                if (tintList != null && i < tintList.Count) tintList[i] = System.Numerics.Vector4.One;
                                                 changed = true;
                                             }
                                         }
@@ -599,6 +602,11 @@ public class MainWindow : Window, IDisposable
                                     var temp = list[i - 1];
                                     list[i - 1] = list[i];
                                     list[i] = temp;
+                                    if (tintList != null && i < tintList.Count && i - 1 < tintList.Count) {
+                                        var tempTint = tintList[i - 1];
+                                        tintList[i - 1] = tintList[i];
+                                        tintList[i] = tempTint;
+                                    }
                                     changed = true;
                                 }
 
@@ -608,6 +616,11 @@ public class MainWindow : Window, IDisposable
                                     var temp = list[i + 1];
                                     list[i + 1] = list[i];
                                     list[i] = temp;
+                                    if (tintList != null && i < tintList.Count && i + 1 < tintList.Count) {
+                                        var tempTint = tintList[i + 1];
+                                        tintList[i + 1] = tintList[i];
+                                        tintList[i] = tempTint;
+                                    }
                                     changed = true;
                                 }
 
@@ -616,6 +629,7 @@ public class MainWindow : Window, IDisposable
                                 if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
                                 {
                                     list.RemoveAt(i);
+                                    if (tintList != null && i < tintList.Count) tintList.RemoveAt(i);
                                     i--;
                                     changed = true;
                                 }
@@ -623,6 +637,16 @@ public class MainWindow : Window, IDisposable
                                 if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                                 {
                                     ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove"));
+                                }
+
+                                if (tintList != null && i < tintList.Count) {
+                                    System.Numerics.Vector4 col = tintList[i];
+                                    ImGui.SameLine();
+                                    ImGui.SetNextItemWidth(40);
+                                    if (ImGui.ColorEdit4("##tint_" + key + i, ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaPreviewHalf)) {
+                                        tintList[i] = col;
+                                    }
+                                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
                                 }
 
                                 // Edit button — opens the Texture Painter with this layer loaded

@@ -86,7 +86,9 @@ namespace RoleplayingVoice
         List<string> _alreadyAddedBoneList = new List<string>();
         List<Tuple<string, float>> boneSorting = new List<Tuple<string, float>>();
         private Dictionary<string, List<string>> _textureHistory = new Dictionary<string, List<string>>();
+        private Dictionary<string, List<System.Numerics.Vector4>> _textureHistoryTints = new Dictionary<string, List<System.Numerics.Vector4>>();
         public Dictionary<string, List<string>> TextureHistory { get => _textureHistory; set => _textureHistory = value; }
+        public Dictionary<string, List<System.Numerics.Vector4>> TextureHistoryTints { get => _textureHistoryTints; set => _textureHistoryTints = value; }
         private readonly Dictionary<string, WornEquipmentPiece> _gearCategoryMeta = new();
         public Dictionary<string, WornEquipmentPiece> GearCategoryMeta { get => _gearCategoryMeta; }
         public List<WornEquipmentPiece> CachedWornGear { get; private set; } = new();
@@ -96,7 +98,7 @@ namespace RoleplayingVoice
         private HashSet<string> _pendingRegenerationCategories = new HashSet<string>();
         private readonly object _regenerationLock = new object();
 
-        private void AddToTextureSet(TextureSet item, string file, string overrideType = "")
+        private void AddToTextureSet(TextureSet item, string file, string overrideType = "", System.Numerics.Vector4? tint = null)
         {
             if (item.TextureSetName.ToLower().Contains("face"))
             {
@@ -152,7 +154,7 @@ namespace RoleplayingVoice
             if (uvType == UVMapType.Base)
             {
                 if (string.IsNullOrEmpty(item.Base)) { item.Base = file; item.BaseUV = sourceUV; }
-                else if (!item.BaseOverlays.Contains(file)) { item.BaseOverlays.Add(file); item.BaseOverlayUVs.Add(sourceUV); }
+                else if (!item.BaseOverlays.Contains(file)) { item.BaseOverlays.Add(file); item.BaseOverlayUVs.Add(sourceUV); item.BaseOverlayTints.Add(tint ?? System.Numerics.Vector4.One); }
             }
             else if (uvType == UVMapType.Normal)
             {
@@ -259,8 +261,22 @@ namespace RoleplayingVoice
                 if (plugin != null)
                 {
                     _textureHistory = plugin.Configuration.TextureHistory;
-                    UpdateWatchers();
-
+                    _textureHistoryTints = plugin.Configuration.TextureHistoryTints;
+                    if (_textureHistoryTints == null) {
+                        _textureHistoryTints = new Dictionary<string, List<System.Numerics.Vector4>>();
+                        plugin.Configuration.TextureHistoryTints = _textureHistoryTints;
+                    }
+                    foreach (var key in _textureHistory.Keys)
+                    {
+                        if (!_textureHistoryTints.ContainsKey(key))
+                        {
+                            _textureHistoryTints[key] = new List<System.Numerics.Vector4>();
+                            for (int i = 0; i < _textureHistory[key].Count; i++)
+                            {
+                                _textureHistoryTints[key].Add(System.Numerics.Vector4.One);
+                            }
+                        }
+                    }
                     var oldKeys = _textureHistory.Keys.Where(k => k.EndsWith("_gen2") || k.EndsWith("_bibo") || k.EndsWith("_gen3") || k.EndsWith("_tbse") || k.EndsWith("_otopop") || k.EndsWith("fallback_Body")).ToList();
                     bool migrated = false;
                     foreach (var key in oldKeys)
@@ -271,8 +287,15 @@ namespace RoleplayingVoice
                         if (!_textureHistory.ContainsKey(newKey))
                         {
                             _textureHistory[newKey] = new List<string>();
+                            _textureHistoryTints[newKey] = new List<System.Numerics.Vector4>();
                         }
                         _textureHistory[newKey].AddRange(_textureHistory[key]);
+                        if (_textureHistoryTints.ContainsKey(key)) {
+                            _textureHistoryTints[newKey].AddRange(_textureHistoryTints[key]);
+                            _textureHistoryTints.Remove(key);
+                        } else {
+                            for (int i = 0; i < _textureHistory[key].Count; i++) _textureHistoryTints[newKey].Add(System.Numerics.Vector4.One);
+                        }
                         _textureHistory.Remove(key);
                         migrated = true;
                     }
@@ -554,7 +577,8 @@ namespace RoleplayingVoice
                         ImGui.Text("2. Select Texture Map Type:");
                         ImGui.RadioButton("Base / Diffuse", ref _classificationSelectedMap, 0); ImGui.SameLine();
                         ImGui.RadioButton("Normal Map", ref _classificationSelectedMap, 1); ImGui.SameLine();
-                        ImGui.RadioButton("Mask", ref _classificationSelectedMap, 2);
+                        ImGui.RadioButton("Mask", ref _classificationSelectedMap, 2); ImGui.SameLine();
+                        ImGui.RadioButton("Glow", ref _classificationSelectedMap, 3);
 
                         ImGui.Separator();
                         if (ImGui.Button("Confirm", new Vector2(120, 0)))
@@ -564,7 +588,7 @@ namespace RoleplayingVoice
                             {
                                 uv = _classificationSelectedUV == 0 ? "bibo" : _classificationSelectedUV == 1 ? "gen3" : _classificationSelectedUV == 2 ? "tbse" : "gen2";
                             }
-                            string map = _classificationSelectedMap == 0 ? "base" : _classificationSelectedMap == 1 ? "norm" : "mask";
+                            string map = _classificationSelectedMap == 0 ? "base" : _classificationSelectedMap == 1 ? "norm" : _classificationSelectedMap == 2 ? "mask" : "glow";
                             _classificationTcs?.TrySetResult($"{uv}|{map}");
                             _showClassificationPopup = false;
                         }
@@ -1019,7 +1043,7 @@ namespace RoleplayingVoice
                                             needsClassification = true;
 
                                         // Map type missing?
-                                        if ((isBody || isFace) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_"))
+                                        if ((isBody || isFace) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_") && !fileName.Contains("glow") && !fileName.EndsWith("_g") && !fileName.Contains("_g_"))
                                             needsClassification = true;
 
                                         if (needsClassification)
@@ -1045,8 +1069,12 @@ namespace RoleplayingVoice
                                             }
                                         }
 
-                                        if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
+                                        if (!_textureHistory.ContainsKey(categoryKey)) {
+                                            _textureHistory[categoryKey] = new List<string>();
+                                            _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
+                                        }
                                         _textureHistory[categoryKey].Add(f);
+                                        _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
                                         Plugin.Configuration.Save();
                                         UpdateWatchers();
                                     }
@@ -1165,9 +1193,11 @@ namespace RoleplayingVoice
                                         if (item != null)
                                         {
                                             ApplyDefaultSkinType(item);
-                                            foreach (string f in _textureHistory[categoryKey])
+                                            for (int _i = 0; _i < _textureHistory[categoryKey].Count; _i++)
                                             {
-                                                AddToTextureSet(item, f, overrideType);
+                                                string f = _textureHistory[categoryKey][_i];
+                                                System.Numerics.Vector4? t = _textureHistoryTints.ContainsKey(categoryKey) && _i < _textureHistoryTints[categoryKey].Count ? _textureHistoryTints[categoryKey][_i] : null;
+                                                AddToTextureSet(item, f, overrideType, t);
                                             }
                                             // Composite active contextual layers on top of drag-and-drop textures
                                             if (plugin.ContextualLayerManager != null && selectedPlayer.Key == plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue)
@@ -1471,44 +1501,9 @@ namespace RoleplayingVoice
                     // Only Glamourer operations need the framework thread
                     Plugin.Framework.RunOnFrameworkThread(async () =>
                     {
-                        // Instead of redrawing the whole character, we grab their current Glamourer state,
-                        // and then immediately re-apply their state to force reload the new texture.
-                        var currentStateResult = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.Value.ObjectIndex);
-                        if (!requiresFullRedraw && currentStateResult.Item1 == 0 && !string.IsNullOrEmpty(currentStateResult.Item2)) // 0 = Success
-                        {
-                            string stateBase64 = currentStateResult.Item2;
-                            try
-                            {
-                                var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64);
-                                if (customization?.Equipment != null)
-                                {
-                                    // Force texture reload by reapplying the same gear. FFXIV will fetch the newly available textures from Penumbra's cache during the swap
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Ears, (ulong)customization.Equipment.Ears.ItemId, new List<byte> { (byte)customization.Equipment.Ears.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Neck, (ulong)customization.Equipment.Neck.ItemId, new List<byte> { (byte)customization.Equipment.Neck.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Wrists, (ulong)customization.Equipment.Wrists.ItemId, new List<byte> { (byte)customization.Equipment.Wrists.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.RFinger, (ulong)customization.Equipment.RFinger.ItemId, new List<byte> { (byte)customization.Equipment.RFinger.Stain });
-                                    PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.LFinger, (ulong)customization.Equipment.LFinger.ItemId, new List<byte> { (byte)customization.Equipment.LFinger.Stain });
-                                }
-                                else
-                                {
-                                    PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(stateBase64, character.Value.ObjectIndex);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                plugin.PluginLog.Warning(ex, "Failed to apply targeted equipment state");
-                            }
-                        }
-                        else
-                        {
-                            // Fallback if Glamourer IPC fails, OR if we are modifying Face/Eyes which require a hard redraw
-                            PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
-                        }
+                        // SetItem optimization often ignores re-applying identical items, preventing texture cache invalidation.
+                        // We must force a full RedrawObject to ensure the new textures are pulled from Penumbra.
+                        PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
                     });
 
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
@@ -1750,7 +1745,7 @@ namespace RoleplayingVoice
             }
         }
 
-        public void ScheduleRegeneration(string charName, string[] categorySuffixes, bool skipDelays = false)
+        public void ScheduleRegeneration(string charName, string[] categorySuffixes, bool skipDelays = false, bool hideProgressUI = true)
         {
             lock (_regenerationLock)
             {
@@ -1787,7 +1782,7 @@ namespace RoleplayingVoice
                             Thread.Sleep(1000);
                             waitAttempts++;
                         }
-                        RebuildCategory(key);
+                        RebuildCategory(key, hideProgressUI);
                         if (!skipDelays) Thread.Sleep(500);
                     }
                 }, null, skipDelays ? 200 : 2000, System.Threading.Timeout.Infinite);
@@ -1849,7 +1844,7 @@ namespace RoleplayingVoice
                     if (isBody && !fileName.Contains("bibo") && !fileName.Contains("b+") && !fileName.Contains("gen3") && !fileName.Contains("tbse") && !fileName.Contains("gen2") && !fileName.Contains("mata") && !fileName.Contains("amat"))
                         needsClassification = true;
 
-                    if ((isBody || isFace) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_"))
+                    if ((isBody || isFace) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_") && !fileName.Contains("glow") && !fileName.EndsWith("_g") && !fileName.Contains("_g_"))
                         needsClassification = true;
 
                     if (needsClassification)
@@ -1875,16 +1870,26 @@ namespace RoleplayingVoice
                         }
                     }
 
-                    if (!_textureHistory.ContainsKey(categoryKey)) _textureHistory[categoryKey] = new List<string>();
+                    if (!_textureHistory.ContainsKey(categoryKey)) {
+                        _textureHistory[categoryKey] = new List<string>();
+                    }
+                    if (!_textureHistoryTints.ContainsKey(categoryKey)) {
+                        _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
+                        for (int h = 0; h < _textureHistory[categoryKey].Count; h++)
+                        {
+                            _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
+                        }
+                    }
 
                     if (!plugin.Configuration.EnableTextureStacking && !droppedCategories.Contains(categoryKey))
                     {
                         _textureHistory[categoryKey].Clear();
+                        _textureHistoryTints[categoryKey].Clear();
                     }
 
-                    if (!_textureHistory[categoryKey].Contains(file))
-                    {
+                    if (!_textureHistory[categoryKey].Contains(file)) {
                         _textureHistory[categoryKey].Add(file);
+                        _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
                     }
 
                     if (plugin.Configuration.RecentLayers.Contains(file))
@@ -2147,9 +2152,11 @@ namespace RoleplayingVoice
                     if (item != null)
                     {
                         ApplyDefaultSkinType(item);
-                        foreach (string f in _textureHistory[categoryKey])
+                        for (int _i = 0; _i < _textureHistory[categoryKey].Count; _i++)
                         {
-                            AddToTextureSet(item, f, overrideType);
+                            string f = _textureHistory[categoryKey][_i];
+                            System.Numerics.Vector4? t = _textureHistoryTints.ContainsKey(categoryKey) && _i < _textureHistoryTints[categoryKey].Count ? _textureHistoryTints[categoryKey][_i] : null;
+                            AddToTextureSet(item, f, overrideType, t);
                         }
 
                         bool hasContextualLayers = false;
@@ -2278,14 +2285,20 @@ namespace RoleplayingVoice
                 (string.IsNullOrEmpty(piece.ModName) ? "" : "_[" + piece.ModName + "]");
             _gearCategoryMeta[categoryKey] = piece;
 
-            if (!_textureHistory.ContainsKey(categoryKey))
+            if (!_textureHistory.ContainsKey(categoryKey)) {
                 _textureHistory[categoryKey] = new List<string>();
+                _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
+            }
 
-            if (!plugin.Configuration.EnableTextureStacking)
+            if (!plugin.Configuration.EnableTextureStacking) {
                 _textureHistory[categoryKey].Clear();
+                _textureHistoryTints[categoryKey].Clear();
+            }
 
-            if (!_textureHistory[categoryKey].Contains(pngPath))
+            if (!_textureHistory[categoryKey].Contains(pngPath)) {
                 _textureHistory[categoryKey].Add(pngPath);
+                _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
+            }
 
             plugin.Configuration.Save();
             UpdateWatchers();
