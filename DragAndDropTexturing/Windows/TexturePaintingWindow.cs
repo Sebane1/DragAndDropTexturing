@@ -1897,11 +1897,26 @@ namespace DragAndDropTexturing.Windows
                             _primarySlots.Add("Bottom");
                             _primarySlots.Add("Gloves");
                             _primarySlots.Add("Shoes");
-                            _primarySlots.Add("Face");
-                            _primarySlotArray = new[] { "Top", "Bottom", "Gloves", "Shoes", "Face" };
+                            // DO NOT add Face to primary body slots to avoid texture overrides
+                            _primarySlotArray = new[] { "Top", "Bottom", "Gloves", "Shoes" };
                         }
                     }
                 }
+
+                bool isEditingNormal = (!string.IsNullOrEmpty(EditSourcePath) && 
+                    (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                     EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                     EditSourcePath.IndexOf("_n_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     EditSourcePath.EndsWith("_n.png", StringComparison.OrdinalIgnoreCase) ||
+                     EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase))) ||
+                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Normal");
+
+                bool isEditingMask = (!string.IsNullOrEmpty(EditSourcePath) && 
+                    (EditSourcePath.IndexOf("mask", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                     EditSourcePath.IndexOf("_m_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     EditSourcePath.EndsWith("_m.png", StringComparison.OrdinalIgnoreCase) ||
+                     EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase))) ||
+                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Mask");
 
                 // Load both model slots in parallel since they're independent
                 var topSlotPath = overrideTopPath ?? topPath;
@@ -1911,7 +1926,54 @@ namespace DragAndDropTexturing.Windows
                     () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId); },
                     () => { if (!isGear && glvPath != null) LoadModelIntoSlot(glvSlotName, glvPath, collectionId); },
                     () => { if (!isGear && shoPath != null) LoadModelIntoSlot(shoSlotName, shoPath, collectionId); },
-                    () => { if (!isGear && facePath != null) LoadModelIntoSlot("Face", facePath, collectionId); }
+                    () => { 
+                        if (!isGear && facePath != null) 
+                        {
+                            LoadModelIntoSlot("Face", facePath, collectionId); 
+                            
+                            // If we are not editing the face, it won't receive the composite texture, so we load its texture manually
+                            if (!isFaceEditLocal)
+                            {
+                                int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
+                                int subRaceValue = Math.Max(0, ffxivClan - 1);
+                                int faceType = Math.Max(0, faceId - 1);
+                                int materialType = isEditingNormal ? 1 : 0;
+                                
+                                string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
+                                bool shouldPadToSquareLocal = ffxivRace == 6; // It's a face preview, so if it's Au Ra, pad it
+                                string vPng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquareLocal);
+                                if (string.IsNullOrEmpty(vPng))
+                                {
+                                    string fpOld = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, false);
+                                    vPng = ExtractVanillaTexViaLumina(fpOld, shouldPadToSquareLocal);
+                                }
+
+                                if (!string.IsNullOrEmpty(vPng) && File.Exists(vPng))
+                                {
+                                    try
+                                    {
+                                        using var bmp = new System.Drawing.Bitmap(vPng);
+                                        var rect = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
+                                        var bData = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                                        byte[] bytes = new byte[bmp.Width * bmp.Height * 4];
+                                        System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, bytes, 0, bytes.Length);
+                                        bmp.UnlockBits(bData);
+                                        
+                                        _mainThreadActions.Enqueue(() => {
+                                            if (_renderer != null)
+                                            {
+                                                _renderer.LoadTexture("Face", bytes, bmp.Width, bmp.Height);
+                                            }
+                                        });
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _plugin.PluginLog.Error(ex, "[Texture Painter] Failed to load unpadded face preview texture.");
+                                    }
+                                }
+                            }
+                        }
+                    }
                 );
                 _mainThreadActions.Enqueue(() => UpdateMeshVisibility());
 
@@ -2009,21 +2071,6 @@ namespace DragAndDropTexturing.Windows
                         }
                     }
                 }
-                bool isEditingNormal = (!string.IsNullOrEmpty(EditSourcePath) && 
-                    (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
-                     EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
-                     EditSourcePath.IndexOf("_n_", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     EditSourcePath.EndsWith("_n.png", StringComparison.OrdinalIgnoreCase) ||
-                     EditSourcePath.EndsWith("_n.tex", StringComparison.OrdinalIgnoreCase))) ||
-                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Normal");
-
-                bool isEditingMask = (!string.IsNullOrEmpty(EditSourcePath) && 
-                    (EditSourcePath.IndexOf("mask", StringComparison.OrdinalIgnoreCase) >= 0 || 
-                     EditSourcePath.IndexOf("_m_", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     EditSourcePath.EndsWith("_m.png", StringComparison.OrdinalIgnoreCase) ||
-                     EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase))) ||
-                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Mask");
-
                 if (isEditingNormal)
                 {
                     baseTexPath = normTexPath;
@@ -2040,9 +2087,11 @@ namespace DragAndDropTexturing.Windows
                 bool normIsBlack = false;
                 string baseResult = null;
                 string normResult = null;
+                bool shouldPadToSquare = isFaceEditLocal && ffxivRace == 6;
+
                 System.Threading.Tasks.Parallel.Invoke(
-                    () => baseResult = TexToTempPng(baseTexPath, out baseIsBlack),
-                    () => normResult = TexToTempPng(normTexPath, out normIsBlack)
+                    () => baseResult = TexToTempPng(baseTexPath, out baseIsBlack, shouldPadToSquare),
+                    () => normResult = TexToTempPng(normTexPath, out normIsBlack, shouldPadToSquare)
                 );
                 _activeBaseTexturePng = baseResult;
                 _activeNormalTexturePng = normResult;
@@ -2062,7 +2111,7 @@ namespace DragAndDropTexturing.Windows
                         else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes.Count > 0)
                             dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
 
-                        _activeBaseTexturePng = TexToTempPng(dlcBase, out baseIsBlack);
+                        _activeBaseTexturePng = TexToTempPng(dlcBase, out baseIsBlack, shouldPadToSquare);
                     }
 
                     if (_activeBaseTexturePng == null || baseIsBlack)
@@ -2073,17 +2122,15 @@ namespace DragAndDropTexturing.Windows
                         bool isFaceEdit = (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0));
                         if (isFaceEdit)
                         {
-                            string[] texSuffixes = isEditingNormal ? new[] { "norm", "n" } : new[] { "base", "d" };
-                            string[] asymPrefixes = new[] { "", "b_", "a_" };
-                            foreach (var asym in asymPrefixes)
+                            int subRaceValue = Math.Max(0, ffxivClan - 1);
+                            int faceType = Math.Max(0, faceId - 1);
+                            int materialType = isEditingNormal ? 1 : 0;
+                            string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
+                            vanillaBasePng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquare);
+                            if (string.IsNullOrEmpty(vanillaBasePng))
                             {
-                                foreach (var suf in texSuffixes)
-                                {
-                                    string vanillaFaceTexPath = $"chara/human/{faceRaceCode}/obj/face/{fCode}/texture/{faceRaceCode}{fCode}_fac_{asym}{suf}.tex";
-                                    vanillaBasePng = ExtractVanillaTexViaLumina(vanillaFaceTexPath);
-                                    if (!string.IsNullOrEmpty(vanillaBasePng)) break;
-                                }
-                                if (!string.IsNullOrEmpty(vanillaBasePng)) break;
+                                string fpOld = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, false);
+                                vanillaBasePng = ExtractVanillaTexViaLumina(fpOld, shouldPadToSquare);
                             }
                         }
                         else
@@ -2110,7 +2157,7 @@ namespace DragAndDropTexturing.Windows
                         else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
                             dlcNorm = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\'));
 
-                        _activeNormalTexturePng = TexToTempPng(dlcNorm, out normIsBlack);
+                        _activeNormalTexturePng = TexToTempPng(dlcNorm, out normIsBlack, shouldPadToSquare);
                     }
 
                     if (_activeNormalTexturePng == null || normIsBlack)
@@ -2120,17 +2167,14 @@ namespace DragAndDropTexturing.Windows
                         bool isFaceEdit = (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0));
                         if (isFaceEdit)
                         {
-                            string[] texSuffixes = new[] { "norm", "n" };
-                            string[] asymPrefixes = new[] { "", "b_", "a_" };
-                            foreach (var asym in asymPrefixes)
+                            int subRaceValue = Math.Max(0, ffxivClan - 1);
+                            int faceType = Math.Max(0, faceId - 1);
+                            string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(1, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
+                            vanillaNormPng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquare);
+                            if (string.IsNullOrEmpty(vanillaNormPng))
                             {
-                                foreach (var suf in texSuffixes)
-                                {
-                                    string vanillaFaceNormPath = $"chara/human/{faceRaceCode}/obj/face/{fCode}/texture/{faceRaceCode}{fCode}_fac_{asym}{suf}.tex";
-                                    vanillaNormPng = ExtractVanillaTexViaLumina(vanillaFaceNormPath);
-                                    if (!string.IsNullOrEmpty(vanillaNormPng)) break;
-                                }
-                                if (!string.IsNullOrEmpty(vanillaNormPng)) break;
+                                string fpOld = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(1, ffxivGenderInt, subRaceValue, 0, faceType, 0, false);
+                                vanillaNormPng = ExtractVanillaTexViaLumina(fpOld, shouldPadToSquare);
                             }
                         }
                         else
@@ -2632,7 +2676,7 @@ namespace DragAndDropTexturing.Windows
             return padded;
         }
 
-        private string TexToTempPng(string texPath, out bool isBlack)
+        private string TexToTempPng(string texPath, out bool isBlack, bool padToSquare = false)
         {
             isBlack = false;
             if (string.IsNullOrEmpty(texPath) || !File.Exists(texPath)) return null;
@@ -2656,7 +2700,7 @@ namespace DragAndDropTexturing.Windows
                 {
                     using (rawBitmap)
                     {
-                        var bitmap = PadToSquareLeftAligned(rawBitmap);
+                        var bitmap = padToSquare ? PadToSquareLeftAligned(rawBitmap) : rawBitmap;
                         try
                         {
                             isBlack = IsImageBlack(bitmap);
@@ -2715,7 +2759,7 @@ private bool IsImageBlack(System.Drawing.Bitmap bitmap)
             return true;
         }
 
-private string ExtractVanillaTexViaLumina(string internalGamePath)
+private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSquare = true)
         {
             try
             {
@@ -2729,13 +2773,14 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                     {
                         using (rawBitmap)
                         {
-                            var bitmap = PadToSquareLeftAligned(rawBitmap);
+                            var bitmap = padToSquare ? PadToSquareLeftAligned(rawBitmap) : rawBitmap;
                             try
                             {
                                 string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
                                 Directory.CreateDirectory(tempDir);
                                 string safeName = internalGamePath.Replace("/", "_").Replace("\\", "_");
-                                string tempPath = Path.Combine(tempDir, safeName + "_padded.png");
+                                string suffix = padToSquare ? "_padded.png" : "_raw.png";
+                                string tempPath = Path.Combine(tempDir, safeName + suffix);
                                 if (!File.Exists(tempPath))
                                 {
                                     bitmap.Save(tempPath, System.Drawing.Imaging.ImageFormat.Png);
