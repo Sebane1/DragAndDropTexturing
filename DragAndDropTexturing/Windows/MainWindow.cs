@@ -694,6 +694,9 @@ public class MainWindow : Window, IDisposable
                 ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Layers for:") + $" {displayKey}");
                 ImGui.Separator();
 
+                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
                 ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
                 if (ImGui.Button(Translator.LocalizeUI("Clear All") + "##" + key))
                 {
@@ -703,6 +706,7 @@ public class MainWindow : Window, IDisposable
                     Plugin.Configuration.Save();
                 }
                 ImGui.EndDisabled();
+                ImGui.PopStyleColor(3);
                 if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Clear All"));
 
                 ImGui.SameLine();
@@ -770,6 +774,9 @@ public class MainWindow : Window, IDisposable
                     }
 
                     ImGui.SameLine();
+                    ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
                     ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
                     bool removed = false;
                     if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
@@ -780,6 +787,7 @@ public class MainWindow : Window, IDisposable
                         changed = true;
                     }
                     ImGui.EndDisabled();
+                    ImGui.PopStyleColor(3);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove"));
 
                     if (removed) { i--; continue; }
@@ -1034,12 +1042,16 @@ public class MainWindow : Window, IDisposable
             }
 
             ImGui.SameLine();
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
             if (ImGui.Button($"X##remove_history_{i}"))
             {
                 recentLayers.RemoveAt(i);
                 Plugin.Configuration.Save();
                 i--;
             }
+            ImGui.PopStyleColor(3);
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip(Translator.LocalizeUI("Remove from history"));
@@ -1105,11 +1117,15 @@ public class MainWindow : Window, IDisposable
             ImGui.EndChild();
         }
 
+        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
         if (ImGui.Button(Translator.LocalizeUI("Clear Error Log")))
         {
             if (File.Exists(logPath)) { try { File.Delete(logPath); } catch { } }
             _cachedErrorLog = Translator.LocalizeUI("No GPU fallback errors detected. (GPU acceleration is working fine!)");
         }
+        ImGui.PopStyleColor(3);
 
         ImGui.Separator();
         ImGui.Spacing();
@@ -1130,11 +1146,15 @@ public class MainWindow : Window, IDisposable
             ImGui.EndChild();
         }
 
+        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
         if (ImGui.Button(Translator.LocalizeUI("Clear Export Benchmark")))
         {
             if (File.Exists(exportBenchPath)) { try { File.Delete(exportBenchPath); } catch { } }
             _cachedExportBenchmarkLog = Translator.LocalizeUI("No export benchmark data recorded yet.");
         }
+        ImGui.PopStyleColor(3);
 
         ImGui.Separator();
         ImGui.Spacing();
@@ -1155,11 +1175,15 @@ public class MainWindow : Window, IDisposable
             ImGui.EndChild();
         }
 
+        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
         if (ImGui.Button(Translator.LocalizeUI("Clear Benchmark Log")))
         {
             if (File.Exists(benchPath)) { try { File.Delete(benchPath); } catch { } }
             _cachedBenchmarkLog = Translator.LocalizeUI("No benchmark data recorded yet.");
         }
+        ImGui.PopStyleColor(3);
     }
 
     private void DrawContextualLayers()
@@ -1464,7 +1488,13 @@ public class MainWindow : Window, IDisposable
 
             ImGui.SameLine();
 
-            if (ImGui.Button(Translator.LocalizeUI("Remove Layer") + "##ContextRemove"))
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
+            bool removeClicked = ImGui.Button(Translator.LocalizeUI("Remove Layer") + "##ContextRemove");
+            ImGui.PopStyleColor(3);
+            
+            if (removeClicked)
             {
                 Plugin.ContextualLayerManager.DeleteLayer(layer);
                 _selectedContextualLayerIndex = Math.Max(0, _selectedContextualLayerIndex - 1);
@@ -1785,7 +1815,13 @@ public class MainWindow : Window, IDisposable
                     ImGui.TextWrapped(state.Status ?? "");
 
                     ImGui.TableNextColumn();
-                    if (ImGui.Button("Stop##" + kvp.Key))
+                    ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
+                    bool stopClicked = ImGui.Button("Stop##" + kvp.Key);
+                    ImGui.PopStyleColor(3);
+                    
+                    if (stopClicked)
                     {
                         manager.DeactivateLayer(kvp.Key);
                         Plugin.Configuration.AnimatedLayers.RemoveAll(a => a.Name == state.Definition.Name);
@@ -1831,7 +1867,13 @@ public class MainWindow : Window, IDisposable
                 }
 
                 ImGui.SameLine();
-                if (ImGui.Button("X##removeSaved_" + i))
+                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
+                bool removeSavedClicked = ImGui.Button("X##removeSaved_" + i);
+                ImGui.PopStyleColor(3);
+                
+                if (removeSavedClicked)
                 {
                     savedDefs.RemoveAt(i);
                     Plugin.Configuration.Save();
