@@ -1076,6 +1076,7 @@ namespace DragAndDropTexturing.Windows
                 
                 unsafe
                 {
+                    bool isGlow = _newLayerType == "Glow" || path.Contains("glow", StringComparison.OrdinalIgnoreCase);
                     byte* src = (byte*)data.Scan0;
                     for (int i = 0; i < rgba.Length; i += 4)
                     {
@@ -1083,6 +1084,11 @@ namespace DragAndDropTexturing.Windows
                         rgba[i + 1] = src[i + 1]; // G
                         rgba[i + 2] = src[i + 0]; // B
                         rgba[i + 3] = src[i + 3]; // A
+                        
+                        if (isGlow && rgba[i + 0] == 0 && rgba[i + 1] == 0 && rgba[i + 2] == 0)
+                        {
+                            rgba[i + 3] = 0; // Make pure black transparent for glow maps
+                        }
                     }
                 }
                 bmp.UnlockBits(data);
