@@ -248,7 +248,7 @@ namespace RoleplayingVoice
                     {
                         RebuildCategory(cat, false);
                     }
-                });
+                                    });
             }
         }
 
@@ -1510,8 +1510,30 @@ namespace RoleplayingVoice
                 long compilationTime = sw.ElapsedMilliseconds;
                 plugin.PluginLog.Information($"[Drag And Drop Texturing] Texture generation complete in {compilationTime}ms, beginning Penumbra update...");
 
-                // Penumbra IPC calls do not require the framework thread
-                PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
+                string probeGamePath = null;
+                foreach (var ts in exportTextureSets)
+                {
+                    if (!string.IsNullOrEmpty(ts.InternalBasePath))
+                    {
+                        probeGamePath = ts.InternalBasePath;
+                        break;
+                    }
+                }
+
+                string resolvedBefore = null;
+                if (!string.IsNullOrEmpty(probeGamePath))
+                {
+                    try { PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collection, probeGamePath, out resolvedBefore); } catch { }
+                }
+
+                // Skip AddMod on re-exports to avoid Penumbra's async Xpress8K compaction race.
+                var existingMods = PenumbraAndGlamourerIpcWrapper.Instance.GetModList.Invoke();
+                bool modAlreadyExists = existingMods != null && existingMods.ContainsKey(path);
+                if (!modAlreadyExists)
+                {
+                    PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
+                    plugin.PluginLog.Information("[Drag And Drop Texturing] Mod registered with Penumbra (first time).");
+                }
                 PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
                 collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
                 PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name);
@@ -1522,13 +1544,16 @@ namespace RoleplayingVoice
                     PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
                 }
 
-                // Delay to allow Penumbra's filesystem watchers and IPC to fully process ReloadMod.
-                Thread.Sleep(200);
-
-
-                // Only Glamourer operations need the framework thread
+                // First-time AddMod triggers async file compaction; wait for it.
+                if (!modAlreadyExists)
+                {
+                    Thread.Sleep(200);
+                }
+                // Double-yield: Penumbra defers path recalculation to the next framework tick, so we nest two RunOnFrameworkThread calls to guarantee it completes first.
                 Plugin.Framework.RunOnFrameworkThread(() =>
                 {
+                    Plugin.Framework.RunOnFrameworkThread(() =>
+                    {
                     var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character.Value);
                     if (customization != null && customization.Equipment != null)
                     {
@@ -1565,7 +1590,8 @@ namespace RoleplayingVoice
                             PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain });
                             PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
                         }
-                    }
+                        }
+                    });
                 });
 
                 plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
