@@ -568,15 +568,14 @@ namespace RoleplayingVoice
                         ImGui.Text($"File: {Path.GetFileName(_fileToClassify)}");
                         ImGui.Separator();
 
-                        if (_classificationIsBody)
-                        {
-                            ImGui.Text("1. Select UV Layout:");
-                            ImGui.RadioButton("Bibo+", ref _classificationSelectedUV, 0); ImGui.SameLine();
-                            ImGui.RadioButton("Gen3", ref _classificationSelectedUV, 1); ImGui.SameLine();
-                            ImGui.RadioButton("TBSE", ref _classificationSelectedUV, 2); ImGui.SameLine();
-                            ImGui.RadioButton("Gen2 / Vanilla", ref _classificationSelectedUV, 3);
-                            ImGui.Spacing();
-                        }
+                        // Always allow target reassignment
+                        ImGui.Text("1. Select Target / UV Layout:");
+                        ImGui.RadioButton("Bibo+", ref _classificationSelectedUV, 0); ImGui.SameLine();
+                        ImGui.RadioButton("Gen3", ref _classificationSelectedUV, 1); ImGui.SameLine();
+                        ImGui.RadioButton("TBSE", ref _classificationSelectedUV, 2); ImGui.SameLine();
+                        ImGui.RadioButton("Gen2 / Vanilla", ref _classificationSelectedUV, 3); ImGui.SameLine();
+                        ImGui.RadioButton("Face", ref _classificationSelectedUV, 4);
+                        ImGui.Spacing();
 
                         ImGui.Text("2. Select Texture Map Type:");
                         ImGui.RadioButton("Base / Diffuse", ref _classificationSelectedMap, 0); ImGui.SameLine();
@@ -587,11 +586,7 @@ namespace RoleplayingVoice
                         ImGui.Separator();
                         if (ImGui.Button("Confirm", new Vector2(120, 0)))
                         {
-                            string uv = "";
-                            if (_classificationIsBody)
-                            {
-                                uv = _classificationSelectedUV == 0 ? "bibo" : _classificationSelectedUV == 1 ? "gen3" : _classificationSelectedUV == 2 ? "tbse" : "gen2";
-                            }
+                            string uv = _classificationSelectedUV == 0 ? "bibo" : _classificationSelectedUV == 1 ? "gen3" : _classificationSelectedUV == 2 ? "tbse" : _classificationSelectedUV == 3 ? "gen2" : "face";
                             string map = _classificationSelectedMap == 0 ? "base" : _classificationSelectedMap == 1 ? "norm" : _classificationSelectedMap == 2 ? "mask" : "glow";
                             _classificationTcs?.TrySetResult($"{uv}|{map}");
                             _showClassificationPopup = false;
@@ -914,7 +909,7 @@ namespace RoleplayingVoice
                             modName = selectedPlayer.Key + " Texture Mod";
                             _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(selectedPlayer.Value);
                             plugin.PluginLog.Information("[Drag And Drop Debug] Customization retrieved! Starting task...");
-                            Task.Run(() =>
+                            Task.Run(async () =>
                             {
                                 try
                                 {
@@ -967,12 +962,12 @@ namespace RoleplayingVoice
                                             }
                                             categoryKey += "gear_" + slot;
                                         }
-                                        else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
-                                            fileName.Contains("bibo") || fileName.Contains("b+") ||
-                                            fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
                                         else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                                         else if (fileName.Contains("eye")) categoryKey += "eyes";
                                         else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                                        else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                                            fileName.Contains("bibo") || fileName.Contains("b+") ||
+                                            fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
                                         else
                                         {
                                             switch (bodyDragPart)
@@ -1021,12 +1016,12 @@ namespace RoleplayingVoice
                                             }
                                             categoryKey += "gear_" + slot;
                                         }
-                                        else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
-                                            fileName.Contains("bibo") || fileName.Contains("b+") ||
-                                            fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
                                         else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                                         else if (fileName.Contains("eye")) categoryKey += "eyes";
                                         else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                                        else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                                            fileName.Contains("bibo") || fileName.Contains("b+") ||
+                                            fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
                                         else
                                         {
                                             switch (bodyDragPart)
@@ -1042,12 +1037,16 @@ namespace RoleplayingVoice
                                         bool isFace = categoryKey.EndsWith("face");
                                         bool needsClassification = false;
 
+                                        // Completely unknown drag drop destination?
+                                        if (!isBody && !isFace && !categoryKey.Contains("gear_"))
+                                            needsClassification = true;
+
                                         // Body UV layout missing?
                                         if (isBody && !fileName.Contains("bibo") && !fileName.Contains("b+") && !fileName.Contains("gen3") && !fileName.Contains("tbse") && !fileName.Contains("gen2") && !fileName.Contains("mata") && !fileName.Contains("amat"))
                                             needsClassification = true;
 
                                         // Map type missing?
-                                        if ((isBody || isFace) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_") && !fileName.Contains("glow") && !fileName.EndsWith("_g") && !fileName.Contains("_g_"))
+                                        if ((isBody || isFace || needsClassification) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_") && !fileName.Contains("glow") && !fileName.EndsWith("_g") && !fileName.Contains("_g_"))
                                             needsClassification = true;
 
                                         if (needsClassification)
@@ -1055,6 +1054,10 @@ namespace RoleplayingVoice
                                             _classificationTcs = new TaskCompletionSource<string>();
                                             _fileToClassify = f;
                                             _classificationIsBody = isBody;
+                                            // Automatically select Face radio if dropped on face
+                                            if (isFace) _classificationSelectedUV = 4;
+                                            else if (!isBody) _classificationSelectedUV = 0; // Default to Bibo+ if unknown
+                                            
                                             _showClassificationPopup = true;
                                             string format = _classificationTcs.Task.Result;
                                             if (!string.IsNullOrEmpty(format))
@@ -1062,6 +1065,20 @@ namespace RoleplayingVoice
                                                 string[] parts = format.Split('|');
                                                 string prefix = parts.Length > 0 && !string.IsNullOrEmpty(parts[0]) ? parts[0] + "_" : "";
                                                 string suffix = parts.Length > 1 && !string.IsNullOrEmpty(parts[1]) ? "_" + parts[1] : "";
+
+                                                // Reroute categoryKey if user manually selected a specific target
+                                                if (parts[0] == "face")
+                                                {
+                                                    categoryKey = selectedPlayer.Key + "_face";
+                                                    isFace = true;
+                                                    isBody = false;
+                                                }
+                                                else if (!string.IsNullOrEmpty(parts[0]))
+                                                {
+                                                    categoryKey = selectedPlayer.Key + "_body";
+                                                    isBody = true;
+                                                    isFace = false;
+                                                }
 
                                                 string newPath = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, prefix + Path.GetFileNameWithoutExtension(f) + suffix + Path.GetExtension(f));
                                                 File.Copy(f, newPath, true);
@@ -1080,6 +1097,7 @@ namespace RoleplayingVoice
                                         }
                                         _textureHistory[categoryKey].Add(f);
                                         _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
+                                        droppedCategories.Add(categoryKey);
                                         Plugin.Configuration.Save();
                                         UpdateWatchers();
                                     }
@@ -1223,16 +1241,17 @@ namespace RoleplayingVoice
                                             }
                                             plugin.PluginLog.Information($"[Glow Debug] TextureSet '{item.TextureSetName}': Base='{item.Base}', Normal='{item.Normal}', Mask='{item.Mask}', Glow='{item.Glow}', Material='{item.Material}', InternalMtrl='{item.InternalMaterialPath}'");
                                             textureSets.Add(item);
-                                            modName = modName.Replace("Mod", categoryModName);
+                                            
+                                            string singleModName = selectedPlayer.Key + " Texture Mod";
+                                            singleModName = singleModName.Replace("Mod", categoryModName);
+                                            string singleFullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), singleModName);
+                                            
+                                            List<TextureSet> singleList = new List<TextureSet>() { item };
+                                            await Export(true, singleList, singleFullModPath, singleModName, selectedPlayer);
                                         }
                                     }
 
-                                    string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
-                                    if (textureSets.Count > 0)
-                                    {
-                                        Task.Run(() => Export(true, textureSets, fullModPath, modName, selectedPlayer));
-                                    }
-                                    else
+                                    if (textureSets.Count == 0)
                                     {
                                         Plugin.Framework.RunOnFrameworkThread(() =>
                                         {
@@ -1513,10 +1532,10 @@ namespace RoleplayingVoice
                     var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character.Value);
                     if (customization != null && customization.Equipment != null)
                     {
-                        if (name.Contains("_face", StringComparison.OrdinalIgnoreCase) || 
-                            name.Contains("_eyes", StringComparison.OrdinalIgnoreCase) || 
-                            name.Contains("_eyebrows", StringComparison.OrdinalIgnoreCase) ||
-                            name.Contains("_hair", StringComparison.OrdinalIgnoreCase))
+                        if (name.Contains("face", StringComparison.OrdinalIgnoreCase) || 
+                            name.Contains("eyes", StringComparison.OrdinalIgnoreCase) || 
+                            name.Contains("eyebrow", StringComparison.OrdinalIgnoreCase) ||
+                            name.Contains("hair", StringComparison.OrdinalIgnoreCase))
                         {
                             PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
                         }
@@ -1863,12 +1882,12 @@ namespace RoleplayingVoice
                         }
                         categoryKey += "gear_" + slot;
                     }
-                    else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
-                        fileName.Contains("bibo") || fileName.Contains("b+") ||
-                        fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
                     else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                     else if (fileName.Contains("eye")) categoryKey += "eyes";
                     else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                    else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
+                        fileName.Contains("bibo") || fileName.Contains("b+") ||
+                        fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
                     else
                     {
                         switch (bodyDragPart)

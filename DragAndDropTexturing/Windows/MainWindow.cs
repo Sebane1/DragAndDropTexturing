@@ -626,17 +626,24 @@ public class MainWindow : Window, IDisposable
 
                                 ImGui.SameLine();
                                 ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
+                                bool removed = false;
                                 if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
                                 {
                                     list.RemoveAt(i);
                                     if (tintList != null && i < tintList.Count) tintList.RemoveAt(i);
-                                    i--;
+                                    removed = true;
                                     changed = true;
                                 }
                                 ImGui.EndDisabled();
                                 if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                                 {
                                     ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove"));
+                                }
+
+                                if (removed)
+                                {
+                                    i--;
+                                    continue;
                                 }
 
                                 if (tintList != null && i < tintList.Count) {
