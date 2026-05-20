@@ -548,7 +548,7 @@ public class MainWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
-        if (ImGui.Button(Translator.LocalizeUI("Save Current as Preset")))
+        if (ImGui.Button(Translator.LocalizeUI("Save State As Preset")))
         {
             var preset = new ActiveLayerPreset
             {
