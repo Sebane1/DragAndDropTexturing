@@ -5,6 +5,7 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using DragAndDropTexturing.Equipment;
 using DragAndDropTexturing.LanguageHelpers;
+using DragAndDropTexturing.VideoPlayback;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -81,6 +82,11 @@ public class MainWindow : Window, IDisposable
             if (ImGui.BeginTabItem(Translator.LocalizeUI("Contextual Layers")))
             {
                 DrawContextualLayers();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Animated Layers")))
+            {
+                DrawAnimatedLayers();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem(Translator.LocalizeUI("Settings")))
@@ -1324,4 +1330,370 @@ public class MainWindow : Window, IDisposable
         }
         ImGui.EndChild();
     }
+
+    #region Animated Layers UI
+
+    private string _animatedLayerFrameFolder = "";
+    private string _animatedLayerName = "Animation";
+    private int _animatedLayerTarget = 0; // 0 = body, 1 = face
+    private Vector2 _animatedLayerUVPos = new Vector2(0.3f, 0.3f);
+    private Vector2 _animatedLayerUVSize = new Vector2(0.4f, 0.4f);
+    private int _animatedLayerFps = 15;
+    private float _animatedLayerOpacity = 1.0f;
+    private string _uvPreviewCachedPath = null;
+    private int _uvPreviewCachedTarget = -1;
+    private Dalamud.Interface.Textures.ISharedImmediateTexture _uvPreviewTexture = null;
+    private DateTime _uvPreviewLastResolve = DateTime.MinValue;
+
+    /// <summary>
+    /// Resolves and caches the current body/face underlay texture for UV preview display.
+    /// Uses the default bundled DLC skin textures which are always available.
+    /// </summary>
+    private Dalamud.Interface.Textures.ISharedImmediateTexture GetUVPreviewTexture(string category)
+    {
+        // Only re-resolve when target dropdown changes
+        if (_uvPreviewCachedTarget == _animatedLayerTarget && _uvPreviewTexture != null)
+            return _uvPreviewTexture;
+
+        _uvPreviewCachedTarget = _animatedLayerTarget;
+        _uvPreviewLastResolve = DateTime.Now;
+
+        try
+        {
+            string texturePath = null;
+            var localPlayer = Plugin.SafeGameObjectManager?.LocalPlayer;
+            if (localPlayer == null) return _uvPreviewTexture;
+
+            string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+            string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
+
+            if (category == "body" && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter bodyChar)
+            {
+                var customization = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.GetCustomization(bodyChar);
+                if (customization != null)
+                {
+                    int gender = customization.Customize.Gender.Value;
+                    int clan = customization.Customize.Clan.Value - 1;
+                    int mainRace = FFXIVLooseTextureCompiler.Racial.RaceInfo.SubRaceToMainRace(clan);
+
+                    // Detect active body mod via Penumbra
+                    int bodyType = gender == 0 ? 3 : 1; // default: TBSE male, Bibo+ female
+                    try
+                    {
+                        Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance
+                            .GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                        int detected = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions
+                            .DetectBaseBodyFromPenumbra(collectionId, gender, out string _, Plugin);
+                        if (detected == 1) bodyType = 1;      // Bibo+
+                        else if (detected == 2) bodyType = 2;  // Gen3
+                        else if (detected == 3) bodyType = 3;  // TBSE
+                        else if (detected == 5) bodyType = 5;  // Otopop
+                    }
+                    catch { }
+
+                    var ts = LooseTextureCompilerCore.ProjectCreation.ProjectHelper.CreateBodyTextureSet(
+                        gender, bodyType, mainRace, 0, false);
+                    if (!string.IsNullOrEmpty(ts?.InternalBasePath))
+                    {
+                        Guid collection = PenumbraAndGlamourerIpcWrapper.Instance
+                            .GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                        PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collection, ts.InternalBasePath, out texturePath);
+                    }
+                }
+            }
+            else if (category == "face" && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter faceChar)
+            {
+                var customization = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.GetCustomization(faceChar);
+                if (customization != null)
+                {
+                    int face = customization.Customize.Face.Value - 1;
+                    int gender = customization.Customize.Gender.Value;
+                    int race = customization.Customize.Race.Value - 1;
+                    int clan = customization.Customize.Clan.Value - 1;
+                    var ts = LooseTextureCompilerCore.ProjectCreation.ProjectHelper.CreateFaceTextureSet(
+                        face, 0, 0, gender, race, clan, 0, false);
+                    if (!string.IsNullOrEmpty(ts?.InternalBasePath))
+                    {
+                        Guid collection = PenumbraAndGlamourerIpcWrapper.Instance
+                            .GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                        PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(collection, ts.InternalBasePath, out texturePath);
+                    }
+                }
+            }
+
+            // Load texture if path changed
+            if (!string.IsNullOrEmpty(texturePath) && File.Exists(texturePath) && texturePath != _uvPreviewCachedPath)
+            {
+                _uvPreviewCachedPath = texturePath;
+
+                // .ltct files are XOR-encoded — decode to temp PNG first
+                if (texturePath.EndsWith(".ltct", StringComparison.OrdinalIgnoreCase))
+                {
+                    string tempPng = Path.Combine(Path.GetTempPath(), "ddt_uv_preview.png");
+                    using (var bmp = FFXIVLooseTextureCompiler.ImageProcessing.TexIO.ResolveBitmap(texturePath))
+                    {
+                        if (bmp != null)
+                        {
+                            bmp.Save(tempPng, System.Drawing.Imaging.ImageFormat.Png);
+                            _uvPreviewTexture = Plugin.TextureProvider.GetFromFile(tempPng);
+                        }
+                    }
+                }
+                else
+                {
+                    _uvPreviewTexture = Plugin.TextureProvider.GetFromFile(texturePath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error($"[AnimatedLayers UV Preview] {ex.Message}");
+        }
+
+        return _uvPreviewTexture;
+    }
+
+    private void DrawAnimatedLayers()
+    {
+        ImGui.Spacing();
+        var manager = Plugin.AnimatedLayerManager;
+        if (manager == null)
+        {
+            ImGui.TextColored(new Vector4(1f, 0.5f, 0f, 1f), "Animated Layer Manager not initialized.");
+            return;
+        }
+
+        // --- Add New Layer Section ---
+        ImGui.TextColored(new Vector4(0.5f, 0.8f, 1f, 1f), Translator.LocalizeUI("Add Animated Layer"));
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        ImGui.SetNextItemWidth(200);
+        ImGui.InputText("Name##AnimLayerName", ref _animatedLayerName, 128);
+
+        ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 80);
+        ImGui.InputText("##AnimLayerFolder", ref _animatedLayerFrameFolder, 512);
+        ImGui.SameLine();
+        if (ImGui.Button("Browse##AnimFolder"))
+        {
+            _fileDialogManager.OpenFolderDialog(
+                "Select Frame Folder",
+                (b, path) =>
+                {
+                    if (b && !string.IsNullOrEmpty(path))
+                        _animatedLayerFrameFolder = path;
+                },
+                null, false);
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Folder containing sequential frame images (PNG/JPG/BMP)");
+
+        string[] targets = { "Body", "Face" };
+        ImGui.SetNextItemWidth(120);
+        ImGui.Combo("Target##AnimTarget", ref _animatedLayerTarget, targets, targets.Length);
+
+        ImGui.SetNextItemWidth(200);
+        ImGui.SliderFloat2("UV Position##AnimUVPos", ref _animatedLayerUVPos, 0f, 1f, "%.2f");
+        ImGui.SetNextItemWidth(200);
+        ImGui.SliderFloat2("UV Size##AnimUVSize", ref _animatedLayerUVSize, 0.01f, 1f, "%.2f");
+        ImGui.SetNextItemWidth(120);
+        ImGui.SliderInt("FPS##AnimFps", ref _animatedLayerFps, 1, 30);
+        ImGui.SetNextItemWidth(120);
+        ImGui.SliderFloat("Opacity##AnimOpacity", ref _animatedLayerOpacity, 0f, 1f, "%.2f");
+
+        // --- UV Preview Canvas ---
+        ImGui.Spacing();
+        ImGui.Text("UV Preview:");
+        float previewSize = 200f;
+        Vector2 canvasPos = ImGui.GetCursorScreenPos();
+        var drawList = ImGui.GetWindowDrawList();
+
+        // Background (dark grey fallback)
+        drawList.AddRectFilled(canvasPos, canvasPos + new Vector2(previewSize, previewSize),
+            ImGui.GetColorU32(new Vector4(0.12f, 0.12f, 0.12f, 1f)));
+
+        // Try to show the actual body/face texture as background
+        string targetCategory = _animatedLayerTarget == 0 ? "body" : "face";
+        var uvTex = GetUVPreviewTexture(targetCategory);
+        var uvWrap = uvTex?.GetWrapOrDefault();
+        if (uvWrap != null)
+        {
+            drawList.AddImage(uvWrap.Handle, canvasPos, canvasPos + new Vector2(previewSize, previewSize));
+        }
+        else
+        {
+            // Grid lines as fallback orientation (4x4)
+            uint gridColor = ImGui.GetColorU32(new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            for (int g = 1; g < 4; g++)
+            {
+                float offset = (g / 4f) * previewSize;
+                drawList.AddLine(canvasPos + new Vector2(offset, 0), canvasPos + new Vector2(offset, previewSize), gridColor);
+                drawList.AddLine(canvasPos + new Vector2(0, offset), canvasPos + new Vector2(previewSize, offset), gridColor);
+            }
+        }
+
+        // Overlay rectangle (animated layer placement)
+        Vector2 rectMin = canvasPos + new Vector2(_animatedLayerUVPos.X * previewSize, _animatedLayerUVPos.Y * previewSize);
+        Vector2 rectMax = rectMin + new Vector2(_animatedLayerUVSize.X * previewSize, _animatedLayerUVSize.Y * previewSize);
+        rectMax = Vector2.Min(rectMax, canvasPos + new Vector2(previewSize, previewSize));
+
+        // Translucent blue fill
+        drawList.AddRectFilled(rectMin, rectMax,
+            ImGui.GetColorU32(new Vector4(0.2f, 0.5f, 1f, 0.3f)));
+        // Bright border
+        drawList.AddRect(rectMin, rectMax,
+            ImGui.GetColorU32(new Vector4(0.3f, 0.7f, 1f, 0.9f)), 0f, ImDrawFlags.None, 2f);
+
+        // Canvas border
+        drawList.AddRect(canvasPos, canvasPos + new Vector2(previewSize, previewSize),
+            ImGui.GetColorU32(new Vector4(0.5f, 0.5f, 0.5f, 1f)));
+
+        // Corner labels
+        drawList.AddText(canvasPos + new Vector2(2, 2), ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.6f)), "0,0");
+        drawList.AddText(canvasPos + new Vector2(previewSize - 22, previewSize - 16),
+            ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.6f)), "1,1");
+
+        // Advance cursor past the preview
+        ImGui.Dummy(new Vector2(previewSize, previewSize));
+
+        ImGui.Spacing();
+        bool canAdd = !string.IsNullOrEmpty(_animatedLayerFrameFolder) && Directory.Exists(_animatedLayerFrameFolder)
+                      && !string.IsNullOrEmpty(_animatedLayerName);
+        if (!canAdd) ImGui.BeginDisabled();
+        if (ImGui.Button(Translator.LocalizeUI("Prepare & Activate")))
+        {
+            var def = new AnimatedLayerDefinition
+            {
+                Name = _animatedLayerName,
+                FrameFolder = _animatedLayerFrameFolder,
+                TargetCategory = targets[_animatedLayerTarget].ToLower(),
+                UVPosition = _animatedLayerUVPos,
+                UVSize = _animatedLayerUVSize,
+                Fps = _animatedLayerFps,
+                Opacity = _animatedLayerOpacity,
+                IsActive = true
+            };
+
+            // Save to config
+            var existing = Plugin.Configuration.AnimatedLayers.FindIndex(a => a.Name == def.Name);
+            if (existing >= 0)
+                Plugin.Configuration.AnimatedLayers[existing] = def;
+            else
+                Plugin.Configuration.AnimatedLayers.Add(def);
+            Plugin.Configuration.Save();
+
+            // Activate
+            var localPlayer = Plugin.SafeGameObjectManager?.LocalPlayer;
+            if (localPlayer != null && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter character)
+            {
+                System.Threading.Tasks.Task.Run(() => manager.ActivateLayer(def, localPlayer.Name.TextValue, character));
+            }
+        }
+        if (!canAdd) ImGui.EndDisabled();
+
+        // --- Active Layers Display ---
+        ImGui.Spacing();
+        ImGui.Spacing();
+        ImGui.TextColored(new Vector4(0.5f, 0.8f, 1f, 1f), Translator.LocalizeUI("Active Animated Layers"));
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        if (manager.ActiveLayers.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No animated layers active.");
+        }
+        else
+        {
+            if (ImGui.BeginTable("AnimLayerTable", 5, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+            {
+                ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthFixed, 150);
+                ImGui.TableSetupColumn("Target", ImGuiTableColumnFlags.WidthFixed, 60);
+                ImGui.TableSetupColumn("Progress", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 200);
+                ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 80);
+                ImGui.TableHeadersRow();
+
+                foreach (var kvp in manager.ActiveLayers)
+                {
+                    var state = kvp.Value;
+                    ImGui.TableNextRow();
+
+                    ImGui.TableNextColumn();
+                    ImGui.Text(state.Definition.Name);
+
+                    ImGui.TableNextColumn();
+                    ImGui.Text(state.Definition.TargetCategory);
+
+                    ImGui.TableNextColumn();
+                    if (state.Active)
+                    {
+                        float progress = state.FrameCount > 0 ? (float)state.CurrentFrame / state.FrameCount : 0;
+                        ImGui.ProgressBar(progress, new Vector2(-1, 0), $"{state.CurrentFrame}/{state.FrameCount}");
+                    }
+                    else
+                    {
+                        ImGui.ProgressBar(state.PreparationProgress, new Vector2(-1, 0),
+                            state.PreparationProgress < 1f ? $"Preparing {(state.PreparationProgress * 100):F0}%" : "Ready");
+                    }
+
+                    ImGui.TableNextColumn();
+                    ImGui.TextWrapped(state.Status ?? "");
+
+                    ImGui.TableNextColumn();
+                    if (ImGui.Button("Stop##" + kvp.Key))
+                    {
+                        manager.DeactivateLayer(kvp.Key);
+                        Plugin.Configuration.AnimatedLayers.RemoveAll(a => a.Name == state.Definition.Name);
+                        Plugin.Configuration.Save();
+                        break; // Collection modified
+                    }
+                }
+
+                ImGui.EndTable();
+            }
+        }
+
+        // --- Saved Definitions ---
+        var savedDefs = Plugin.Configuration.AnimatedLayers;
+        if (savedDefs.Count > 0)
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(new Vector4(0.5f, 0.8f, 1f, 1f), Translator.LocalizeUI("Saved Animated Layers"));
+            ImGui.Separator();
+
+            for (int i = 0; i < savedDefs.Count; i++)
+            {
+                var def = savedDefs[i];
+                bool isActive = manager.ActiveLayers.Values.Any(s => s.Definition.Name == def.Name && s.Active);
+
+                ImGui.Text($"{def.Name} ({def.TargetCategory}, {def.Fps}fps)");
+                ImGui.SameLine();
+
+                if (!isActive)
+                {
+                    if (ImGui.Button(Translator.LocalizeUI("Activate") + "##saved_" + i))
+                    {
+                        var localPlayer = Plugin.SafeGameObjectManager?.LocalPlayer;
+                        if (localPlayer != null && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter character)
+                        {
+                            System.Threading.Tasks.Task.Run(() => manager.ActivateLayer(def, localPlayer.Name.TextValue, character));
+                        }
+                    }
+                }
+                else
+                {
+                    ImGui.TextColored(new Vector4(0.2f, 1f, 0.2f, 1f), "Active");
+                }
+
+                ImGui.SameLine();
+                if (ImGui.Button("X##removeSaved_" + i))
+                {
+                    savedDefs.RemoveAt(i);
+                    Plugin.Configuration.Save();
+                    break;
+                }
+            }
+        }
+    }
+
+    #endregion
 }

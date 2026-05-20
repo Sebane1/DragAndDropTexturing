@@ -5,6 +5,7 @@ using System;
 using System.IO;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
+using DragAndDropTexturing.VideoPlayback;
 using DragAndDropTexturing.Windows;
 using RoleplayingVoice;
 using System.Collections.Generic;
@@ -40,6 +41,7 @@ public sealed class Plugin : IDalamudPlugin
     private ActionReaderHooks _actionReaderHooks;
     private AudioReaderHooks _audioReaderHooks;
     private ContextualLayerManager _contextualLayerManager;
+    private AnimatedLayerManager _animatedLayerManager;
 
     public Configuration Configuration { get; init; }
 
@@ -83,6 +85,7 @@ public sealed class Plugin : IDalamudPlugin
     public ThreadSafeGameObjectManager SafeGameObjectManager { get => _safeGameObjectManager; set => _safeGameObjectManager = value; }
     public IPluginLog PluginLog { get => _pluginLog; set => _pluginLog = value; }
     public ContextualLayerManager ContextualLayerManager => _contextualLayerManager;
+    public AnimatedLayerManager AnimatedLayerManager => _animatedLayerManager;
 
     public Plugin(IClientState clientState, IChatGui chatGui, IObjectTable objectTable, IFramework framework, IPluginLog pluginLog, IGameInteropProvider gameInteropProvider)
     {
@@ -138,6 +141,7 @@ public sealed class Plugin : IDalamudPlugin
             _actionReaderHooks = new ActionReaderHooks(gameInteropProvider);
             _audioReaderHooks = new AudioReaderHooks(gameInteropProvider, SigScanner);
             _contextualLayerManager = new ContextualLayerManager(this, _emoteReaderHooks, _actionReaderHooks, _audioReaderHooks);
+            _animatedLayerManager = new AnimatedLayerManager(this);
         }
         catch (Exception ex)
         {
@@ -279,6 +283,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         WindowSystem.RemoveAllWindows();
 
+        _animatedLayerManager?.Shutdown();
         _contextualLayerManager?.Dispose();
         _emoteReaderHooks?.Dispose();
         _actionReaderHooks?.Dispose();

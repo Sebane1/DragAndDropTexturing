@@ -346,9 +346,14 @@ namespace DragAndDropTexturing
             }
             
             bool inCombat = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat];
-            bool weaponDrawn = player.StatusFlags.HasFlag(Dalamud.Game.ClientState.Objects.Enums.StatusFlags.WeaponOut);
+            bool weaponDrawn = false;
             bool isSwimming = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Swimming] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Diving];
             bool isMounted = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Mounted] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.RidingPillion];
+            try
+            {
+                weaponDrawn = player.StatusFlags.HasFlag(Dalamud.Game.ClientState.Objects.Enums.StatusFlags.WeaponOut);
+            }
+            catch { return; } // Native character struct invalidated — skip this frame
 
             if (isSwimming)
             {

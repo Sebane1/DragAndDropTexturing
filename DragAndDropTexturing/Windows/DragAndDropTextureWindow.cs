@@ -1597,6 +1597,16 @@ namespace RoleplayingVoice
                 plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
                 sw.Stop();
                 plugin.PluginLog.Information($"[Drag & Drop] Generated in {compilationTime}ms. Total Export+IPC: {sw.ElapsedMilliseconds}ms.");
+
+                // Notify animated layers that static textures changed so they re-render onto the new base
+                try
+                {
+                    string categorySuffix = name.Contains("Body", StringComparison.OrdinalIgnoreCase) ? "body" :
+                                            name.Contains("Face", StringComparison.OrdinalIgnoreCase) ? "face" : null;
+                    if (categorySuffix != null)
+                        plugin.AnimatedLayerManager?.OnStaticLayersChanged(character.Key, categorySuffix);
+                }
+                catch { }
             }
             finally
             {
