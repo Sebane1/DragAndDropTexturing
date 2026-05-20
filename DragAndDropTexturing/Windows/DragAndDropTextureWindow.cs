@@ -153,7 +153,7 @@ namespace RoleplayingVoice
 
             if (uvType == UVMapType.Base)
             {
-                if (string.IsNullOrEmpty(item.Base)) { item.Base = file; item.BaseUV = sourceUV; }
+                if (string.IsNullOrEmpty(item.Base)) { item.Base = file; item.BaseUV = sourceUV; item.BaseTint = tint ?? System.Numerics.Vector4.One; }
                 else if (!item.BaseOverlays.Contains(file)) { item.BaseOverlays.Add(file); item.BaseOverlayUVs.Add(sourceUV); item.BaseOverlayTints.Add(tint ?? System.Numerics.Vector4.One); }
             }
             else if (uvType == UVMapType.Normal)
