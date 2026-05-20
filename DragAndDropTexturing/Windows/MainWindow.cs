@@ -12,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using static Penumbra.GameData.Files.ShpkFile;
+using RoleplayingVoice;
 
 namespace DragAndDropTexturing.Windows;
 
@@ -466,240 +467,10 @@ public class MainWindow : Window, IDisposable
         {
             if (ImGui.BeginTabBar("ActiveLayersSubTabs"))
             {
-                if (ImGui.BeginTabItem(Translator.LocalizeUI("Base Layers")))
+                if (ImGui.BeginTabItem(Translator.LocalizeUI("Presets & Layers")))
                 {
                     ImGui.Spacing();
-                    var keys = ddt.TextureHistory.Keys.Where(k => ddt.TextureHistory[k].Count > 0).ToList();
-                    if (keys.Count == 0)
-                    {
-                        ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No active textures dropped yet."));
-                        ImGui.Spacing();
-                        if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)")))
-                        {
-                            OpenImportDialog();
-                        }
-                        ImGui.SameLine();
-                        if (ImGui.Button(Translator.LocalizeUI("Open Texture Painter")))
-                        {
-                            Plugin.OpenPaintWindow();
-                        }
-                    }
-                    else
-                    {
-                        if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)")))
-                        {
-                            OpenImportDialog();
-                        }
-                        ImGui.SameLine();
-                        if (ImGui.Button(Translator.LocalizeUI("Add New Layer (Open Painter)##" + "asdasdaasd")))
-                        {
-                            Plugin.OpenPaintWindow();
-                        }
-                        ImGui.Spacing();
-
-                        ImGui.BeginChild("ActiveLayersList", new Vector2(200, 0), true);
-                        for (int i = 0; i < keys.Count; i++)
-                        {
-                            bool isSelected = _selectedActiveLayerIndex == i;
-                            string displayKey = keys[i];
-                            if (ddt.GearCategoryMeta != null && ddt.GearCategoryMeta.TryGetValue(keys[i], out var gearMeta))
-                            {
-                                displayKey = $"{gearMeta.SlotKey}: {gearMeta.DisplayName}";
-                                if (!string.IsNullOrEmpty(gearMeta.MaterialName))
-                                    displayKey += $" ({gearMeta.MaterialName})";
-                            }
-
-                            if (ImGui.Selectable($"{displayKey}##SelectActiveLayer_{i}", isSelected))
-                            {
-                                _selectedActiveLayerIndex = i;
-                            }
-                        }
-                        ImGui.EndChild();
-
-                        ImGui.SameLine();
-
-                        ImGui.BeginChild("ActiveLayerDetails", new Vector2(0, 0), true);
-                        if (_selectedActiveLayerIndex >= 0 && _selectedActiveLayerIndex < keys.Count)
-                        {
-                            string key = keys[_selectedActiveLayerIndex];
-                            var list = ddt.TextureHistory[key];
-                            var tintList = ddt.TextureHistoryTints != null && ddt.TextureHistoryTints.ContainsKey(key) ? ddt.TextureHistoryTints[key] : null;
-
-                            string displayKey = key;
-                            if (ddt.GearCategoryMeta != null && ddt.GearCategoryMeta.TryGetValue(key, out var gearMetaDetail))
-                            {
-                                displayKey = $"{gearMetaDetail.SlotKey}: {gearMetaDetail.DisplayName}";
-                                if (!string.IsNullOrEmpty(gearMetaDetail.MaterialName))
-                                    displayKey += $" ({gearMetaDetail.MaterialName})";
-                            }
-
-                            ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Active Layers for:") + $" {displayKey}");
-                            ImGui.Separator();
-
-                            ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
-                            if (ImGui.Button(Translator.LocalizeUI("Clear All") + "##" + key))
-                            {
-                                list.Clear();
-                                if (tintList != null) tintList.Clear();
-                                ddt.RebuildCategory(key, false);
-                                Plugin.Configuration.Save();
-                                // Keep index bounded if list clears and we want to prevent out of bounds next frame
-                            }
-                            ImGui.EndDisabled();
-                            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                            {
-                                ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Clear All"));
-                            }
-
-                            ImGui.SameLine();
-                            if (ImGui.Button(Translator.LocalizeUI("Export to PSD") + "##" + key))
-                            {
-                                ExportCategoryToPsd(key, list);
-                            }
-
-                            bool changed = false;
-                            for (int i = 0; i < list.Count; i++)
-                            {
-                                string path = list[i] ?? "";
-
-                                var tex = GetPreviewTexture(path);
-                                var wrap = tex?.GetWrapOrDefault();
-
-                                if (wrap != null)
-                                {
-                                    ImGui.Image(wrap.Handle, new Vector2(40, 40));
-                                    ImGui.SameLine();
-                                    // Adjust Y cursor to vertically align the InputText with the image
-                                    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 10);
-                                    ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 200);
-                                }
-                                else
-                                {
-                                    ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
-                                }
-
-                                if (ImGui.InputText("##path_" + key + i, ref path, 1024))
-                                {
-                                    list[i] = path;
-                                }
-                                if (ImGui.IsItemHovered())
-                                {
-                                    if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTarget", out var files, out _))
-                                    {
-                                        if (files.Count > 0)
-                                        {
-                                            if (Path.GetExtension(files[0]).Equals(".psd", StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                Plugin.PsdImportWindow.StartImport(files[0]);
-                                            }
-                                            else
-                                            {
-                                                list[i] = files[0];
-                                                if (tintList != null && i < tintList.Count) tintList[i] = System.Numerics.Vector4.One;
-                                                changed = true;
-                                            }
-                                        }
-                                    }
-                                }
-                                if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
-
-                                if (ImGui.Button(Translator.LocalizeUI("Up") + "##" + key + i) && i > 0)
-                                {
-                                    var temp = list[i - 1];
-                                    list[i - 1] = list[i];
-                                    list[i] = temp;
-                                    if (tintList != null && i < tintList.Count && i - 1 < tintList.Count) {
-                                        var tempTint = tintList[i - 1];
-                                        tintList[i - 1] = tintList[i];
-                                        tintList[i] = tempTint;
-                                    }
-                                    changed = true;
-                                }
-
-                                ImGui.SameLine();
-                                if (ImGui.Button(Translator.LocalizeUI("Down") + "##" + key + i) && i < list.Count - 1)
-                                {
-                                    var temp = list[i + 1];
-                                    list[i + 1] = list[i];
-                                    list[i] = temp;
-                                    if (tintList != null && i < tintList.Count && i + 1 < tintList.Count) {
-                                        var tempTint = tintList[i + 1];
-                                        tintList[i + 1] = tintList[i];
-                                        tintList[i] = tempTint;
-                                    }
-                                    changed = true;
-                                }
-
-                                ImGui.SameLine();
-                                ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
-                                bool removed = false;
-                                if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
-                                {
-                                    list.RemoveAt(i);
-                                    if (tintList != null && i < tintList.Count) tintList.RemoveAt(i);
-                                    removed = true;
-                                    changed = true;
-                                }
-                                ImGui.EndDisabled();
-                                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                                {
-                                    ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove"));
-                                }
-
-                                if (removed)
-                                {
-                                    i--;
-                                    continue;
-                                }
-
-                                if (tintList != null && i < tintList.Count) {
-                                    System.Numerics.Vector4 col = tintList[i];
-                                    ImGui.SameLine();
-                                    ImGui.SetNextItemWidth(40);
-                                    if (ImGui.ColorEdit4("##tint_" + key + i, ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaPreviewHalf)) {
-                                        tintList[i] = col;
-                                    }
-                                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
-                                }
-
-                                // Edit button — opens the Texture Painter with this layer loaded
-                                if (!string.IsNullOrEmpty(path) && File.Exists(path))
-                                {
-                                    ImGui.SameLine();
-                                    bool canEdit = true;
-                                    string lowerPath = path.ToLower();
-                                    if (lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe"))
-                                        canEdit = Plugin.IsBodyAvailable("bibo");
-                                    else if (lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia"))
-                                        canEdit = Plugin.IsBodyAvailable("gen3");
-                                    else if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody"))
-                                        canEdit = Plugin.IsBodyAvailable("tbse");
-
-                                    if (!canEdit) ImGui.BeginDisabled();
-                                    if (ImGui.Button(Translator.LocalizeUI("Edit") + "##" + key + i))
-                                    {
-                                        Plugin.OpenPaintWindow(path, key);
-                                    }
-                                    if (!canEdit)
-                                    {
-                                        ImGui.EndDisabled();
-                                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                                        {
-                                            ImGui.SetTooltip(Translator.LocalizeUI("This layer requires a body mod that is not currently available in your Penumbra directory."));
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (changed)
-                            {
-                                ddt.RebuildCategory(key, false);
-                                Plugin.Configuration.Save();
-                            }
-                        }
-                        ImGui.EndChild();
-
-                    } // closes the else {
+                    DrawCombinedLayersTab(ddt);
                     ImGui.EndTabItem();
                 }
 
@@ -712,6 +483,381 @@ public class MainWindow : Window, IDisposable
 
                 ImGui.EndTabBar();
             }
+        }
+    }
+
+    private int _selectedPresetIndex = -1;
+    private System.Collections.Generic.Dictionary<uint, string> _jobNames = null;
+    private string[] _jobNamesArray = null;
+    private uint[] _jobIdsArray = null;
+
+    private void InitJobNames()
+    {
+        if (_jobNames != null) return;
+        _jobNames = new System.Collections.Generic.Dictionary<uint, string>();
+        _jobNames[0] = "None";
+        var sheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.ClassJob>();
+        if (sheet != null)
+        {
+            foreach (var job in sheet)
+            {
+                if (job.RowId == 0) continue;
+                string name = job.Abbreviation.ToString();
+                if (string.IsNullOrEmpty(name)) name = job.Name.ToString();
+                if (string.IsNullOrEmpty(name)) name = $"Job {job.RowId}";
+                _jobNames[job.RowId] = name;
+            }
+        }
+        
+        var list = _jobNames.ToList();
+        list.Sort((a, b) => {
+            if (a.Key == 0) return -1;
+            if (b.Key == 0) return 1;
+            return a.Value.CompareTo(b.Value);
+        });
+        _jobIdsArray = list.Select(kv => kv.Key).ToArray();
+        _jobNamesArray = list.Select(kv => kv.Value).ToArray();
+    }
+
+    private void DrawCombinedLayersTab(DragAndDropTextureWindow ddt)
+    {
+        InitJobNames();
+        var presets = Plugin.Configuration.ActiveLayerPresets;
+        if (presets == null)
+        {
+            Plugin.Configuration.ActiveLayerPresets = new();
+            presets = Plugin.Configuration.ActiveLayerPresets;
+        }
+
+        ImGui.BeginChild("PresetsListColumn", new Vector2(200, 0), true);
+        if (ImGui.Selectable(Translator.LocalizeUI("Active Character State"), _selectedPresetIndex == -1))
+        {
+            _selectedPresetIndex = -1;
+            _selectedActiveLayerIndex = 0;
+        }
+
+        ImGui.Separator();
+
+        for (int i = 0; i < presets.Count; i++)
+        {
+            if (ImGui.Selectable($"{presets[i].Name}##Preset_{i}", _selectedPresetIndex == i))
+            {
+                _selectedPresetIndex = i;
+                _selectedActiveLayerIndex = 0;
+            }
+        }
+
+        ImGui.Spacing();
+        if (ImGui.Button(Translator.LocalizeUI("Save Current as Preset")))
+        {
+            var preset = new ActiveLayerPreset
+            {
+                Name = "New Preset " + (presets.Count + 1)
+            };
+            foreach (var kvp in ddt.TextureHistory)
+                preset.TextureHistory[kvp.Key] = new System.Collections.Generic.List<string>(kvp.Value);
+            if (ddt.TextureHistoryTints != null)
+            {
+                foreach (var kvp in ddt.TextureHistoryTints)
+                    preset.TextureHistoryTints[kvp.Key] = new System.Collections.Generic.List<System.Numerics.Vector4>(kvp.Value);
+            }
+            presets.Add(preset);
+            Plugin.Configuration.Save();
+            _selectedPresetIndex = presets.Count - 1;
+        }
+
+        ImGui.EndChild();
+        ImGui.SameLine();
+
+        ImGui.BeginChild("PresetDetailsColumn", new Vector2(0, 0), false);
+
+        var targetHistory = _selectedPresetIndex == -1 ? ddt.TextureHistory : presets[_selectedPresetIndex].TextureHistory;
+        var targetTints = _selectedPresetIndex == -1 ? ddt.TextureHistoryTints : presets[_selectedPresetIndex].TextureHistoryTints;
+
+        if (_selectedPresetIndex != -1)
+        {
+            var preset = presets[_selectedPresetIndex];
+            
+            string pName = preset.Name;
+            if (ImGui.InputText("Preset Name##PresetName", ref pName, 128))
+            {
+                preset.Name = pName;
+                Plugin.Configuration.Save();
+            }
+
+            int currentJobIndex = Array.IndexOf(_jobIdsArray, preset.LinkedJobId);
+            if (currentJobIndex < 0) currentJobIndex = 0;
+            
+            ImGui.SetNextItemWidth(150);
+            if (ImGui.Combo("Linked Job", ref currentJobIndex, _jobNamesArray, _jobNamesArray.Length))
+            {
+                preset.LinkedJobId = _jobIdsArray[currentJobIndex];
+                Plugin.Configuration.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(Translator.LocalizeUI("If a Job ID is set, this preset will automatically load when you switch to that job."));
+            }
+
+            ImGui.Spacing();
+
+            if (ImGui.Button(Translator.LocalizeUI("Load Preset to Character")))
+            {
+                ApplyPreset(preset);
+                _selectedPresetIndex = -1; // Switch back to active view
+            }
+
+            ImGui.SameLine();
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
+            ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
+            if (ImGui.Button(Translator.LocalizeUI("Delete Preset")))
+            {
+                presets.RemoveAt(_selectedPresetIndex);
+                Plugin.Configuration.Save();
+                _selectedPresetIndex = -1;
+            }
+            ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Delete Preset"));
+            }
+            ImGui.PopStyleColor(3);
+
+            ImGui.Separator();
+            ImGui.Spacing();
+        }
+        else
+        {
+            ImGui.TextColored(new Vector4(1f, 1f, 0f, 1f), Translator.LocalizeUI("You are editing the live character state. Changes apply immediately."));
+            ImGui.Separator();
+            ImGui.Spacing();
+        }
+
+        var keys = targetHistory.Keys.Where(k => targetHistory[k].Count > 0).ToList();
+        if (keys.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No textures in this configuration."));
+            ImGui.Spacing();
+            if (_selectedPresetIndex == -1) // only show import for active
+            {
+                if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)"))) OpenImportDialog();
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Open Texture Painter"))) Plugin.OpenPaintWindow();
+            }
+        }
+        else
+        {
+            if (_selectedPresetIndex == -1)
+            {
+                if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)"))) OpenImportDialog();
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Add New Layer (Open Painter)"))) Plugin.OpenPaintWindow();
+                ImGui.Spacing();
+            }
+
+            ImGui.BeginChild("LayerCategoriesList", new Vector2(200, 0), true);
+            for (int i = 0; i < keys.Count; i++)
+            {
+                bool isSelected = _selectedActiveLayerIndex == i;
+                string displayKey = keys[i];
+                if (ddt.GearCategoryMeta != null && ddt.GearCategoryMeta.TryGetValue(keys[i], out var gearMeta))
+                {
+                    displayKey = $"{gearMeta.SlotKey}: {gearMeta.DisplayName}";
+                    if (!string.IsNullOrEmpty(gearMeta.MaterialName)) displayKey += $" ({gearMeta.MaterialName})";
+                }
+
+                if (ImGui.Selectable($"{displayKey}##SelectCat_{i}", isSelected))
+                {
+                    _selectedActiveLayerIndex = i;
+                }
+            }
+            ImGui.EndChild();
+
+            ImGui.SameLine();
+
+            ImGui.BeginChild("LayerTexturesList", new Vector2(0, 0), true);
+            if (_selectedActiveLayerIndex >= 0 && _selectedActiveLayerIndex < keys.Count)
+            {
+                string key = keys[_selectedActiveLayerIndex];
+                var list = targetHistory[key];
+                var tintList = targetTints != null && targetTints.ContainsKey(key) ? targetTints[key] : null;
+
+                string displayKey = key;
+                if (ddt.GearCategoryMeta != null && ddt.GearCategoryMeta.TryGetValue(key, out var gearMetaDetail))
+                {
+                    displayKey = $"{gearMetaDetail.SlotKey}: {gearMetaDetail.DisplayName}";
+                    if (!string.IsNullOrEmpty(gearMetaDetail.MaterialName)) displayKey += $" ({gearMetaDetail.MaterialName})";
+                }
+
+                ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Layers for:") + $" {displayKey}");
+                ImGui.Separator();
+
+                ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
+                if (ImGui.Button(Translator.LocalizeUI("Clear All") + "##" + key))
+                {
+                    list.Clear();
+                    if (tintList != null) tintList.Clear();
+                    if (_selectedPresetIndex == -1) ddt.RebuildCategory(key, false);
+                    Plugin.Configuration.Save();
+                }
+                ImGui.EndDisabled();
+                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Clear All"));
+
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Export to PSD") + "##" + key))
+                {
+                    ExportCategoryToPsd(key, list);
+                }
+
+                bool changed = false;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    string path = list[i] ?? "";
+                    var tex = GetPreviewTexture(path);
+                    var wrap = tex?.GetWrapOrDefault();
+
+                    if (wrap != null)
+                    {
+                        ImGui.Image(wrap.Handle, new Vector2(40, 40));
+                        ImGui.SameLine();
+                        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 10);
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 200);
+                    }
+                    else
+                    {
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
+                    }
+
+                    if (ImGui.InputText("##path_" + key + i, ref path, 1024)) list[i] = path;
+                    if (ImGui.IsItemHovered())
+                    {
+                        if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTarget", out var files, out _))
+                        {
+                            if (files.Count > 0)
+                            {
+                                if (Path.GetExtension(files[0]).Equals(".psd", StringComparison.OrdinalIgnoreCase))
+                                    Plugin.PsdImportWindow.StartImport(files[0]);
+                                else
+                                {
+                                    list[i] = files[0];
+                                    if (tintList != null && i < tintList.Count) tintList[i] = System.Numerics.Vector4.One;
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                    if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
+
+                    if (ImGui.Button(Translator.LocalizeUI("Up") + "##" + key + i) && i > 0)
+                    {
+                        var temp = list[i - 1]; list[i - 1] = list[i]; list[i] = temp;
+                        if (tintList != null && i < tintList.Count && i - 1 < tintList.Count) {
+                            var tempTint = tintList[i - 1]; tintList[i - 1] = tintList[i]; tintList[i] = tempTint;
+                        }
+                        changed = true;
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.Button(Translator.LocalizeUI("Down") + "##" + key + i) && i < list.Count - 1)
+                    {
+                        var temp = list[i + 1]; list[i + 1] = list[i]; list[i] = temp;
+                        if (tintList != null && i < tintList.Count && i + 1 < tintList.Count) {
+                            var tempTint = tintList[i + 1]; tintList[i + 1] = tintList[i]; tintList[i] = tempTint;
+                        }
+                        changed = true;
+                    }
+
+                    ImGui.SameLine();
+                    ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
+                    bool removed = false;
+                    if (ImGui.Button(Translator.LocalizeUI("Remove") + "##" + key + i))
+                    {
+                        list.RemoveAt(i);
+                        if (tintList != null && i < tintList.Count) tintList.RemoveAt(i);
+                        removed = true;
+                        changed = true;
+                    }
+                    ImGui.EndDisabled();
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove"));
+
+                    if (removed) { i--; continue; }
+
+                    if (tintList != null && i < tintList.Count) {
+                        System.Numerics.Vector4 col = tintList[i];
+                        ImGui.SameLine();
+                        ImGui.SetNextItemWidth(40);
+                        if (ImGui.ColorEdit4("##tint_" + key + i, ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaPreviewHalf)) {
+                            tintList[i] = col;
+                        }
+                        if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
+                    }
+
+                    if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                    {
+                        ImGui.SameLine();
+                        bool canEdit = true;
+                        string lowerPath = path.ToLower();
+                        if (lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe"))
+                            canEdit = Plugin.IsBodyAvailable("bibo");
+                        else if (lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia"))
+                            canEdit = Plugin.IsBodyAvailable("gen3");
+                        else if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody"))
+                            canEdit = Plugin.IsBodyAvailable("tbse");
+
+                        if (!canEdit) ImGui.BeginDisabled();
+                        if (ImGui.Button(Translator.LocalizeUI("Edit") + "##" + key + i))
+                        {
+                            Plugin.OpenPaintWindow(path, key);
+                        }
+                        if (!canEdit)
+                        {
+                            ImGui.EndDisabled();
+                            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("This layer requires a body mod that is not currently available in your Penumbra directory."));
+                        }
+                    }
+                }
+
+                if (changed)
+                {
+                    if (_selectedPresetIndex == -1) ddt.RebuildCategory(key, false);
+                    Plugin.Configuration.Save();
+                }
+            }
+            ImGui.EndChild(); // LayerTexturesList
+        }
+
+        ImGui.EndChild(); // PresetDetailsColumn
+    }
+
+    public void ApplyPreset(ActiveLayerPreset preset)
+    {
+        if (Plugin.DragAndDropTextures == null) return;
+
+        Plugin.DragAndDropTextures.TextureHistory.Clear();
+        if (Plugin.DragAndDropTextures.TextureHistoryTints != null)
+            Plugin.DragAndDropTextures.TextureHistoryTints.Clear();
+
+        foreach (var kvp in preset.TextureHistory)
+        {
+            Plugin.DragAndDropTextures.TextureHistory[kvp.Key] = new System.Collections.Generic.List<string>(kvp.Value);
+        }
+        if (preset.TextureHistoryTints != null && Plugin.DragAndDropTextures.TextureHistoryTints != null)
+        {
+            foreach (var kvp in preset.TextureHistoryTints)
+            {
+                Plugin.DragAndDropTextures.TextureHistoryTints[kvp.Key] = new System.Collections.Generic.List<System.Numerics.Vector4>(kvp.Value);
+            }
+        }
+
+        Plugin.Configuration.TextureHistory = Plugin.DragAndDropTextures.TextureHistory;
+        Plugin.Configuration.TextureHistoryTints = Plugin.DragAndDropTextures.TextureHistoryTints;
+        Plugin.Configuration.Save();
+
+        foreach (var category in Plugin.DragAndDropTextures.TextureHistory.Keys)
+        {
+            Plugin.DragAndDropTextures.RebuildCategory(category, false);
         }
     }
 

@@ -46,7 +46,7 @@ public sealed class Plugin : IDalamudPlugin
     public Configuration Configuration { get; init; }
 
     public readonly WindowSystem WindowSystem = new("DragAndDropTexturing");
-    private MainWindow MainWindow { get; init; }
+    public MainWindow MainWindow { get; init; }
     public PsdImportWindow PsdImportWindow { get; init; }
     public MdlPreviewWindow MdlPreviewWindow { get; init; }
     public List<TexturePaintingWindow> TexturePaintingWindows { get; init; } = new();

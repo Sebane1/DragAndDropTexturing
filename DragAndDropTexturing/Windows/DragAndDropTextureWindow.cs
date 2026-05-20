@@ -496,9 +496,20 @@ namespace RoleplayingVoice
         }
 
         private int _lastDistanceBracket = -1;
+        private uint _lastJobId = 0;
 
         public override void Update()
         {
+            if (plugin?.SafeGameObjectManager?.LocalPlayer != null)
+            {
+                uint currentJob = plugin.SafeGameObjectManager.LocalPlayer.ClassJob.RowId;
+                if (_lastJobId != 0 && _lastJobId != currentJob)
+                {
+                    HandleJobChange(currentJob);
+                }
+                _lastJobId = currentJob;
+            }
+
             if (Plugin.Configuration.AutoDistanceExportQuality && plugin?.SafeGameObjectManager?.LocalPlayer != null)
             {
                 try
@@ -546,6 +557,16 @@ namespace RoleplayingVoice
                     }
                 }
                 catch { }
+            }
+        }
+
+        private void HandleJobChange(uint newJobId)
+        {
+            var preset = plugin.Configuration.ActiveLayerPresets?.FirstOrDefault(p => p.LinkedJobId == newJobId);
+            if (preset != null)
+            {
+                plugin.PluginLog.Information($"[Drag And Drop Texturing] Auto-loading preset '{preset.Name}' for job {newJobId}.");
+                plugin.MainWindow.ApplyPreset(preset);
             }
         }
 

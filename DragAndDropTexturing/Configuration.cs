@@ -2,7 +2,20 @@ using Dalamud.Configuration;
 using Dalamud.Plugin;
 using System;
 
+using System.Collections.Generic;
+using System.Numerics;
+
 namespace DragAndDropTexturing;
+
+[Serializable]
+public class ActiveLayerPreset
+{
+    public string Name { get; set; } = "New Preset";
+    public uint LinkedJobId { get; set; } = 0; // 0 = none
+    
+    public Dictionary<string, List<string>> TextureHistory { get; set; } = new();
+    public Dictionary<string, List<Vector4>> TextureHistoryTints { get; set; } = new();
+}
 
 [Serializable]
 public class Configuration : IPluginConfiguration
@@ -27,6 +40,7 @@ public class Configuration : IPluginConfiguration
     public string PersistedProceduralCanvasPath { get; set; } = null;
     public System.Collections.Generic.List<string> RecentLayers { get; set; } = new System.Collections.Generic.List<string>();
     public System.Collections.Generic.List<DragAndDropTexturing.VideoPlayback.AnimatedLayerDefinition> AnimatedLayers { get; set; } = new System.Collections.Generic.List<DragAndDropTexturing.VideoPlayback.AnimatedLayerDefinition>();
+    public System.Collections.Generic.List<ActiveLayerPreset> ActiveLayerPresets { get; set; } = new();
     public int LanguageOverride { get; set; } = -1; // -1 = Auto
     // the below exist just to make saving less cumbersome
     public void Save()
