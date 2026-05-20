@@ -1295,8 +1295,38 @@ namespace DragAndDropTexturing.Windows
                 var rect = new System.Drawing.Rectangle(0, 0, w, h);
                 var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 
-                
                 System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+                
+                // Force a solid black background for Glow Maps to match external PNGs that load correctly
+                if (_newLayerType == "Glow" || outPath.Contains("glow"))
+                {
+                    unsafe
+                    {
+                        byte* ptr = (byte*)data.Scan0;
+                        int bytes = Math.Abs(data.Stride) * bmp.Height;
+                        for (int i = 0; i < bytes; i += 4)
+                        {
+                            // If fully transparent, set to solid black
+                            if (ptr[i + 3] == 0)
+                            {
+                                ptr[i] = 0;
+                                ptr[i + 1] = 0;
+                                ptr[i + 2] = 0;
+                                ptr[i + 3] = 255;
+                            }
+                            // If partially transparent, alpha-blend onto black
+                            else if (ptr[i + 3] < 255)
+                            {
+                                float a = ptr[i + 3] / 255f;
+                                ptr[i] = (byte)(ptr[i] * a);
+                                ptr[i + 1] = (byte)(ptr[i + 1] * a);
+                                ptr[i + 2] = (byte)(ptr[i + 2] * a);
+                                ptr[i + 3] = 255;
+                            }
+                        }
+                    }
+                }
+                
                 bmp.UnlockBits(data);
                 bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
                 _plugin.PluginLog.Info($"[Texture Painter] Paint layer saved to: {outPath}");

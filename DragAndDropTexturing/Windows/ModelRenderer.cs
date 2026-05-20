@@ -1910,19 +1910,32 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             foreach(var t in _redoStack) t.Dispose();
             _redoStack.Clear();
             
-            // Create a copy of the current paint texture
             var desc = _gpuPaintTex.Description;
-            var snapshot = _device.CreateTexture2D(desc);
-            _context.CopyResource(snapshot, _gpuPaintTex);
-            
-            _undoStack.Add(snapshot);
-            
-            // Trim if over limit
-            if (_undoStack.Count > MaxUndoSteps)
+            ID3D11Texture2D snapshot = null;
+
+            // Reuse oldest snapshot if at limit to prevent VRAM fragmentation / OOM
+            if (_undoStack.Count >= MaxUndoSteps)
             {
-                _undoStack[0].Dispose();
+                var oldest = _undoStack[0];
                 _undoStack.RemoveAt(0);
+
+                if (oldest.Description.Width == desc.Width && oldest.Description.Height == desc.Height && oldest.Description.Format == desc.Format)
+                {
+                    snapshot = oldest;
+                }
+                else
+                {
+                    oldest.Dispose();
+                }
             }
+
+            if (snapshot == null)
+            {
+                snapshot = _device.CreateTexture2D(desc);
+            }
+
+            _context.CopyResource(snapshot, _gpuPaintTex);
+            _undoStack.Add(snapshot);
         }
         
         public void Undo()
