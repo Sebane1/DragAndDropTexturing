@@ -1795,17 +1795,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
         public void GpuClearPaint()
         {
-            if (_context == null || _gpuPaintTex == null) return;
+            if (_context == null || _gpuPaintUAV == null) return;
 
-            // Recreate the paint texture to clear it (fastest guaranteed zero-fill)
-            var desc = _gpuPaintTex.Description;
-            _gpuPaintUAV?.Dispose();
-            _gpuPaintSRV?.Dispose();
-            _gpuPaintTex?.Dispose();
-
-            _gpuPaintTex = _device.CreateTexture2D(desc);
-            _gpuPaintUAV = _device.CreateUnorderedAccessView(_gpuPaintTex);
-            _gpuPaintSRV = _device.CreateShaderResourceView(_gpuPaintTex);
+            // Clear the UAV memory directly instead of recreating the texture
+            _context.ClearUnorderedAccessView(_gpuPaintUAV, System.Numerics.Vector4.Zero);
         }
 
         public IntPtr GetCompositeSrvHandle()

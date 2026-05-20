@@ -198,13 +198,27 @@ public static class WornEquipmentResolver
                     continue;
                 }
 
-                var row = itemSheet.GetRow((uint)itemId);
-                
                 uint equipModelMain = GetModelMain(equipItem);
                 uint equipVariant = GetModelVariant(equipItem);
 
-                uint finalModelMain = equipModelMain > 0 ? equipModelMain : (row.RowId != 0 ? (uint)row.ModelMain : 0);
-                uint finalVariant = equipVariant > 0 ? equipVariant : (row.RowId != 0 ? (uint)(row.ModelMain >> 16) : 0);
+                uint finalModelMain = equipModelMain;
+                uint finalVariant = equipVariant;
+                string itemName = $"Item {itemId}";
+
+                if (itemId < 1000000)
+                {
+                    try
+                    {
+                        var row = itemSheet.GetRow((uint)itemId);
+                        if (row.RowId != 0)
+                        {
+                            if (finalModelMain == 0) finalModelMain = (uint)row.ModelMain;
+                            if (finalVariant == 0) finalVariant = (uint)(row.ModelMain >> 16);
+                            itemName = row.Name.ToString();
+                        }
+                    }
+                    catch { }
+                }
 
                 if (finalModelMain == 0)
                 {
@@ -213,8 +227,6 @@ public static class WornEquipmentResolver
                 }
 
                 DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] {slot.SlotKey}: Found valid itemId {itemId}. ModelMain={finalModelMain}");
-
-                string itemName = row.RowId != 0 ? row.Name.ToString() : $"Item {itemId}";
 
                 var pieces = TryResolvePieces(collection, raceCodes, (ushort)finalModelMain, (byte)finalVariant, slot.SlotKey, slot.ModelSuffixes, itemId, itemName);
                 if (pieces.Count == 0)

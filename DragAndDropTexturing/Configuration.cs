@@ -22,6 +22,7 @@ public class Configuration : IPluginConfiguration
     public int LastKnownGender { get; set; } = -1;
     public int LastKnownFace { get; set; } = -1;
     public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> TextureHistory { get; set; } = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>();
+    public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<System.Numerics.Vector4>> TextureHistoryTints { get; set; } = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<System.Numerics.Vector4>>();
     public System.Collections.Generic.Dictionary<string, int> PersistedContextualStacks { get; set; } = new System.Collections.Generic.Dictionary<string, int>();
     public string PersistedProceduralCanvasPath { get; set; } = null;
     public System.Collections.Generic.List<string> RecentLayers { get; set; } = new System.Collections.Generic.List<string>();

@@ -738,14 +738,17 @@ namespace DragAndDropTexturing.Windows
                             _needsComposite = true;
                         }
                         
-                        foreach (var mat in _availableMaterials)
+                        lock (_availableMaterials)
                         {
-                            if (ImGui.Selectable(mat, _selectedMaterial == mat))
+                            foreach (var mat in _availableMaterials)
                             {
-                                _selectedMaterial = mat;
-                                _renderer?.PushUndoSnapshot();
-                                StartLoadPlayerModels();
-                                _needsComposite = true;
+                                if (ImGui.Selectable(mat, _selectedMaterial == mat))
+                                {
+                                    _selectedMaterial = mat;
+                                    _renderer?.PushUndoSnapshot();
+                                    StartLoadPlayerModels();
+                                    _needsComposite = true;
+                                }
                             }
                         }
                         ImGui.EndCombo();
@@ -1323,19 +1326,39 @@ namespace DragAndDropTexturing.Windows
                         }
                         else
                         {
-                            PenumbraAndGlamourerHelpers.BodyDragPart targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Body;
-                            if (!string.IsNullOrEmpty(ContextCategoryKey))
+                            if (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.StartsWith(targetChar.Name.TextValue))
                             {
-                                if (ContextCategoryKey.Contains("_gear_")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Clothing;
-                                else if (ContextCategoryKey.Contains("_face")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Face;
-                                else if (ContextCategoryKey.Contains("_eyes")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Eyes;
-                                else if (ContextCategoryKey.Contains("_eyebrows")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.EyebrowsAndLashes;
+                                _plugin.PluginLog.Info($"[Texture Painter] Appending new layer precisely to {ContextCategoryKey}");
+                                if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(ContextCategoryKey))
+                                {
+                                    _plugin.DragAndDropTextures.TextureHistory[ContextCategoryKey] = new List<string>();
+                                    _plugin.DragAndDropTextures.TextureHistoryTints[ContextCategoryKey] = new List<System.Numerics.Vector4>();
+                                }
+                                if (!_plugin.DragAndDropTextures.TextureHistory[ContextCategoryKey].Contains(outPath))
+                                {
+                                    _plugin.DragAndDropTextures.TextureHistory[ContextCategoryKey].Add(outPath);
+                                    _plugin.DragAndDropTextures.TextureHistoryTints[ContextCategoryKey].Add(System.Numerics.Vector4.One);
+                                }
+                                _plugin.Configuration.Save();
+                                string suffix = ContextCategoryKey.Substring(targetChar.Name.TextValue.Length);
+                                _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { suffix }, true, false);
                             }
-                            _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with targetPart={targetPart}");
-                            _plugin.DragAndDropTextures.InjectFilesAndRebuild(
-                                new List<string> { outPath },
-                                new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
-                                targetPart);
+                            else
+                            {
+                                PenumbraAndGlamourerHelpers.BodyDragPart targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Body;
+                                if (!string.IsNullOrEmpty(ContextCategoryKey))
+                                {
+                                    if (ContextCategoryKey.Contains("_gear_")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Clothing;
+                                    else if (ContextCategoryKey.Contains("_face")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Face;
+                                    else if (ContextCategoryKey.Contains("_eyes")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Eyes;
+                                    else if (ContextCategoryKey.Contains("_eyebrows")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.EyebrowsAndLashes;
+                                }
+                                _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with targetPart={targetPart}");
+                                _plugin.DragAndDropTextures.InjectFilesAndRebuild(
+                                    new List<string> { outPath },
+                                    new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
+                                    targetPart);
+                            }
                         }
                     }
                     else

@@ -262,7 +262,8 @@ namespace RoleplayingVoice
                 {
                     _textureHistory = plugin.Configuration.TextureHistory;
                     _textureHistoryTints = plugin.Configuration.TextureHistoryTints;
-                    if (_textureHistoryTints == null) {
+                    if (_textureHistoryTints == null)
+                    {
                         _textureHistoryTints = new Dictionary<string, List<System.Numerics.Vector4>>();
                         plugin.Configuration.TextureHistoryTints = _textureHistoryTints;
                     }
@@ -290,10 +291,13 @@ namespace RoleplayingVoice
                             _textureHistoryTints[newKey] = new List<System.Numerics.Vector4>();
                         }
                         _textureHistory[newKey].AddRange(_textureHistory[key]);
-                        if (_textureHistoryTints.ContainsKey(key)) {
+                        if (_textureHistoryTints.ContainsKey(key))
+                        {
                             _textureHistoryTints[newKey].AddRange(_textureHistoryTints[key]);
                             _textureHistoryTints.Remove(key);
-                        } else {
+                        }
+                        else
+                        {
                             for (int i = 0; i < _textureHistory[key].Count; i++) _textureHistoryTints[newKey].Add(System.Numerics.Vector4.One);
                         }
                         _textureHistory.Remove(key);
@@ -1069,7 +1073,8 @@ namespace RoleplayingVoice
                                             }
                                         }
 
-                                        if (!_textureHistory.ContainsKey(categoryKey)) {
+                                        if (!_textureHistory.ContainsKey(categoryKey))
+                                        {
                                             _textureHistory[categoryKey] = new List<string>();
                                             _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
                                         }
@@ -1317,204 +1322,208 @@ namespace RoleplayingVoice
                 _currentTarget = character.Value;
                 _hideProgressUI = isContextual;
                 Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
-                    bool requiresFullRedraw = false;
+                bool requiresFullRedraw = false;
 
-                    // Extract currently equipped textures from Penumbra to use as underlay
+                // Extract currently equipped textures from Penumbra to use as underlay
+                try
+                {
+                    // Use overridden customization if provided (from RebuildCategory), otherwise read live
+                    int useRace, useClan, useGender, useFace;
+                    if (overrideRace != -1)
+                    {
+                        useRace = overrideRace;
+                        useClan = overrideClan;
+                        useGender = overrideGender;
+                        useFace = overrideFace;
+                    }
+                    else
+                    {
+                        var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character.Value);
+                        useRace = customization.Customize.Race.Value - 1;
+                        useClan = customization.Customize.Clan.Value - 1;
+                        useGender = customization.Customize.Gender.Value;
+                        useFace = customization.Customize.Face.Value - 1;
+                    }
+                    string raceCode = PenumbraAndGlamourerHelperFunctions.ModelRaceToRaceCode(useRace, useClan, useGender);
+                    string subRaceName = PenumbraAndGlamourerHelperFunctions.SubRaceToSubRaceName(useRace, useClan);
+                    plugin.PluginLog.Information($"[Drag And Drop Debug] Export customization: Race={useRace}, Clan={useClan}, Face={useFace}, RaceCode={raceCode}");
+
+                    PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, useGender, useClan, plugin);
+                    foreach (var i in exportTextureSets)
+                    {
+                        string category = "";
+                        string tName = i.TextureSetName.ToLower();
+                        string tPath = i.InternalBasePath.ToLower();
+                        plugin.PluginLog.Information($"[Drag And Drop Debug] TextureSet '{i.TextureSetName}' InternalBase: {i.InternalBasePath}");
+
+                        if (tName.Contains("body") || tName.Contains("bibo") || tName.Contains("gen3") || tName.Contains("tbse") || tPath.Contains("obj/body") || tPath.Contains("bibo") || tPath.Contains("otopop") || tPath.Contains("asym lala") || tPath.Contains("relala"))
+                            category = "_body";
+                        else if (tName.Contains("eyebrows"))
+                        {
+                            category = "_eyebrows";
+                            requiresFullRedraw = true;
+                        }
+                        else if (tName.Contains("eyes") || tPath.Contains("eye"))
+                        {
+                            category = "_eyes";
+                            requiresFullRedraw = true;
+                        }
+                        else if (tName.Contains("face") || tPath.Contains("obj/face"))
+                        {
+                            category = "_face";
+                            requiresFullRedraw = true;
+                        }
+                        else if (tPath.Contains("obj/equipment") || tPath.Contains("chara/equipment") || tName.Contains("gear"))
+                        {
+                            category = "_gear";
+                            requiresFullRedraw = true;
+                        }
+
+                        if (!string.IsNullOrEmpty(category))
+                        {
+                            // Dynamically update the face paths based on current face geometry to fix Au Ra UV mismatch
+                            if (category == "_face")
+                            {
+                                BackupTexturePaths.AddFaceBackupPaths(useGender, useClan, useFace, i);
+                            }
+
+                            plugin.PluginLog.Information($"[Drag And Drop Debug] Extracting underlay for {category}...");
+                            string baseTex, normTex, maskTex;
+                            PenumbraAndGlamourerHelperFunctions.ExtractActiveTextureFromPenumbra(collection, category, raceCode, subRaceName, out _, out baseTex, out normTex, out maskTex, plugin, i);
+
+                            // Refresh OmniOverrides now that they've been loaded
+                            if (category == "_body")
+                            {
+                                int mainRace = RaceInfo.SubRaceToMainRace(useClan);
+                                BackupTexturePaths.AddBodyBackupPaths(useGender, mainRace, i);
+                            }
+
+                            bool usedLuminaBase = false;
+                            bool usedLuminaNorm = false;
+
+                            // Lumina fallback: if no modded textures found AND OmniOverrides didn't provide one
+                            if (string.IsNullOrEmpty(baseTex) && !string.IsNullOrEmpty(i.InternalBasePath) && (i.BackupTexturePaths == null || string.IsNullOrEmpty(i.BackupTexturePaths.Base)))
+                            {
+                                baseTex = ExtractVanillaTexViaLumina(i.InternalBasePath, i);
+                                usedLuminaBase = true;
+                                if (!string.IsNullOrEmpty(baseTex))
+                                    plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback base: {i.InternalBasePath}");
+                            }
+                            if (string.IsNullOrEmpty(normTex) && !string.IsNullOrEmpty(i.InternalNormalPath) && (i.BackupTexturePaths == null || string.IsNullOrEmpty(i.BackupTexturePaths.Normal)))
+                            {
+                                normTex = ExtractVanillaTexViaLumina(i.InternalNormalPath, i);
+                                usedLuminaNorm = true;
+                                if (!string.IsNullOrEmpty(normTex))
+                                    plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback normal: {i.InternalNormalPath}");
+                            }
+                            if (string.IsNullOrEmpty(maskTex) && !string.IsNullOrEmpty(i.InternalMaskPath))
+                            {
+                                maskTex = ExtractVanillaTexViaLumina(i.InternalMaskPath, i);
+                                if (!string.IsNullOrEmpty(maskTex))
+                                    plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback mask: {i.InternalMaskPath}");
+                            }
+
+                            // Update BackupTexturePaths so the assembly pipeline
+                            // uses the freshly-extracted textures (not stale static presets)
+                            // This is required for all categories so the extracted normal map is preserved.
+                            bool hasValidBase = !string.IsNullOrEmpty(baseTex);
+                            bool hasValidNorm = !string.IsNullOrEmpty(normTex);
+
+                            string finalBase = i.BackupTexturePaths != null ? i.BackupTexturePaths.Base : "";
+                            string finalNorm = i.BackupTexturePaths != null ? i.BackupTexturePaths.Normal : "";
+
+                            // We must always overwrite finalBase/finalNorm with the newly extracted textures.
+                            // The static presets in BackupTexturePaths point to dead 'res\textures\...' paths 
+                            // which are only valid in the standalone compiler, not the runtime plugin.
+                            if (hasValidBase)
+                                finalBase = baseTex;
+                            if (hasValidNorm)
+                                finalNorm = normTex;
+
+                            if (!string.IsNullOrEmpty(finalBase) && !string.IsNullOrEmpty(finalNorm))
+                                i.BackupTexturePaths = new BackupTexturePaths(finalBase, finalNorm);
+                            else if (!string.IsNullOrEmpty(finalBase))
+                                i.BackupTexturePaths = new BackupTexturePaths(finalBase);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    plugin.PluginLog.Error("[Drag And Drop Texturing] Error during underlay extraction: " + ex.Message);
+                }
+
+                float exportScale = Plugin.Configuration.ExportScale;
+                if (character.Value != null)
+                {
                     try
                     {
-                        // Use overridden customization if provided (from RebuildCategory), otherwise read live
-                        int useRace, useClan, useGender, useFace;
-                        if (overrideRace != -1)
+                        unsafe
                         {
-                            useRace = overrideRace;
-                            useClan = overrideClan;
-                            useGender = overrideGender;
-                            useFace = overrideFace;
-                        }
-                        else
-                        {
-                            var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character.Value);
-                            useRace = customization.Customize.Race.Value - 1;
-                            useClan = customization.Customize.Clan.Value - 1;
-                            useGender = customization.Customize.Gender.Value;
-                            useFace = customization.Customize.Face.Value - 1;
-                        }
-                        string raceCode = PenumbraAndGlamourerHelperFunctions.ModelRaceToRaceCode(useRace, useClan, useGender);
-                        string subRaceName = PenumbraAndGlamourerHelperFunctions.SubRaceToSubRaceName(useRace, useClan);
-                        plugin.PluginLog.Information($"[Drag And Drop Debug] Export customization: Race={useRace}, Clan={useClan}, Face={useFace}, RaceCode={raceCode}");
-
-                        PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, useGender, useClan, plugin);
-                        foreach (var i in exportTextureSets)
-                        {
-                            string category = "";
-                            string tName = i.TextureSetName.ToLower();
-                            string tPath = i.InternalBasePath.ToLower();
-                            plugin.PluginLog.Information($"[Drag And Drop Debug] TextureSet '{i.TextureSetName}' InternalBase: {i.InternalBasePath}");
-
-                            if (tName.Contains("body") || tName.Contains("bibo") || tName.Contains("gen3") || tName.Contains("tbse") || tPath.Contains("obj/body") || tPath.Contains("bibo") || tPath.Contains("otopop") || tPath.Contains("asym lala") || tPath.Contains("relala"))
-                                category = "_body";
-                            else if (tName.Contains("eyebrows"))
+                            var cameraManager = FFXIVClientStructs.FFXIV.Client.Graphics.Scene.CameraManager.Instance();
+                            if (cameraManager != null && cameraManager->CurrentCamera != null)
                             {
-                                category = "_eyebrows";
-                                requiresFullRedraw = true;
-                            }
-                            else if (tName.Contains("eyes") || tPath.Contains("eye"))
-                            {
-                                category = "_eyes";
-                                requiresFullRedraw = true;
-                            }
-                            else if (tName.Contains("face") || tPath.Contains("obj/face"))
-                            {
-                                category = "_face";
-                                requiresFullRedraw = true;
-                            }
-                            else if (tPath.Contains("obj/equipment") || tPath.Contains("chara/equipment") || tName.Contains("gear"))
-                            {
-                                category = "_gear";
-                                requiresFullRedraw = true;
-                            }
+                                var camPos = cameraManager->CurrentCamera->Object.Position;
+                                var playerPos = character.Value.Position;
+                                float distance = System.Numerics.Vector3.Distance(camPos, playerPos);
 
-                            if (!string.IsNullOrEmpty(category))
-                            {
-                                // Dynamically update the face paths based on current face geometry to fix Au Ra UV mismatch
-                                if (category == "_face")
+                                plugin.PluginLog.Information($"[Drag And Drop Texturing] Camera Distance = {distance}m. Auto Quality Enabled = {Plugin.Configuration.AutoDistanceExportQuality}");
+
+                                if (Plugin.Configuration.AutoDistanceExportQuality)
                                 {
-                                    BackupTexturePaths.AddFaceBackupPaths(useGender, useClan, useFace, i);
+                                    // Scale based on distance. 
+                                    if (distance < 2.5f) exportScale = 1.0f; // Close up, High Quality
+                                    else if (distance < 6.0f) exportScale = 0.5f; // Mid-range, Half Quality
+                                    else exportScale = 0.25f; // Far away, Quarter Quality
+
+                                    plugin.PluginLog.Information($"[Drag And Drop Texturing] Auto Distance Export Quality: Scale applied = {exportScale}");
                                 }
-
-                                plugin.PluginLog.Information($"[Drag And Drop Debug] Extracting underlay for {category}...");
-                                string baseTex, normTex, maskTex;
-                                PenumbraAndGlamourerHelperFunctions.ExtractActiveTextureFromPenumbra(collection, category, raceCode, subRaceName, out _, out baseTex, out normTex, out maskTex, plugin, i);
-
-                                // Refresh OmniOverrides now that they've been loaded
-                                if (category == "_body")
-                                {
-                                    int mainRace = RaceInfo.SubRaceToMainRace(useClan);
-                                    BackupTexturePaths.AddBodyBackupPaths(useGender, mainRace, i);
-                                }
-
-                                bool usedLuminaBase = false;
-                                bool usedLuminaNorm = false;
-
-                                // Lumina fallback: if no modded textures found AND OmniOverrides didn't provide one
-                                if (string.IsNullOrEmpty(baseTex) && !string.IsNullOrEmpty(i.InternalBasePath) && (i.BackupTexturePaths == null || string.IsNullOrEmpty(i.BackupTexturePaths.Base)))
-                                {
-                                    baseTex = ExtractVanillaTexViaLumina(i.InternalBasePath, i);
-                                    usedLuminaBase = true;
-                                    if (!string.IsNullOrEmpty(baseTex))
-                                        plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback base: {i.InternalBasePath}");
-                                }
-                                if (string.IsNullOrEmpty(normTex) && !string.IsNullOrEmpty(i.InternalNormalPath) && (i.BackupTexturePaths == null || string.IsNullOrEmpty(i.BackupTexturePaths.Normal)))
-                                {
-                                    normTex = ExtractVanillaTexViaLumina(i.InternalNormalPath, i);
-                                    usedLuminaNorm = true;
-                                    if (!string.IsNullOrEmpty(normTex))
-                                        plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback normal: {i.InternalNormalPath}");
-                                }
-                                if (string.IsNullOrEmpty(maskTex) && !string.IsNullOrEmpty(i.InternalMaskPath))
-                                {
-                                    maskTex = ExtractVanillaTexViaLumina(i.InternalMaskPath, i);
-                                    if (!string.IsNullOrEmpty(maskTex))
-                                        plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback mask: {i.InternalMaskPath}");
-                                }
-
-                                // Update BackupTexturePaths so the assembly pipeline
-                                // uses the freshly-extracted textures (not stale static presets)
-                                // This is required for all categories so the extracted normal map is preserved.
-                                bool hasValidBase = !string.IsNullOrEmpty(baseTex);
-                                bool hasValidNorm = !string.IsNullOrEmpty(normTex);
-
-                                string finalBase = i.BackupTexturePaths != null ? i.BackupTexturePaths.Base : "";
-                                string finalNorm = i.BackupTexturePaths != null ? i.BackupTexturePaths.Normal : "";
-
-                                // We must always overwrite finalBase/finalNorm with the newly extracted textures.
-                                // The static presets in BackupTexturePaths point to dead 'res\textures\...' paths 
-                                // which are only valid in the standalone compiler, not the runtime plugin.
-                                if (hasValidBase)
-                                    finalBase = baseTex;
-                                if (hasValidNorm)
-                                    finalNorm = normTex;
-
-                                if (!string.IsNullOrEmpty(finalBase) && !string.IsNullOrEmpty(finalNorm))
-                                    i.BackupTexturePaths = new BackupTexturePaths(finalBase, finalNorm);
-                                else if (!string.IsNullOrEmpty(finalBase))
-                                    i.BackupTexturePaths = new BackupTexturePaths(finalBase);
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        plugin.PluginLog.Error("[Drag And Drop Texturing] Error during underlay extraction: " + ex.Message);
+                        plugin.PluginLog.Error("[Drag And Drop Texturing] Camera distance check failed: " + ex.Message);
                     }
-
-                    float exportScale = Plugin.Configuration.ExportScale;
-                    if (character.Value != null)
-                    {
-                        try
-                        {
-                            unsafe
-                            {
-                                var cameraManager = FFXIVClientStructs.FFXIV.Client.Graphics.Scene.CameraManager.Instance();
-                                if (cameraManager != null && cameraManager->CurrentCamera != null)
-                                {
-                                    var camPos = cameraManager->CurrentCamera->Object.Position;
-                                    var playerPos = character.Value.Position;
-                                    float distance = System.Numerics.Vector3.Distance(camPos, playerPos);
-
-                                    plugin.PluginLog.Information($"[Drag And Drop Texturing] Camera Distance = {distance}m. Auto Quality Enabled = {Plugin.Configuration.AutoDistanceExportQuality}");
-
-                                    if (Plugin.Configuration.AutoDistanceExportQuality)
-                                    {
-                                        // Scale based on distance. 
-                                        if (distance < 2.5f) exportScale = 1.0f; // Close up, High Quality
-                                        else if (distance < 6.0f) exportScale = 0.5f; // Mid-range, Half Quality
-                                        else exportScale = 0.25f; // Far away, Quarter Quality
-
-                                        plugin.PluginLog.Information($"[Drag And Drop Texturing] Auto Distance Export Quality: Scale applied = {exportScale}");
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            plugin.PluginLog.Error("[Drag And Drop Texturing] Camera distance check failed: " + ex.Message);
-                        }
-                    }
-                    _textureProcessor.ExportScale = exportScale;
-                    ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath, 3, Plugin.Configuration.GenerateNormals, false, true, Plugin.Configuration.ExportCompression == 1);
-
-                    long compilationTime = sw.ElapsedMilliseconds;
-                    plugin.PluginLog.Information($"[Drag And Drop Texturing] Texture generation complete in {compilationTime}ms, beginning Penumbra update...");
-
-                    // Penumbra IPC calls do not require the framework thread
-                    PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
-                    PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
-                    collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
-                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name);
-                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name);
-                    var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
-                    foreach (var group in settings.Item2.Value.Item3)
-                    {
-                        PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
-                    }
-
-                    // Only Glamourer operations need the framework thread
-                    Plugin.Framework.RunOnFrameworkThread(async () =>
-                    {
-                        // SetItem optimization often ignores re-applying identical items, preventing texture cache invalidation.
-                        // We must force a full RedrawObject to ensure the new textures are pulled from Penumbra.
-                        PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
-                    });
-
-                    plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
-                    sw.Stop();
-                    plugin.PluginLog.Information($"[Drag & Drop] Generated in {compilationTime}ms. Total Export+IPC: {sw.ElapsedMilliseconds}ms.");
                 }
-                finally
+                _textureProcessor.ExportScale = exportScale;
+                ProjectHelper.ExportProject(path, name, exportTextureSets, _textureProcessor, _xNormalPath, 3, Plugin.Configuration.GenerateNormals, false, true, Plugin.Configuration.ExportCompression == 1);
+
+                long compilationTime = sw.ElapsedMilliseconds;
+                plugin.PluginLog.Information($"[Drag And Drop Texturing] Texture generation complete in {compilationTime}ms, beginning Penumbra update...");
+
+                // Penumbra IPC calls do not require the framework thread
+                PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
+                PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
+                collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
+                PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name);
+                PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name);
+                var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
+                foreach (var group in settings.Item2.Value.Item3)
                 {
-                    _lockDuplicateGeneration = false;
-                    _exportSemaphore.Release();
+                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
                 }
+
+                // Delay briefly to allow Penumbra's filesystem watchers and IPC to fully process ReloadMod
+                Thread.Sleep(500);
+                // Only Glamourer operations need the framework thread
+                Plugin.Framework.RunOnFrameworkThread(() =>
+                {
+                    var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character.Value);
+                    if (customization != null && customization.Equipment != null)
+                    {
+                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
+                    }
+                });
+
+                plugin.PluginLog.Information("[Drag And Drop Texturing] Import complete! Created mod is toggleable in penumbra.");
+                sw.Stop();
+                plugin.PluginLog.Information($"[Drag & Drop] Generated in {compilationTime}ms. Total Export+IPC: {sw.ElapsedMilliseconds}ms.");
+            }
+            finally
+            {
+                _lockDuplicateGeneration = false;
+                _exportSemaphore.Release();
+            }
             return true;
         }
 
@@ -1576,21 +1585,21 @@ namespace RoleplayingVoice
                     Plugin.Configuration.LastKnownGender == customization.Customize.Gender.Value)
                 {
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Initial rebuild skipped: Customization exactly matches last session.");
-                    
+
                     // Repopulate GearCategoryMeta so the UI retains the human-readable names for currently worn gear
                     try
                     {
                         var wornPieces = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveWornGear(character2, plugin);
                         foreach (var piece in wornPieces)
                         {
-                            string categoryKey = $"{charName}_gear_{piece.SlotKey}" + 
+                            string categoryKey = $"{charName}_gear_{piece.SlotKey}" +
                                 (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName) +
                                 (string.IsNullOrEmpty(piece.ModName) ? "" : "_[" + piece.ModName + "]");
                             _gearCategoryMeta[categoryKey] = piece;
                         }
                     }
                     catch { }
-                    
+
                     return;
                 }
 
@@ -1870,10 +1879,12 @@ namespace RoleplayingVoice
                         }
                     }
 
-                    if (!_textureHistory.ContainsKey(categoryKey)) {
+                    if (!_textureHistory.ContainsKey(categoryKey))
+                    {
                         _textureHistory[categoryKey] = new List<string>();
                     }
-                    if (!_textureHistoryTints.ContainsKey(categoryKey)) {
+                    if (!_textureHistoryTints.ContainsKey(categoryKey))
+                    {
                         _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
                         for (int h = 0; h < _textureHistory[categoryKey].Count; h++)
                         {
@@ -1887,7 +1898,8 @@ namespace RoleplayingVoice
                         _textureHistoryTints[categoryKey].Clear();
                     }
 
-                    if (!_textureHistory[categoryKey].Contains(file)) {
+                    if (!_textureHistory[categoryKey].Contains(file))
+                    {
                         _textureHistory[categoryKey].Add(file);
                         _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
                     }
@@ -2112,8 +2124,8 @@ namespace RoleplayingVoice
                             string slot = suffixPart;
                             string matName = "";
                             string modName = "";
-                            
-                            int bracketIdx = suffixPart.IndexOf("_[" );
+
+                            int bracketIdx = suffixPart.IndexOf("_[");
                             if (bracketIdx > 0)
                             {
                                 modName = suffixPart.Substring(bracketIdx + 2).TrimEnd(']');
@@ -2183,7 +2195,7 @@ namespace RoleplayingVoice
                             {
                                 localModName = localModName.Replace("Mod", categoryModName);
                                 string deleteModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
-                                
+
                                 try
                                 {
                                     PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, localModName, false, localModName);
@@ -2198,7 +2210,7 @@ namespace RoleplayingVoice
                                     }
                                     catch { }
                                 }
-                                
+
                                 try
                                 {
                                     PenumbraAndGlamourerIpcWrapper.Instance.DeleteMod.Invoke(localModName, localModName);
@@ -2280,22 +2292,25 @@ namespace RoleplayingVoice
                 return;
             }
 
-            string categoryKey = $"{localPlayer.Name.TextValue}_gear_{piece.SlotKey}" + 
+            string categoryKey = $"{localPlayer.Name.TextValue}_gear_{piece.SlotKey}" +
                 (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName) +
                 (string.IsNullOrEmpty(piece.ModName) ? "" : "_[" + piece.ModName + "]");
             _gearCategoryMeta[categoryKey] = piece;
 
-            if (!_textureHistory.ContainsKey(categoryKey)) {
+            if (!_textureHistory.ContainsKey(categoryKey))
+            {
                 _textureHistory[categoryKey] = new List<string>();
                 _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
             }
 
-            if (!plugin.Configuration.EnableTextureStacking) {
+            if (!plugin.Configuration.EnableTextureStacking)
+            {
                 _textureHistory[categoryKey].Clear();
                 _textureHistoryTints[categoryKey].Clear();
             }
 
-            if (!_textureHistory[categoryKey].Contains(pngPath)) {
+            if (!_textureHistory[categoryKey].Contains(pngPath))
+            {
                 _textureHistory[categoryKey].Add(pngPath);
                 _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
             }

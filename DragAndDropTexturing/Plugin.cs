@@ -340,7 +340,21 @@ public sealed class Plugin : IDalamudPlugin
         ToggleMainUI();
     }
 
-    private void DrawUI() => WindowSystem.Draw();
+    private void DrawUI()
+    {
+        WindowSystem.Draw();
+
+        for (int i = TexturePaintingWindows.Count - 1; i >= 0; i--)
+        {
+            var window = TexturePaintingWindows[i];
+            if (!window.IsOpen)
+            {
+                WindowSystem.RemoveWindow(window);
+                window.Dispose();
+                TexturePaintingWindows.RemoveAt(i);
+            }
+        }
+    }
 
     public void ToggleMainUI()
     {
