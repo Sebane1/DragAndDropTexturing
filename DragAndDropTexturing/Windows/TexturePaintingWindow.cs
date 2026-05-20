@@ -1625,7 +1625,9 @@ namespace DragAndDropTexturing.Windows
                 string fCode = $"f{faceId:D4}";
                 string facePath = $"chara/human/{faceRaceCode}/obj/face/{fCode}/model/{faceRaceCode}{fCode}_fac.mdl";
 
-                bool isFaceEditLocal = (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0));
+                bool isFaceEditLocal = 
+                    (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
+                    (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
                 if (isFaceEditLocal)
                 {
                     topPath = null;
@@ -1927,51 +1929,9 @@ namespace DragAndDropTexturing.Windows
                     () => { if (!isGear && glvPath != null) LoadModelIntoSlot(glvSlotName, glvPath, collectionId); },
                     () => { if (!isGear && shoPath != null) LoadModelIntoSlot(shoSlotName, shoPath, collectionId); },
                     () => { 
-                        if (!isGear && facePath != null) 
+                        if (!isGear && facePath != null && isFaceEditLocal) 
                         {
                             LoadModelIntoSlot("Face", facePath, collectionId); 
-                            
-                            // If we are not editing the face, it won't receive the composite texture, so we load its texture manually
-                            if (!isFaceEditLocal)
-                            {
-                                int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
-                                int subRaceValue = Math.Max(0, ffxivClan - 1);
-                                int faceType = Math.Max(0, faceId - 1);
-                                int materialType = isEditingNormal ? 1 : 0;
-                                
-                                string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
-                                bool shouldPadToSquareLocal = ffxivRace == 6; // It's a face preview, so if it's Au Ra, pad it
-                                string vPng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquareLocal);
-                                if (string.IsNullOrEmpty(vPng))
-                                {
-                                    string fpOld = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, false);
-                                    vPng = ExtractVanillaTexViaLumina(fpOld, shouldPadToSquareLocal);
-                                }
-
-                                if (!string.IsNullOrEmpty(vPng) && File.Exists(vPng))
-                                {
-                                    try
-                                    {
-                                        using var bmp = new System.Drawing.Bitmap(vPng);
-                                        var rect = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
-                                        var bData = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                                        byte[] bytes = new byte[bmp.Width * bmp.Height * 4];
-                                        System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, bytes, 0, bytes.Length);
-                                        bmp.UnlockBits(bData);
-                                        
-                                        _mainThreadActions.Enqueue(() => {
-                                            if (_renderer != null)
-                                            {
-                                                _renderer.LoadTexture("Face", bytes, bmp.Width, bmp.Height);
-                                            }
-                                        });
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        _plugin.PluginLog.Error(ex, "[Texture Painter] Failed to load unpadded face preview texture.");
-                                    }
-                                }
-                            }
                         }
                     }
                 );
@@ -2119,7 +2079,9 @@ namespace DragAndDropTexturing.Windows
                         _plugin.PluginLog.Info("[PSD Preview] DLC fallback failed. Extracting vanilla texture via Lumina.");
                         int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
                         string vanillaBasePng = null;
-                        bool isFaceEdit = (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0));
+                        bool isFaceEdit = 
+                            (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
+                            (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
                         if (isFaceEdit)
                         {
                             int subRaceValue = Math.Max(0, ffxivClan - 1);
@@ -2164,7 +2126,9 @@ namespace DragAndDropTexturing.Windows
                     {
                         int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
                         string vanillaNormPng = null;
-                        bool isFaceEdit = (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0));
+                        bool isFaceEdit = 
+                            (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
+                            (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
                         if (isFaceEdit)
                         {
                             int subRaceValue = Math.Max(0, ffxivClan - 1);

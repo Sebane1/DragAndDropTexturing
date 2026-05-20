@@ -67,6 +67,7 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         var window = new TexturePaintingWindow(this);
+        window.ContextCategoryKey = categoryKey;
         if (editPath != null)
         {
             window.WindowName = $"Texture Painter - {Path.GetFileName(editPath)}###PaintWindow_{Guid.NewGuid()}";

@@ -644,7 +644,22 @@ public class MainWindow : Window, IDisposable
             {
                 if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)"))) OpenImportDialog();
                 ImGui.SameLine();
-                if (ImGui.Button(Translator.LocalizeUI("Open Texture Painter"))) Plugin.OpenPaintWindow();
+                if (ImGui.Button(Translator.LocalizeUI("Open Texture Painter"))) ImGui.OpenPopup("LayerTypePopup");
+
+                if (ImGui.BeginPopup("LayerTypePopup"))
+                {
+                    ImGui.Text(Translator.LocalizeUI("Select Target Canvas"));
+                    ImGui.Separator();
+                    if (ImGui.Selectable(Translator.LocalizeUI("Body")))
+                    {
+                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_body");
+                    }
+                    if (ImGui.Selectable(Translator.LocalizeUI("Face")))
+                    {
+                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_face");
+                    }
+                    ImGui.EndPopup();
+                }
             }
         }
         else
@@ -653,8 +668,23 @@ public class MainWindow : Window, IDisposable
             {
                 if (ImGui.Button(Translator.LocalizeUI("Import Textures (File Dialog)"))) OpenImportDialog();
                 ImGui.SameLine();
-                if (ImGui.Button(Translator.LocalizeUI("Add New Layer (Open Painter)"))) Plugin.OpenPaintWindow();
+                if (ImGui.Button(Translator.LocalizeUI("Add New Layer (Open Painter)"))) ImGui.OpenPopup("LayerTypePopup");
                 ImGui.Spacing();
+            }
+
+            if (ImGui.BeginPopup("LayerTypePopup"))
+            {
+                ImGui.Text(Translator.LocalizeUI("Select Target Canvas"));
+                ImGui.Separator();
+                if (ImGui.Selectable(Translator.LocalizeUI("Body")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_body");
+                }
+                if (ImGui.Selectable(Translator.LocalizeUI("Face")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_face");
+                }
+                ImGui.EndPopup();
             }
 
             ImGui.BeginChild("LayerCategoriesList", new Vector2(200, 0), true);
