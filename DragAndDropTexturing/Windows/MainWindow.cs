@@ -1491,8 +1491,11 @@ public class MainWindow : Window, IDisposable
             ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
             ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
             ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
+            ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
             bool removeClicked = ImGui.Button(Translator.LocalizeUI("Remove Layer") + "##ContextRemove");
+            ImGui.EndDisabled();
             ImGui.PopStyleColor(3);
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove Layer"));
             
             if (removeClicked)
             {
@@ -1503,6 +1506,73 @@ public class MainWindow : Window, IDisposable
             {
                 layer.Save();
             }
+            
+            ImGui.Separator();
+            ImGui.Spacing();
+            
+            ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Folder Contents"));
+            ImGui.BeginChild("ContextualLayerTexturesList", new Vector2(0, 0), true);
+            
+            if (Directory.Exists(layer.DirectoryPath))
+            {
+                var files = Directory.GetFiles(layer.DirectoryPath, "*.png").OrderBy(f => f).ToList();
+                
+                if (files.Count == 0)
+                {
+                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No textures found in this layer's folder."));
+                }
+                
+                for (int i = 0; i < files.Count; i++)
+                {
+                    string path = files[i];
+                    var tex = GetPreviewTexture(path);
+                    var wrap = tex?.GetWrapOrDefault();
+
+                    if (wrap != null)
+                    {
+                        ImGui.Image(wrap.Handle, new Vector2(40, 40));
+                        ImGui.SameLine();
+                        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 10);
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
+                    }
+                    else
+                    {
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 100);
+                    }
+
+                    string displayPath = System.IO.Path.GetFileName(path);
+                    ImGui.InputText("##ctxpath_" + i, ref displayPath, 1024, ImGuiInputTextFlags.ReadOnly);
+                    
+                    ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
+                    ImGui.BeginDisabled(!ImGui.IsKeyDown(ImGuiKey.ModShift));
+                    if (ImGui.Button(Translator.LocalizeUI("Remove") + "##ctx" + i))
+                    {
+                        try { System.IO.File.Delete(path); } catch { }
+                    }
+                    ImGui.EndDisabled();
+                    ImGui.PopStyleColor(3);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Delete file from disk"));
+                }
+                
+                ImGui.Spacing();
+                ImGui.Button(Translator.LocalizeUI("Drop new .png files here to add them to the layer") + "##dropzone", new Vector2(-1, 40));
+                if (ImGui.IsItemHovered())
+                {
+                    if (Plugin.DragDropManager.CreateImGuiTarget("TextureDropTarget", out var newDroppedFiles, out _))
+                    {
+                        foreach (var df in newDroppedFiles)
+                        {
+                            if (System.IO.Path.GetExtension(df).Equals(".png", StringComparison.OrdinalIgnoreCase))
+                            {
+                                try { System.IO.File.Copy(df, System.IO.Path.Combine(layer.DirectoryPath, System.IO.Path.GetFileName(df)), true); } catch { }
+                            }
+                        }
+                    }
+                }
+            }
+            ImGui.EndChild();
         }
         ImGui.EndChild();
     }
