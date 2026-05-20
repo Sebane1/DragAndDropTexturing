@@ -1085,9 +1085,12 @@ namespace DragAndDropTexturing.Windows
                         rgba[i + 2] = src[i + 0]; // B
                         rgba[i + 3] = src[i + 3]; // A
                         
-                        if (isGlow && rgba[i + 0] == 0 && rgba[i + 1] == 0 && rgba[i + 2] == 0)
+                        if (isGlow)
                         {
-                            rgba[i + 3] = 0; // Make pure black transparent for glow maps
+                            // Use luminance as alpha so dark areas become transparent
+                            // and bright glow areas stay opaque
+                            byte lum = (byte)(0.299f * rgba[i + 0] + 0.587f * rgba[i + 1] + 0.114f * rgba[i + 2]);
+                            rgba[i + 3] = lum;
                         }
                     }
                 }
@@ -2668,6 +2671,14 @@ private string ExtractVanillaTexViaLumina(string internalGamePath)
                                 rgba[i + 1] = src[i + 1]; // G
                                 rgba[i + 2] = src[i + 0]; // B (from BGRA R)
                                 rgba[i + 3] = src[i + 3]; // A
+
+                                if (isEditingGlow)
+                                {
+                                    // Use luminance as alpha so dark areas become transparent
+                                    // and bright glow areas stay opaque
+                                    byte lum = (byte)(0.299f * rgba[i + 0] + 0.587f * rgba[i + 1] + 0.114f * rgba[i + 2]);
+                                    rgba[i + 3] = lum;
+                                }
                             }
                         }
                         resized.UnlockBits(editData);
