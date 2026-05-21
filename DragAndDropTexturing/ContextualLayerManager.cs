@@ -338,6 +338,13 @@ namespace DragAndDropTexturing
             var player = _plugin.SafeGameObjectManager.LocalPlayer as GameObjectHelper.ThreadSafeDalamudObjectTable.ThreadSafeCharacter;
             if (player == null) return;
 
+            // Prevent native access violation crashes during zone transitions where pointers are temporarily invalid
+            if (Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas] || 
+                Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas51])
+            {
+                return;
+            }
+
             // 1. Check HP Thresholds and Combat State
             float hpPercentage = 100f;
             if (player.MaxHp > 0)
