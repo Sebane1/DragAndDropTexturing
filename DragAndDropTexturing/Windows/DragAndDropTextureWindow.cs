@@ -1393,7 +1393,7 @@ namespace RoleplayingVoice
                     ActiveBodyOverrides.Clear();
                     if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
 
-                    var character = Plugin.ObjectTable.LocalPlayer as ICharacter;
+                    var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
                     if (character == null) return;
 
                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
@@ -1752,7 +1752,7 @@ namespace RoleplayingVoice
                     try
                     {
                         if (plugin?.SafeGameObjectManager?.LocalPlayer == null) continue;
-                        var character = Plugin.ObjectTable.LocalPlayer as ICharacter;
+                        var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
                         if (character == null) continue;
 
                         // Verify Penumbra can return mod data
@@ -1779,7 +1779,7 @@ namespace RoleplayingVoice
                 if (charKeys.Count == 0) return;
 
                 // Snapshot the current customization
-                var character2 = Plugin.ObjectTable.LocalPlayer as ICharacter;
+                var character2 = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
                 if (character2 == null) return;
                 var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character2);
                 if (Plugin.Configuration.LastKnownFace == customization.Customize.Face.Value &&
@@ -1841,7 +1841,7 @@ namespace RoleplayingVoice
                 if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
                 if (e.GameObjectPtr != plugin.SafeGameObjectManager.LocalPlayer.Address) return;
 
-                var character = Plugin.ObjectTable.LocalPlayer as ICharacter;
+                var character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
                 if (character == null) return;
 
                 var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
@@ -1922,7 +1922,7 @@ namespace RoleplayingVoice
                 plugin?.PluginLog?.Information($"[Drag And Drop Debug] ModSettingChanged: Type={e.ChangeType}, ModDir='{e.ModDirectory}', CollectionId={e.CollectionId}, Inherited={e.Inherited}");
 
                 // Skip our own generated mods
-                if (modDir.Contains("drag and drop") || modDir.Contains("do_not_edit") || modDir.Contains("texture body") || modDir.Contains("texture face") || modDir.Contains("texture eyes") || modDir.Contains("texture eyebrows") || modDir.Contains("texture mod")) return;
+                if (modDir.Contains("drag and drop") || modDir.Contains("do_not_edit") || modDir.Contains("texture body") || modDir.Contains("texture face") || modDir.Contains("texture eyes") || modDir.Contains("texture eyebrows") || modDir.Contains("texture gear") || modDir.Contains("texture mod")) return;
 
                 // Check if this change affects the player's current collection
                 Guid playerCollection = Guid.Empty;
@@ -2508,7 +2508,7 @@ namespace RoleplayingVoice
 
         public void RefreshWornGearCache()
         {
-            var localPlayer = Plugin.ObjectTable.LocalPlayer as ICharacter;
+            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
             if (localPlayer == null)
             {
                 CachedWornGear = new List<WornEquipmentPiece>();
@@ -2522,7 +2522,7 @@ namespace RoleplayingVoice
         {
             if (piece == null || plugin == null) return;
 
-            var localPlayer = Plugin.ObjectTable.LocalPlayer as ICharacter;
+            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
             if (localPlayer == null)
             {
                 plugin.Chat.PrintError("[Drag And Drop Texturing] No local player — cannot import worn gear.");
