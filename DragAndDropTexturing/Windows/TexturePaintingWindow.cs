@@ -1255,9 +1255,13 @@ namespace DragAndDropTexturing.Windows
                         dabRadius *= jitter;
                     }
 
+                    Vector2? dabPrev = null;
+                    if (blendMode == 6)
+                        dabPrev = dabPos - dir * spacingUV;
+
                     float dabSeed = _strokeSeed + _strokeDistance;
                     _renderer.GpuPaintStroke(
-                        dabPos, null, dabRadius, _brushHardness,
+                        dabPos, dabPrev, dabRadius, _brushHardness,
                         new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
                         blendMode, shapeMode, _brushFlow, _brushAngle,
                         _brushNoiseScale, _brushNoiseAmount, dabSeed);

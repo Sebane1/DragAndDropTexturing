@@ -1196,6 +1196,24 @@ float3 blendSoftLight(float3 base, float3 blend)
         step(0.5, blend));
 }
 
+float4 SamplePaintLayerBilinear(float2 pos, int2 size)
+{
+    float2 p = pos - 0.5f; 
+    int2 p0 = clamp(int2(floor(p)), int2(0,0), size - 1);
+    int2 p1 = clamp(p0 + int2(1, 0), int2(0,0), size - 1);
+    int2 p2 = clamp(p0 + int2(0, 1), int2(0,0), size - 1);
+    int2 p3 = clamp(p0 + int2(1, 1), int2(0,0), size - 1);
+    
+    float2 f = frac(p);
+    
+    float4 c0 = PaintLayer[p0];
+    float4 c1 = PaintLayer[p1];
+    float4 c2 = PaintLayer[p2];
+    float4 c3 = PaintLayer[p3];
+
+    return lerp(lerp(c0, c1, f.x), lerp(c2, c3, f.x), f.y);
+}
+
 [numthreads(16, 16, 1)]
 void CSPaint(uint3 id : SV_DispatchThreadID)
 {
@@ -1268,16 +1286,12 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
         {
             if (HasPrev > 0)
             {
-                // To support arbitrary aspect ratios, calculate delta in UV space and convert back
-                float2 delta = Center - PrevCenter; // this is in pixel space already
-                float intensity = edge * Flow; // use flow to dictate smudge intensity
+                float2 delta = Center - PrevCenter; 
+                float intensity = edge * Flow; 
                 float2 offset = delta * intensity;
                 
-                // Sample from itself (creates a smudge effect due to consecutive thread execution)
-                int2 samplePos = int2(id.xy) - int2(round(offset));
-                samplePos = clamp(samplePos, int2(0,0), int2(w-1, h-1));
-                
-                PaintLayer[id.xy] = PaintLayer[samplePos];
+                float2 samplePos = pixel - offset;
+                PaintLayer[id.xy] = SamplePaintLayerBilinear(samplePos, int2(w, h));
             }
         }
         else
