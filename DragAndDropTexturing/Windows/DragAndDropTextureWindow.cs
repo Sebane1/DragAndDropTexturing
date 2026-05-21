@@ -2017,6 +2017,12 @@ namespace RoleplayingVoice
                     // Give Penumbra time to process the character model change
                     // before we try to extract textures for the new race
                     // (skip for contextual layers — race hasn't changed)
+                    if (categories.Count == 0)
+                    {
+                        _isRegenerationPending = false;
+                        _hideProgressUI = true;
+                        return;
+                    }
                     if (!skipDelays) Thread.Sleep(2000);
 
                     foreach (var key in categories)
