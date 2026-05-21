@@ -593,12 +593,31 @@ namespace DragAndDropTexturing.VideoPlayback
                                             var cust = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
                                             if (cust?.Equipment != null)
                                             {
-                                                // Refresh the body slot to force texture reload
-                                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(
+                                                // Refresh equipment slots to force texture reload
+                                                var ipc = PenumbraAndGlamourerIpcWrapper.Instance;
+                                                ipc.SetItem.Invoke(
                                                     character.ObjectIndex,
                                                     Glamourer.Api.Enums.ApiEquipSlot.Body,
                                                     (ulong)cust.Equipment.Body.ItemId,
                                                     new List<byte> { (byte)cust.Equipment.Body.Stain });
+                                                
+                                                ipc.SetItem.Invoke(
+                                                    character.ObjectIndex,
+                                                    Glamourer.Api.Enums.ApiEquipSlot.Legs,
+                                                    (ulong)cust.Equipment.Legs.ItemId,
+                                                    new List<byte> { (byte)cust.Equipment.Legs.Stain });
+
+                                                ipc.SetItem.Invoke(
+                                                    character.ObjectIndex,
+                                                    Glamourer.Api.Enums.ApiEquipSlot.Hands,
+                                                    (ulong)cust.Equipment.Hands.ItemId,
+                                                    new List<byte> { (byte)cust.Equipment.Hands.Stain });
+
+                                                ipc.SetItem.Invoke(
+                                                    character.ObjectIndex,
+                                                    Glamourer.Api.Enums.ApiEquipSlot.Feet,
+                                                    (ulong)cust.Equipment.Feet.ItemId,
+                                                    new List<byte> { (byte)cust.Equipment.Feet.Stain });
                                             }
                                         }
                                     }
