@@ -43,6 +43,13 @@ namespace DragAndDropTexturing.Windows
         private ID3D11SamplerState _stampSampler;
         private int _paintTexWidth, _paintTexHeight;
         private bool _gpuPaintReady;
+
+        private ID3D11Texture2D _gpuWarpSnapshotTex;
+        private ID3D11ShaderResourceView _gpuWarpSnapshotSRV;
+
+        private ID3D11Texture2D _gpuWarpDisplacementTex;
+        private ID3D11UnorderedAccessView _gpuWarpDisplacementUAV;
+        private ID3D11ShaderResourceView _gpuWarpDisplacementSRV;
         private bool _disposed;
 
         // Undo / Redo system
@@ -1148,6 +1155,9 @@ cbuffer BrushParams : register(b0)
     float4 Color;
 };
 RWTexture2D<float4> PaintLayer : register(u0);
+RWTexture2D<float2> DisplacementLayer : register(u1);
+Texture2D<float4> SnapshotLayer : register(t0);
+
 
 //   GPU hash noise (no textures needed)  
 float hash21(float2 p)
@@ -1210,6 +1220,42 @@ float4 SamplePaintLayerBilinear(float2 pos, int2 size)
     float4 c1 = PaintLayer[p1];
     float4 c2 = PaintLayer[p2];
     float4 c3 = PaintLayer[p3];
+
+    return lerp(lerp(c0, c1, f.x), lerp(c2, c3, f.x), f.y);
+}
+
+float4 SampleSnapshotBilinear(float2 pos, int2 size)
+{
+    float2 p = pos - 0.5f; 
+    int2 p0 = clamp(int2(floor(p)), int2(0,0), size - 1);
+    int2 p1 = clamp(p0 + int2(1, 0), int2(0,0), size - 1);
+    int2 p2 = clamp(p0 + int2(0, 1), int2(0,0), size - 1);
+    int2 p3 = clamp(p0 + int2(1, 1), int2(0,0), size - 1);
+    
+    float2 f = frac(p);
+    
+    float4 c0 = SnapshotLayer.Load(int3(p0, 0));
+    float4 c1 = SnapshotLayer.Load(int3(p1, 0));
+    float4 c2 = SnapshotLayer.Load(int3(p2, 0));
+    float4 c3 = SnapshotLayer.Load(int3(p3, 0));
+
+    return lerp(lerp(c0, c1, f.x), lerp(c2, c3, f.x), f.y);
+}
+
+float2 SampleDisplacementBilinear(float2 pos, int2 size)
+{
+    float2 p = pos - 0.5f; 
+    int2 p0 = clamp(int2(floor(p)), int2(0,0), size - 1);
+    int2 p1 = clamp(p0 + int2(1, 0), int2(0,0), size - 1);
+    int2 p2 = clamp(p0 + int2(0, 1), int2(0,0), size - 1);
+    int2 p3 = clamp(p0 + int2(1, 1), int2(0,0), size - 1);
+    
+    float2 f = frac(p);
+    
+    float2 c0 = DisplacementLayer[p0];
+    float2 c1 = DisplacementLayer[p1];
+    float2 c2 = DisplacementLayer[p2];
+    float2 c3 = DisplacementLayer[p3];
 
     return lerp(lerp(c0, c1, f.x), lerp(c2, c3, f.x), f.y);
 }
@@ -1282,7 +1328,7 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
             float outA = saturate(existing.a - alpha);
             PaintLayer[id.xy] = float4(existing.rgb, outA);
         }
-        else if (BlendMode == 6) // Liquify
+        else if (BlendMode == 6) // Liquify / Smudge
         {
             if (HasPrev > 0)
             {
@@ -1293,6 +1339,32 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
                 float2 samplePos = pixel - offset;
                 PaintLayer[id.xy] = SamplePaintLayerBilinear(samplePos, int2(w, h));
             }
+        }
+        else if (BlendMode == 7) // Warp
+        {
+            if (HasPrev > 0)
+            {
+                float2 delta = Center - PrevCenter; 
+                
+                // Warp requires a smooth bell-curve falloff to prevent grid tearing
+                float normalizedDist = saturate(dist / max(Radius, 0.001f));
+                float bellCurve = (1.0f - normalizedDist * normalizedDist);
+                bellCurve *= bellCurve; // (1 - x^2)^2
+                
+                // Scale intensity significantly so the mesh slips and stretches (rubber-sheet)
+                // rather than rigidly copying the pixel 1:1 with the mouse (which creates a streak/smear).
+                float intensity = bellCurve * saturate(Flow) * 0.25f; 
+                float2 offset = delta * intensity;
+                
+                float2 samplePos = pixel - offset;
+                float2 prevDisp = SampleDisplacementBilinear(samplePos, int2(w, h));
+                float2 newDisp = prevDisp + offset;
+                
+                DisplacementLayer[id.xy] = newDisp;
+            }
+            
+            float2 totalDisp = DisplacementLayer[id.xy];
+            PaintLayer[id.xy] = SampleSnapshotBilinear(pixel - totalDisp, int2(w, h));
         }
         else
         {
@@ -1492,6 +1564,33 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _gpuPaintUAV = _device.CreateUnorderedAccessView(_gpuPaintTex);
             _gpuPaintSRV = _device.CreateShaderResourceView(_gpuPaintTex);
 
+            var warpSnapDesc = new Texture2DDescription
+            {
+                Width = width, Height = height,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource | BindFlags.RenderTarget,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            _gpuWarpSnapshotTex = _device.CreateTexture2D(warpSnapDesc);
+            _gpuWarpSnapshotSRV = _device.CreateShaderResourceView(_gpuWarpSnapshotTex);
+
+            var dispDesc = new Texture2DDescription
+            {
+                Width = width, Height = height,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.UnorderedAccess | BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            _gpuWarpDisplacementTex = _device.CreateTexture2D(dispDesc);
+            _gpuWarpDisplacementUAV = _device.CreateUnorderedAccessView(_gpuWarpDisplacementTex);
+            _gpuWarpDisplacementSRV = _device.CreateShaderResourceView(_gpuWarpDisplacementTex);
+
             // Composite output: UAV + SRV
             var compDesc = new Texture2DDescription
             {
@@ -1610,13 +1709,28 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShader(_paintBrushCS);
             _context.CSSetConstantBuffer(0, _brushCB);
             _context.CSSetUnorderedAccessView(0, _gpuPaintUAV);
+            
+            if (blendMode == 7 && _gpuWarpDisplacementUAV != null && _gpuWarpSnapshotSRV != null)
+            {
+                _context.CSSetUnorderedAccessView(1, _gpuWarpDisplacementUAV);
+                _context.CSSetShaderResource(0, _gpuWarpSnapshotSRV);
+            }
 
             int groupsX = (_paintTexWidth + 15) / 16;
             int groupsY = (_paintTexHeight + 15) / 16;
             _context.Dispatch(groupsX, groupsY, 1);
 
             _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
+            _context.CSSetUnorderedAccessView(1, (ID3D11UnorderedAccessView)null);
+            _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
             _context.CSSetShader(null);
+        }
+
+        public void BeginWarpStroke()
+        {
+            if (!_gpuPaintReady || _context == null || _gpuPaintTex == null || _gpuWarpSnapshotTex == null || _gpuWarpDisplacementUAV == null) return;
+            _context.CopyResource(_gpuWarpSnapshotTex, _gpuPaintTex);
+            _context.ClearUnorderedAccessView(_gpuWarpDisplacementUAV, System.Numerics.Vector4.Zero);
         }
 
         /// <summary>
@@ -2064,6 +2178,12 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _gpuPaintUAV?.Dispose(); _gpuPaintUAV = null;
             _gpuPaintSRV?.Dispose(); _gpuPaintSRV = null;
             _gpuPaintTex?.Dispose(); _gpuPaintTex = null;
+            
+            _gpuWarpSnapshotTex?.Dispose(); _gpuWarpSnapshotTex = null;
+            _gpuWarpSnapshotSRV?.Dispose(); _gpuWarpSnapshotSRV = null;
+            _gpuWarpDisplacementTex?.Dispose(); _gpuWarpDisplacementTex = null;
+            _gpuWarpDisplacementUAV?.Dispose(); _gpuWarpDisplacementUAV = null;
+            _gpuWarpDisplacementSRV?.Dispose(); _gpuWarpDisplacementSRV = null;
             _gpuCompositeUAV?.Dispose(); _gpuCompositeUAV = null;
             _gpuCompositeSRV?.Dispose(); _gpuCompositeSRV = null;
             _gpuCompositeTex?.Dispose(); _gpuCompositeTex = null;

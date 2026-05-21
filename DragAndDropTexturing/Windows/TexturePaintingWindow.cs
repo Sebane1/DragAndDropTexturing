@@ -73,7 +73,7 @@ namespace DragAndDropTexturing.Windows
         private float _strokeDistance = 0f;        // accumulated distance for spacing
         private static readonly Random _rng = new Random();
 
-        private enum PaintTool { Brush, Eraser, Fill, Eyedropper, Liquify }
+        private enum PaintTool { Brush, Eraser, Fill, Eyedropper, Liquify, Warp }
         private enum PaintShape { Circle, Square }
 
         private PaintTool _activeTool = PaintTool.Brush;
@@ -355,6 +355,8 @@ namespace DragAndDropTexturing.Windows
             if (ImGui.RadioButton(Translator.LocalizeUI("Eyedropper"), _activeTool == PaintTool.Eyedropper)) _activeTool = PaintTool.Eyedropper;
             ImGui.SameLine();
             if (ImGui.RadioButton(Translator.LocalizeUI("Liquify"), _activeTool == PaintTool.Liquify)) _activeTool = PaintTool.Liquify;
+            ImGui.SameLine();
+            if (ImGui.RadioButton(Translator.LocalizeUI("Warp"), _activeTool == PaintTool.Warp)) _activeTool = PaintTool.Warp;
 
             ImGui.Separator();
 
@@ -844,8 +846,16 @@ namespace DragAndDropTexturing.Windows
                         var rawMousePos = ImGui.GetMousePos();
                         if (isActive && ImGui.IsMouseDown(ImGuiMouseButton.Left) && _floatingLayer == null)
                         {
-                            if (!_wasPaintingLastFrame) _smoothedMousePos = rawMousePos;
-                            else _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - _brushSmoothing);
+                            if (!_wasPaintingLastFrame) 
+                            {
+                                _smoothedMousePos = rawMousePos;
+                                _renderer.PushUndoSnapshot();
+                                if (_activeTool == PaintTool.Warp) _renderer.BeginWarpStroke();
+                            }
+                            else 
+                            {
+                                _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - _brushSmoothing);
+                            }
                             _wasPaintingLastFrame = true;
                         }
                         else
@@ -854,11 +864,6 @@ namespace DragAndDropTexturing.Windows
                             _smoothedMousePos = rawMousePos;
                         }
                         var mousePos = _smoothedMousePos;
-                        if (isHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-                        {
-                            _renderer.PushUndoSnapshot();
-                        }
-                        
                         if (isActive)
                         {
                             Vector2 localMousePos = mousePos - cursorPos;
@@ -978,8 +983,16 @@ namespace DragAndDropTexturing.Windows
                         var rawMousePos = ImGui.GetMousePos();
                         if (isActive2D && ImGui.IsMouseDown(ImGuiMouseButton.Left) && _dragHandle == -1 && _floatingLayer == null)
                         {
-                            if (!_wasPaintingLastFrame) _smoothedMousePos = rawMousePos;
-                            else _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - _brushSmoothing);
+                            if (!_wasPaintingLastFrame) 
+                            {
+                                _smoothedMousePos = rawMousePos;
+                                _renderer.PushUndoSnapshot();
+                                if (_activeTool == PaintTool.Warp) _renderer.BeginWarpStroke();
+                            }
+                            else 
+                            {
+                                _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - _brushSmoothing);
+                            }
                             _wasPaintingLastFrame = true;
                         }
                         else
@@ -1008,7 +1021,11 @@ namespace DragAndDropTexturing.Windows
                                 else _dragHandle = -1;
                             }
 
-                            if (_dragHandle == -1) _renderer.PushUndoSnapshot();
+                            if (_dragHandle == -1) 
+                            {
+                                _renderer.PushUndoSnapshot();
+                                if (_activeTool == PaintTool.Warp) _renderer.BeginWarpStroke();
+                            }
                         }
                         
                         if (isActive2D)
@@ -1204,7 +1221,7 @@ namespace DragAndDropTexturing.Windows
             if (prev.HasValue && Vector2.Distance(uvHit, prev.Value) > 0.1f)
                 prev = null;
             
-            int blendMode = _activeTool == PaintTool.Eraser ? 1 : (_activeTool == PaintTool.Liquify ? 6 : _brushBlendMode);
+            int blendMode = _activeTool == PaintTool.Eraser ? 1 : (_activeTool == PaintTool.Liquify ? 6 : (_activeTool == PaintTool.Warp ? 7 : _brushBlendMode));
             int shapeMode = _activeTool == PaintTool.Fill ? 2 : (_activeShape == PaintShape.Square ? 1 : 0);
             float finalAlpha = _paintColor.W * _brushOpacity;
 
@@ -1221,6 +1238,21 @@ namespace DragAndDropTexturing.Windows
             // Convert spacing from pixel to UV space (approximate)
             float texSize = Math.Max(_renderer.PaintTexWidth, _renderer.PaintTexHeight);
             float spacingUV = spacingStep / texSize;
+            
+            if (blendMode == 7 && prev.HasValue)
+            {
+                // Warp tool: Do NOT interpolate into tiny dabs. 
+                // We advect the displacement field once per frame to prevent bilinear blurring destroying the field.
+                _renderer.GpuPaintStroke(
+                    uvHit, prev.Value, _brushSize, _brushHardness,
+                    new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
+                    blendMode, shapeMode, _brushFlow, _brushAngle,
+                    _brushNoiseScale, _brushNoiseAmount, _strokeSeed);
+                
+                _lastUvHit = uvHit;
+                _needsComposite = true;
+                return;
+            }
 
             if (prev.HasValue)
             {
@@ -1256,7 +1288,7 @@ namespace DragAndDropTexturing.Windows
                     }
 
                     Vector2? dabPrev = null;
-                    if (blendMode == 6)
+                    if (blendMode == 6 || blendMode == 7)
                         dabPrev = dabPos - dir * spacingUV;
 
                     float dabSeed = _strokeSeed + _strokeDistance;
