@@ -1638,18 +1638,20 @@ namespace RoleplayingVoice
                 bool modAlreadyExists = existingMods != null && existingMods.ContainsKey(path);
                 if (!modAlreadyExists)
                 {
-                    PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name);
+                    try { PenumbraAndGlamourerIpcWrapper.Instance.AddMod.Invoke(name); } catch { }
                     plugin.PluginLog.Information("[Drag And Drop Texturing] Mod registered with Penumbra (first time).");
                 }
-                PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name);
+                try { PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(path, name); } catch { }
                 collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
-                PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name);
-                PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name);
-                var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
-                foreach (var group in settings.Item2.Value.Item3)
-                {
-                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name);
-                }
+                try { PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name); } catch { }
+                try { PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name); } catch { }
+                try {
+                    var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
+                    foreach (var group in settings.Item2.Value.Item3)
+                    {
+                        try { PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name); } catch { }
+                    }
+                } catch { }
 
                 // First-time AddMod triggers async file compaction; wait for it.
                 if (!modAlreadyExists)
