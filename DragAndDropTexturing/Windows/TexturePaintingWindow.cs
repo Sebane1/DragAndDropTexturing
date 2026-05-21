@@ -113,6 +113,7 @@ namespace DragAndDropTexturing.Windows
         };
         private int _advancedBrushIndex = 0;
         private bool _hideExtraMeshes = true;
+        private bool _filterWhiteBackgroundOnImport = false;
         public string EditSourcePath { get; set; } = null;  // When non-null, we're editing an existing layer file
         public string ContextCategoryKey { get; set; } = null; // Original category key from UI for precise slot targeting
         
@@ -136,6 +137,8 @@ namespace DragAndDropTexturing.Windows
         private class FloatingLayer : IDisposable
         {
             public Vortice.Direct3D11.ID3D11ShaderResourceView SRV;
+            public byte[] OriginalRgba;
+            public bool IsGlow;
             public int Width;
             public int Height;
             public Vector2 Position = new Vector2(0f, 0f);
@@ -156,6 +159,7 @@ namespace DragAndDropTexturing.Windows
         private int _default3DProjectionMode = 1;
         private int _dragHandle = -1;
         private string _importPath = "";
+        private bool _vKeyPressedLastFrame = false;
 
         // ImGui File Browser State
         private bool _showFileBrowser = false;
@@ -514,6 +518,14 @@ namespace DragAndDropTexturing.Windows
                 UpdateMeshVisibility();
             }
 
+            ImGui.SameLine();
+            ImGui.Text(Translator.LocalizeUI("  "));
+            ImGui.SameLine();
+            if (ImGui.Checkbox(Translator.LocalizeUI("Filter White Background In Stamps"), ref _filterWhiteBackgroundOnImport))
+            {
+                RefreshFloatingLayerFilter();
+            }
+
             // Model Override Selectors
             if (_overrideTopPathList.Count > 1 || _overrideBotPathList.Count > 1)
             {
@@ -841,6 +853,13 @@ namespace DragAndDropTexturing.Windows
                     bool isHovered = ImGui.IsItemHovered();
                     bool isActive = ImGui.IsItemActive();
 
+                    bool vKeyPressed = Plugin.KeyState[Dalamud.Game.ClientState.Keys.VirtualKey.V];
+                    if (ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows) && ImGui.GetIO().KeyCtrl && vKeyPressed && !_vKeyPressedLastFrame)
+                    {
+                        TryPasteClipboardImage(cursorPos);
+                    }
+                    _vKeyPressedLastFrame = vKeyPressed;
+
                     if (isHovered || isActive)
                     {
                         var rawMousePos = ImGui.GetMousePos();
@@ -1109,23 +1128,54 @@ namespace DragAndDropTexturing.Windows
                 var bounds = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
                 var data = bmp.LockBits(bounds, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 
+                bool isGlow = _newLayerType == "Glow" || path.Contains("glow", StringComparison.OrdinalIgnoreCase);
+                byte[] originalRgba = new byte[rgba.Length];
+                
                 unsafe
                 {
-                    bool isGlow = _newLayerType == "Glow" || path.Contains("glow", StringComparison.OrdinalIgnoreCase);
                     byte* src = (byte*)data.Scan0;
                     for (int i = 0; i < rgba.Length; i += 4)
                     {
-                        rgba[i + 0] = src[i + 2]; // R
-                        rgba[i + 1] = src[i + 1]; // G
-                        rgba[i + 2] = src[i + 0]; // B
-                        rgba[i + 3] = src[i + 3]; // A
-                        
+                        originalRgba[i + 0] = src[i + 2]; // R
+                        originalRgba[i + 1] = src[i + 1]; // G
+                        originalRgba[i + 2] = src[i + 0]; // B
+                        originalRgba[i + 3] = src[i + 3]; // A
+                    }
+                    Array.Copy(originalRgba, rgba, rgba.Length);
+
+                    for (int i = 0; i < rgba.Length; i += 4)
+                    {
                         if (isGlow)
                         {
                             // Use luminance as alpha so dark areas become transparent
                             // and bright glow areas stay opaque
                             byte lum = (byte)(0.299f * rgba[i + 0] + 0.587f * rgba[i + 1] + 0.114f * rgba[i + 2]);
                             rgba[i + 3] = lum;
+                        }
+                        else if (_filterWhiteBackgroundOnImport)
+                        {
+                            int a_r = 255 - rgba[i + 0];
+                            int a_g = 255 - rgba[i + 1];
+                            int a_b = 255 - rgba[i + 2];
+                            int max_a = Math.Max(a_r, Math.Max(a_g, a_b));
+
+                            if (max_a < 20)
+                            {
+                                rgba[i + 0] = 0;
+                                rgba[i + 1] = 0;
+                                rgba[i + 2] = 0;
+                                rgba[i + 3] = 0;
+                            }
+                            else
+                            {
+                                float alphaF = (max_a - 20) / 235.0f;
+                                float origAlphaF = max_a / 255.0f;
+                                
+                                rgba[i + 0] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i + 0]) / origAlphaF));
+                                rgba[i + 1] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i + 1]) / origAlphaF));
+                                rgba[i + 2] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i + 2]) / origAlphaF));
+                                rgba[i + 3] = (byte)(Math.Max(0, Math.Min(255, alphaF * 255.0f)) * (rgba[i + 3] / 255.0f));
+                            }
                         }
                     }
                 }
@@ -1134,6 +1184,8 @@ namespace DragAndDropTexturing.Windows
                 _floatingLayer?.Dispose();
                 _floatingLayer = new FloatingLayer
                 {
+                    OriginalRgba = originalRgba,
+                    IsGlow = isGlow,
                     Width = bmp.Width,
                     Height = bmp.Height,
                     SRV = _renderer.CreateSrvFromRgba(rgba, bmp.Width, bmp.Height),
@@ -1144,6 +1196,132 @@ namespace DragAndDropTexturing.Windows
             catch (Exception ex)
             {
                 _plugin.PluginLog.Error(ex, "Failed to load floating image.");
+            }
+        }
+
+        private void RefreshFloatingLayerFilter()
+        {
+            if (_floatingLayer == null || _floatingLayer.OriginalRgba == null) return;
+
+            byte[] rgba = new byte[_floatingLayer.OriginalRgba.Length];
+            Array.Copy(_floatingLayer.OriginalRgba, rgba, rgba.Length);
+
+            for (int i = 0; i < rgba.Length; i += 4)
+            {
+                if (_floatingLayer.IsGlow)
+                {
+                    byte lum = (byte)(0.299f * rgba[i + 0] + 0.587f * rgba[i + 1] + 0.114f * rgba[i + 2]);
+                    rgba[i + 3] = lum;
+                }
+                else if (_filterWhiteBackgroundOnImport)
+                {
+                    int a_r = 255 - rgba[i + 0];
+                    int a_g = 255 - rgba[i + 1];
+                    int a_b = 255 - rgba[i + 2];
+                    int max_a = Math.Max(a_r, Math.Max(a_g, a_b));
+
+                    if (max_a < 20)
+                    {
+                        rgba[i + 0] = 0;
+                        rgba[i + 1] = 0;
+                        rgba[i + 2] = 0;
+                        rgba[i + 3] = 0;
+                    }
+                    else
+                    {
+                        float alphaF = (max_a - 20) / 235.0f;
+                        float origAlphaF = max_a / 255.0f;
+                        
+                        rgba[i + 0] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i + 0]) / origAlphaF));
+                        rgba[i + 1] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i + 1]) / origAlphaF));
+                        rgba[i + 2] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i + 2]) / origAlphaF));
+                        rgba[i + 3] = (byte)(Math.Max(0, Math.Min(255, alphaF * 255.0f)) * (rgba[i + 3] / 255.0f));
+                    }
+                }
+            }
+
+            var oldSrv = _floatingLayer.SRV;
+            _floatingLayer.SRV = _renderer.CreateSrvFromRgba(rgba, _floatingLayer.Width, _floatingLayer.Height);
+            oldSrv?.Dispose();
+        }
+
+        private void TryPasteClipboardImage(Vector2 cursorPos)
+        {
+            System.Drawing.Image clipboardImage = null;
+            var thread = new System.Threading.Thread(() =>
+            {
+                try
+                {
+                    if (System.Windows.Forms.Clipboard.ContainsImage())
+                    {
+                        clipboardImage = System.Windows.Forms.Clipboard.GetImage();
+                    }
+                    else if (System.Windows.Forms.Clipboard.ContainsFileDropList())
+                    {
+                        var files = System.Windows.Forms.Clipboard.GetFileDropList();
+                        foreach (string file in files)
+                        {
+                            if (file.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || 
+                                file.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                file.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                            {
+                                try { clipboardImage = System.Drawing.Image.FromFile(file); break; }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            });
+            thread.SetApartmentState(System.Threading.ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+
+            if (clipboardImage != null)
+            {
+                try
+                {
+                    string tempPath = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing_Clipboard.png");
+                    clipboardImage.Save(tempPath, System.Drawing.Imaging.ImageFormat.Png);
+                    clipboardImage.Dispose();
+                    
+                    _plugin.PluginLog.Information($"[TexturePainter] Pasted image from clipboard to {tempPath}");
+                    LoadFloatingImage(tempPath);
+                    
+                    // Try to project immediately at mouse position
+                    var mousePos = ImGui.GetMousePos();
+                    Vector2 localMousePos = mousePos - cursorPos;
+                    if (TryRaycastCached(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal))
+                    {
+                        if (_floatingLayer != null)
+                        {
+                            if (ImGui.IsKeyDown(ImGuiKey.ModShift))
+                            {
+                                worldHit.X = 0f;
+                                hitNormal.X = 0f;
+                                if (hitNormal.LengthSquared() > 0.001f) hitNormal = Vector3.Normalize(hitNormal);
+                                else hitNormal = Vector3.UnitZ;
+                            }
+
+                            _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
+                            if (_floatingLayer.ProjectionMode == 0)
+                                _floatingLayer.ProjectionMode = _default3DProjectionMode;
+                            _floatingLayer.DecalCenter = worldHit;
+                            _floatingLayer.DecalNormal = hitNormal;
+                            
+                            Vector3 up = Vector3.UnitY;
+                            if (Math.Abs(Vector3.Dot(hitNormal, up)) > 0.99f) up = Vector3.UnitZ;
+                            _floatingLayer.DecalTangent = Vector3.Normalize(Vector3.Cross(up, hitNormal));
+                            _floatingLayer.DecalBitangent = Vector3.Cross(hitNormal, _floatingLayer.DecalTangent);
+                            
+                            _needsComposite = true;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _plugin.PluginLog.Error(ex, "Failed to paste clipboard image.");
+                }
             }
         }
 
@@ -3001,6 +3179,32 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                                 rgba[i * 4 + 1] = src[i * 4 + 1]; // G
                                 rgba[i * 4 + 2] = src[i * 4 + 0]; // B
                                 rgba[i * 4 + 3] = src[i * 4 + 3]; // A
+                                
+                                if (_filterWhiteBackgroundOnImport)
+                                {
+                                    int a_r = 255 - rgba[i * 4 + 0];
+                                    int a_g = 255 - rgba[i * 4 + 1];
+                                    int a_b = 255 - rgba[i * 4 + 2];
+                                    int max_a = Math.Max(a_r, Math.Max(a_g, a_b));
+
+                                    if (max_a < 20)
+                                    {
+                                        rgba[i * 4 + 0] = 0;
+                                        rgba[i * 4 + 1] = 0;
+                                        rgba[i * 4 + 2] = 0;
+                                        rgba[i * 4 + 3] = 0;
+                                    }
+                                    else
+                                    {
+                                        float alphaF = (max_a - 20) / 235.0f;
+                                        float origAlphaF = max_a / 255.0f;
+                                        
+                                        rgba[i * 4 + 0] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i * 4 + 0]) / origAlphaF));
+                                        rgba[i * 4 + 1] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i * 4 + 1]) / origAlphaF));
+                                        rgba[i * 4 + 2] = (byte)Math.Max(0, Math.Min(255, 255 - (255 - rgba[i * 4 + 2]) / origAlphaF));
+                                        rgba[i * 4 + 3] = (byte)(Math.Max(0, Math.Min(255, alphaF * 255.0f)) * (rgba[i * 4 + 3] / 255.0f));
+                                    }
+                                }
                             }
                         }
                         bmp.UnlockBits(data);
