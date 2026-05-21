@@ -344,8 +344,29 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnCommand(string command, string args)
     {
-        // in response to the slash command, just toggle the display status of our main ui
-        ToggleMainUI();
+        if (args != null && args.Trim().ToLowerInvariant() == "clear")
+        {
+            try
+            {
+                FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.Clear();
+                FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.ClearCache();
+                FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpUVTransfer.ClearCache();
+                
+                DragAndDropTextures?.RefreshActiveOverrides();
+                
+                _chat.Print("DragAndDropTexturing: Virtual memory cache cleared and re-export triggered.");
+            }
+            catch (Exception ex)
+            {
+                _pluginLog.Error(ex, "Failed to clear virtual cache.");
+                _chat.Print("DragAndDropTexturing: Failed to clear virtual cache.");
+            }
+        }
+        else
+        {
+            // in response to the slash command, just toggle the display status of our main ui
+            ToggleMainUI();
+        }
     }
 
     private void DrawUI()

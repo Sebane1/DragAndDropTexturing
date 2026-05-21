@@ -117,6 +117,7 @@ public class MainWindow : Window, IDisposable
     private int _cachedBodyType = -2;
     private string _cachedBodyModName = null;
     private DateTime _lastBodyTypeCheck = DateTime.MinValue;
+    private string _pendingTintRebuildCategory = null;
 
     private void DrawSettings()
     {
@@ -565,11 +566,7 @@ public class MainWindow : Window, IDisposable
                     {
                         Plugin.Configuration.PenumbraOverlayTints[overlayKey] = col;
                         Plugin.Configuration.Save();
-                    }
-                    if (ImGui.IsItemDeactivatedAfterEdit())
-                    {
-                        changed = true;
-                        rebuildCategory = overlay.TargetBodyPart;
+                        _pendingTintRebuildCategory = overlay.TargetBodyPart;
                     }
                 }
                 else
@@ -579,6 +576,13 @@ public class MainWindow : Window, IDisposable
             }
 
             ImGui.EndTable();
+        }
+
+        if (_pendingTintRebuildCategory != null && ImGui.IsWindowFocused(ImGuiFocusedFlags.RootWindow))
+        {
+            changed = true;
+            rebuildCategory = _pendingTintRebuildCategory;
+            _pendingTintRebuildCategory = null;
         }
 
         if (changed && !string.IsNullOrEmpty(rebuildCategory))
@@ -2042,7 +2046,21 @@ public class MainWindow : Window, IDisposable
                     }
 
                     ImGui.TableNextColumn();
-                    ImGui.TextWrapped(state.Status ?? "");
+                    if (!string.IsNullOrEmpty(state.ErrorStackTrace))
+                    {
+                        ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), state.Status ?? "Error");
+                        if (ImGui.TreeNode($"View Stack Trace##{kvp.Key}"))
+                        {
+                            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.8f, 0.8f, 0.8f, 1f));
+                            ImGui.TextWrapped(state.ErrorStackTrace);
+                            ImGui.PopStyleColor();
+                            ImGui.TreePop();
+                        }
+                    }
+                    else
+                    {
+                        ImGui.TextWrapped(state.Status ?? "");
+                    }
 
                     ImGui.TableNextColumn();
                     ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));

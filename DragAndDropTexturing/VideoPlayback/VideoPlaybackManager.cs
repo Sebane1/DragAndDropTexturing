@@ -72,6 +72,7 @@ namespace DragAndDropTexturing.VideoPlayback
             catch (Exception ex)
             {
                 state.Status = $"Error: {ex.Message}";
+                state.ErrorStackTrace = ex.StackTrace;
                 _plugin.PluginLog.Error($"[AnimatedLayers] Failed to activate '{layerId}': {ex.Message}");
             }
         }
@@ -124,11 +125,21 @@ namespace DragAndDropTexturing.VideoPlayback
                         // Re-prepare on a background thread
                         Task.Run(async () =>
                         {
-                            state.Active = false; // Pause playback during re-render
-                            state.Status = "Re-rendering (base changed)...";
-                            await PrepareFrames(state, character);
-                            state.Active = true;
-                            state.Status = $"Playing ({state.FrameCount} frames @ {state.Definition.Fps}fps)";
+                            try
+                            {
+                                state.Active = false; // Pause playback during re-render
+                                state.Status = "Re-rendering (base changed)...";
+                                state.ErrorStackTrace = null;
+                                await PrepareFrames(state, character);
+                                state.Active = true;
+                                state.Status = $"Playing ({state.FrameCount} frames @ {state.Definition.Fps}fps)";
+                            }
+                            catch (Exception ex)
+                            {
+                                state.Status = $"Error: {ex.Message}";
+                                state.ErrorStackTrace = ex.StackTrace;
+                                _plugin.PluginLog.Error($"[AnimatedLayers] Re-render failed for '{state.LayerId}': {ex.Message}");
+                            }
                         });
                     }
                 }
@@ -360,10 +371,55 @@ namespace DragAndDropTexturing.VideoPlayback
                     if (safe != frameBmp) safe.Dispose();
                 }
 
-                byte[] composited = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering
-                    .CompositeFrameGpu(state.BasePixels, state.BaseW, state.BaseH,
-                        framePixels, frameW, frameH,
-                        state.StampX, state.StampY, state.StampW, state.StampH, def.Opacity);
+                byte[] composited = null;
+                try
+                {
+                    composited = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering
+                        .CompositeFrameGpu(state.BasePixels, state.BaseW, state.BaseH,
+                            framePixels, frameW, frameH,
+                            state.StampX, state.StampY, state.StampW, state.StampH, def.Opacity);
+                }
+                catch (Exception gpuEx)
+                {
+                    // Fallback to CPU for Linux/Proton or unsupported GPUs
+                    _plugin.PluginLog.Warning($"[AnimatedLayers] GPU composite failed, falling back to CPU: {gpuEx.Message}");
+                    using (var baseBmp = new Bitmap(state.BaseW, state.BaseH, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                    {
+                        var fdBase = baseBmp.LockBits(new System.Drawing.Rectangle(0, 0, state.BaseW, state.BaseH), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        System.Runtime.InteropServices.Marshal.Copy(state.BasePixels, 0, fdBase.Scan0, state.BasePixels.Length);
+                        baseBmp.UnlockBits(fdBase);
+
+                        using (var frameBmp = new Bitmap(frameW, frameH, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                        {
+                            var fdFrame = frameBmp.LockBits(new System.Drawing.Rectangle(0, 0, frameW, frameH), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                            System.Runtime.InteropServices.Marshal.Copy(framePixels, 0, fdFrame.Scan0, framePixels.Length);
+                            frameBmp.UnlockBits(fdFrame);
+
+                            using (var g = Graphics.FromImage(baseBmp))
+                            {
+                                if (def.Opacity < 0.99f)
+                                {
+                                    var cm = new System.Drawing.Imaging.ColorMatrix();
+                                    cm.Matrix33 = def.Opacity;
+                                    using (var ia = new System.Drawing.Imaging.ImageAttributes())
+                                    {
+                                        ia.SetColorMatrix(cm, System.Drawing.Imaging.ColorMatrixFlag.Default, System.Drawing.Imaging.ColorAdjustType.Bitmap);
+                                        g.DrawImage(frameBmp, new System.Drawing.Rectangle(state.StampX, state.StampY, state.StampW, state.StampH), 0, 0, frameW, frameH, GraphicsUnit.Pixel, ia);
+                                    }
+                                }
+                                else
+                                {
+                                    g.DrawImage(frameBmp, state.StampX, state.StampY, state.StampW, state.StampH);
+                                }
+                            }
+                        }
+
+                        var fdOut = baseBmp.LockBits(new System.Drawing.Rectangle(0, 0, state.BaseW, state.BaseH), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        composited = new byte[state.BaseW * state.BaseH * 4];
+                        System.Runtime.InteropServices.Marshal.Copy(fdOut.Scan0, composited, 0, composited.Length);
+                        baseBmp.UnlockBits(fdOut);
+                    }
+                }
 
                 // Write to NEW file (Penumbra can't lock what doesn't exist yet)
                 using (var fs = new FileStream(newTexPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536))
@@ -586,6 +642,7 @@ namespace DragAndDropTexturing.VideoPlayback
 
         private static void WriteFrameJson(AnimatedLayerState state, int ringSlot)
         {
+            if (string.IsNullOrEmpty(state.FrameTexPaths[ringSlot])) return;
             string relativePath = Path.GetRelativePath(state.ModPath, state.FrameTexPaths[ringSlot]).Replace('\\', '/');
             string gamePath = state.InternalGamePath.Replace("\\", "/");
             string json = $@"{{
@@ -689,6 +746,7 @@ namespace DragAndDropTexturing.VideoPlayback
         public bool Active { get; set; }
         public float PreparationProgress { get; set; }
         public string Status { get; set; }
+        public string ErrorStackTrace { get; set; }
 
         // Ring buffer support
         public const int RING_SIZE = 1000;
