@@ -10,6 +10,8 @@ using Dalamud.Plugin.Services;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Bindings.ImGui;
 using PenumbraAndGlamourerHelpers;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Tiff;
 
 namespace DragAndDropTexturing.Windows
 {
@@ -17,6 +19,7 @@ namespace DragAndDropTexturing.Windows
     {
         private readonly Plugin _plugin;
         private string _tempDir;
+        private readonly Dalamud.Interface.ImGuiFileDialog.FileDialogManager _fileDialogManager = new();
         
         private ModelRenderer _renderer;
         private bool _rendererInitialized = false;
@@ -70,7 +73,7 @@ namespace DragAndDropTexturing.Windows
         private float _strokeDistance = 0f;        // accumulated distance for spacing
         private static readonly Random _rng = new Random();
 
-        private enum PaintTool { Brush, Eraser, Fill, Eyedropper }
+        private enum PaintTool { Brush, Eraser, Fill, Eyedropper, Liquify }
         private enum PaintShape { Circle, Square }
 
         private PaintTool _activeTool = PaintTool.Brush;
@@ -284,6 +287,8 @@ namespace DragAndDropTexturing.Windows
 
         public override void Draw()
         {
+            _fileDialogManager.Draw();
+            
             while (_mainThreadActions.TryDequeue(out var action))
             {
                 try { action(); }
@@ -348,6 +353,10 @@ namespace DragAndDropTexturing.Windows
             if (ImGui.RadioButton(Translator.LocalizeUI("Fill"), _activeTool == PaintTool.Fill)) _activeTool = PaintTool.Fill;
             ImGui.SameLine();
             if (ImGui.RadioButton(Translator.LocalizeUI("Eyedropper"), _activeTool == PaintTool.Eyedropper)) _activeTool = PaintTool.Eyedropper;
+            ImGui.SameLine();
+            if (ImGui.RadioButton(Translator.LocalizeUI("Liquify"), _activeTool == PaintTool.Liquify)) _activeTool = PaintTool.Liquify;
+
+            ImGui.Separator();
 
             // Shape + Blend Mode
             ImGui.Text(Translator.LocalizeUI("Shape:"));
@@ -430,6 +439,15 @@ namespace DragAndDropTexturing.Windows
                 }
                 CommitPaintLayer();
             }
+
+            ImGui.SameLine();
+            if (ImGui.Button(Translator.LocalizeUI("Export 16-Bit TIFF")))
+            {
+                _fileDialogManager.SaveFileDialog("Save 16-Bit TIFF", ".tif", "conversion_map.tif", "tif", (b, s) => {
+                    if (b) Save16BitTiff(s);
+                });
+            }
+
             if (EditSourcePath != null)
             {
                 ImGui.SameLine();
@@ -1186,7 +1204,7 @@ namespace DragAndDropTexturing.Windows
             if (prev.HasValue && Vector2.Distance(uvHit, prev.Value) > 0.1f)
                 prev = null;
             
-            int blendMode = _activeTool == PaintTool.Eraser ? 1 : _brushBlendMode;
+            int blendMode = _activeTool == PaintTool.Eraser ? 1 : (_activeTool == PaintTool.Liquify ? 6 : _brushBlendMode);
             int shapeMode = _activeTool == PaintTool.Fill ? 2 : (_activeShape == PaintShape.Square ? 1 : 0);
             float finalAlpha = _paintColor.W * _brushOpacity;
 
@@ -1264,6 +1282,48 @@ namespace DragAndDropTexturing.Windows
 
             _lastUvHit = uvHit;
             _needsComposite = true;
+        }
+
+        private void Save16BitTiff(string outputPath)
+        {
+            if (_renderer == null) return;
+            ushort[] raw16Bit = _renderer.ReadbackPaintLayer16BitRgba();
+            if (raw16Bit == null) return;
+
+            int w = _renderer.PaintTexWidth;
+            int h = _renderer.PaintTexHeight;
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    using (var image = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba64>(w, h))
+                    {
+                        image.ProcessPixelRows(accessor => {
+                            for (int y = 0; y < h; y++)
+                            {
+                                var span = accessor.GetRowSpan(y);
+                                for (int x = 0; x < w; x++)
+                                {
+                                    int idx = (y * w + x) * 4;
+                                    span[x] = new SixLabors.ImageSharp.PixelFormats.Rgba64(
+                                        raw16Bit[idx + 0],
+                                        raw16Bit[idx + 1],
+                                        raw16Bit[idx + 2],
+                                        raw16Bit[idx + 3]
+                                    );
+                                }
+                            }
+                        });
+                        image.SaveAsTiff(outputPath);
+                    }
+                    _plugin.PluginLog.Info($"[Texture Painter] Successfully exported 16-bit TIFF to {outputPath}");
+                }
+                catch (Exception ex)
+                {
+                    _plugin.PluginLog.Error(ex, $"[Texture Painter] Failed to export 16-bit TIFF to {outputPath}");
+                }
+            });
         }
 
         private void CommitPaintLayer()
@@ -1962,7 +2022,7 @@ namespace DragAndDropTexturing.Windows
                 _isBiboPreview = isBibo;
                 _isTbsePreview = isTbse;
 
-                if (string.IsNullOrEmpty(EditSourcePath) && _overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
+                if (!isFaceEditLocal && string.IsNullOrEmpty(EditSourcePath) && _overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
                 {
                     _targetKeyword = null;
                     if (isBibo) _targetKeyword = "bibo";
@@ -2065,11 +2125,11 @@ namespace DragAndDropTexturing.Windows
                         string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
                         string dlcBase = null;
                         if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
-                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : (isEditingMask ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Mask.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Base.TrimStart('\\')));
                         else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
-                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : (isEditingMask ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Mask.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Base.TrimStart('\\')));
                         else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes.Count > 0)
-                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\'));
+                            dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : (isEditingMask ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Mask.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\')));
 
                         _activeBaseTexturePng = TexToTempPng(dlcBase, out baseIsBlack, shouldPadToSquare);
                     }
@@ -2086,7 +2146,7 @@ namespace DragAndDropTexturing.Windows
                         {
                             int subRaceValue = Math.Max(0, ffxivClan - 1);
                             int faceType = Math.Max(0, faceId - 1);
-                            int materialType = isEditingNormal ? 1 : 0;
+                            int materialType = isEditingNormal ? 1 : (isEditingMask ? 2 : 0);
                             string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
                             vanillaBasePng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquare);
                             if (string.IsNullOrEmpty(vanillaBasePng))
@@ -2097,7 +2157,7 @@ namespace DragAndDropTexturing.Windows
                         }
                         else
                         {
-                            string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(isEditingNormal ? 1 : 0, ffxivGenderInt, 0, ffxivRace, 0, false);
+                            string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(isEditingNormal ? 1 : (isEditingMask ? 2 : 0), ffxivGenderInt, 0, ffxivRace, 0, false);
                             vanillaBasePng = ExtractVanillaTexViaLumina(vanillaBodyTexPath);
                         }
                         if (!string.IsNullOrEmpty(vanillaBasePng))

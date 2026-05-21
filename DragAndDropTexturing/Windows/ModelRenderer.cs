@@ -1264,6 +1264,22 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
             float outA = saturate(existing.a - alpha);
             PaintLayer[id.xy] = float4(existing.rgb, outA);
         }
+        else if (BlendMode == 6) // Liquify
+        {
+            if (HasPrev > 0)
+            {
+                // To support arbitrary aspect ratios, calculate delta in UV space and convert back
+                float2 delta = Center - PrevCenter; // this is in pixel space already
+                float intensity = edge * Flow; // use flow to dictate smudge intensity
+                float2 offset = delta * intensity;
+                
+                // Sample from itself (creates a smudge effect due to consecutive thread execution)
+                int2 samplePos = int2(id.xy) - int2(round(offset));
+                samplePos = clamp(samplePos, int2(0,0), int2(w-1, h-1));
+                
+                PaintLayer[id.xy] = PaintLayer[samplePos];
+            }
+        }
         else
         {
             // Determine blended color
@@ -1846,6 +1862,56 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                             result[di + 1] = (byte)(Math.Clamp(row[si + 1], 0f, 1f) * 255f); // G
                             result[di + 2] = (byte)(Math.Clamp(row[si + 0], 0f, 1f) * 255f); // R
                             result[di + 3] = (byte)(Math.Clamp(row[si + 3], 0f, 1f) * 255f); // A
+                        }
+                    }
+                }
+                return result;
+            }
+            finally
+            {
+                _context.Unmap(staging, 0);
+            }
+        }
+        
+        /// <summary>
+        /// Reads the paint layer back from GPU to CPU as 16-bit RGBA pixels (ushort) for saving to 16-bit formats like TIFF.
+        /// </summary>
+        public ushort[] ReadbackPaintLayer16BitRgba()
+        {
+            if (!_gpuPaintReady || _gpuPaintTex == null) return null;
+
+            var stagingDesc = new Texture2DDescription
+            {
+                Width = _paintTexWidth, Height = _paintTexHeight,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read
+            };
+            using var staging = _device.CreateTexture2D(stagingDesc);
+            _context.CopyResource(staging, _gpuPaintTex);
+
+            var mapped = _context.Map(staging, 0, MapMode.Read);
+            try
+            {
+                ushort[] result = new ushort[_paintTexWidth * _paintTexHeight * 4];
+                unsafe
+                {
+                    float* src = (float*)mapped.DataPointer;
+                    for (int y = 0; y < _paintTexHeight; y++)
+                    {
+                        float* row = (float*)((byte*)mapped.DataPointer + y * mapped.RowPitch);
+                        for (int x = 0; x < _paintTexWidth; x++)
+                        {
+                            int si = x * 4;
+                            int di = (y * _paintTexWidth + x) * 4;
+                            // Convert float RGBA to 16-bit RGBA (0-65535)
+                            result[di + 0] = (ushort)(Math.Clamp(row[si + 0], 0f, 1f) * 65535f); // R
+                            result[di + 1] = (ushort)(Math.Clamp(row[si + 1], 0f, 1f) * 65535f); // G
+                            result[di + 2] = (ushort)(Math.Clamp(row[si + 2], 0f, 1f) * 65535f); // B
+                            result[di + 3] = (ushort)(Math.Clamp(row[si + 3], 0f, 1f) * 65535f); // A
                         }
                     }
                 }
