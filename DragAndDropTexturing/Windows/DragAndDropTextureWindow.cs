@@ -174,6 +174,77 @@ namespace RoleplayingVoice
             }
         }
 
+        private bool ApplyAdvancedOverlays(TextureSet item, string categoryKey)
+        {
+            bool applied = false;
+            var overlaysList = new List<DragAndDropTexturing.Overlays.ResolvedAdvancedOverlay>(DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays);
+            overlaysList.Reverse();
+            foreach (var activeOverlay in overlaysList)
+            {
+                if (categoryKey.EndsWith("_" + activeOverlay.TargetBodyPart.ToLower()))
+                {
+                    applied = true;
+                    string diffusePath = activeOverlay.DiffusePath;
+                    string normalPath = activeOverlay.NormalPath;
+                    string maskPath = activeOverlay.MaskPath;
+
+                    if (!string.IsNullOrEmpty(diffusePath))
+                    {
+                        if (!string.IsNullOrEmpty(normalPath))
+                        {
+                            string memoryPath = "memory://" + normalPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked";
+                            if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
+                            {
+                                var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(normalPath);
+                                if (dims.Width > 0 && dims.Height > 0)
+                                {
+                                    using (System.Drawing.Bitmap merged = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.MergeAlphaChannelToRGBGpuFromPaths(normalPath, diffusePath, dims.Width, dims.Height, false))
+                                    {
+                                        FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveMemoryBitmap(merged, memoryPath);
+                                    }
+                                }
+                            }
+                            normalPath = memoryPath;
+                        }
+
+                        if (!string.IsNullOrEmpty(maskPath))
+                        {
+                            string memoryPath = "memory://" + maskPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked";
+                            if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
+                            {
+                                var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(maskPath);
+                                if (dims.Width > 0 && dims.Height > 0)
+                                {
+                                    using (System.Drawing.Bitmap merged = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.MergeAlphaChannelToRGBGpuFromPaths(maskPath, diffusePath, dims.Width, dims.Height, false))
+                                    {
+                                        FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveMemoryBitmap(merged, memoryPath);
+                                    }
+                                }
+                            }
+                            maskPath = memoryPath;
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(diffusePath)) 
+                    {
+                        if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = System.Numerics.Vector4.One; }
+                        else if (!item.BaseOverlays.Contains(diffusePath)) { item.BaseOverlays.Add(diffusePath); item.BaseOverlayUVs.Add(activeOverlay.UVType); item.BaseOverlayTints.Add(System.Numerics.Vector4.One); }
+                    }
+                    if (!string.IsNullOrEmpty(normalPath)) 
+                    {
+                        if (string.IsNullOrEmpty(item.Normal)) { item.Normal = normalPath; item.NormalUV = activeOverlay.UVType; }
+                        else if (!item.NormalOverlays.Contains(normalPath)) { item.NormalOverlays.Add(normalPath); item.NormalOverlayUVs.Add(activeOverlay.UVType); }
+                    }
+                    if (!string.IsNullOrEmpty(maskPath)) 
+                    {
+                        if (string.IsNullOrEmpty(item.Mask)) { item.Mask = maskPath; item.MaskUV = activeOverlay.UVType; }
+                        else if (!item.MaskOverlays.Contains(maskPath)) { item.MaskOverlays.Add(maskPath); item.MaskOverlayUVs.Add(activeOverlay.UVType); }
+                    }
+                }
+            }
+            return applied;
+        }
+
         private string modName;
 
         private Dictionary<string, System.IO.FileSystemWatcher> _fileWatchers = new Dictionary<string, System.IO.FileSystemWatcher>();
@@ -936,6 +1007,9 @@ namespace RoleplayingVoice
                             {
                                 try
                                 {
+                                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(selectedPlayer.Value.ObjectIndex).Item3.Id;
+                                    PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, _currentCustomization.Customize.Gender.Value, _currentCustomization.Customize.Clan.Value - 1, plugin);
+
                                     HashSet<string> droppedCategories = new HashSet<string>();
                                     var psdFiles = files.Where(f => Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
                                     var clmpFiles = files.Where(f => Path.GetExtension(f).Equals(".clmp", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -1262,6 +1336,8 @@ namespace RoleplayingVoice
                                                     }
                                                 }
                                             }
+
+                                            ApplyAdvancedOverlays(item, categoryKey);
                                             plugin.PluginLog.Information($"[Glow Debug] TextureSet '{item.TextureSetName}': Base='{item.Base}', Normal='{item.Normal}', Mask='{item.Mask}', Glow='{item.Glow}', Material='{item.Material}', InternalMtrl='{item.InternalMaterialPath}'");
                                             textureSets.Add(item);
 
@@ -2348,70 +2424,9 @@ namespace RoleplayingVoice
                             }
 
                             // Advanced Overlays (Proteus/Metadata from Penumbra mods)
-                            var overlaysList = new List<DragAndDropTexturing.Overlays.ResolvedAdvancedOverlay>(DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays);
-                            overlaysList.Reverse();
-                            foreach (var activeOverlay in overlaysList)
+                            if (ApplyAdvancedOverlays(item, categoryKey))
                             {
-                                if (categoryKey.EndsWith("_" + activeOverlay.TargetBodyPart.ToLower()))
-                                {
-                                    hasContextualLayers = true;
-                                    string diffusePath = activeOverlay.DiffusePath;
-                                    string normalPath = activeOverlay.NormalPath;
-                                    string maskPath = activeOverlay.MaskPath;
-
-                                    if (!string.IsNullOrEmpty(diffusePath))
-                                    {
-                                        if (!string.IsNullOrEmpty(normalPath))
-                                        {
-                                            string memoryPath = "memory://" + normalPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked";
-                                            if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
-                                            {
-                                                var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(normalPath);
-                                                if (dims.Width > 0 && dims.Height > 0)
-                                                {
-                                                    using (System.Drawing.Bitmap merged = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.MergeAlphaChannelToRGBGpuFromPaths(normalPath, diffusePath, dims.Width, dims.Height, false))
-                                                    {
-                                                        FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveMemoryBitmap(merged, memoryPath);
-                                                    }
-                                                }
-                                            }
-                                            normalPath = memoryPath;
-                                        }
-
-                                        if (!string.IsNullOrEmpty(maskPath))
-                                        {
-                                            string memoryPath = "memory://" + maskPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked";
-                                            if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
-                                            {
-                                                var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(maskPath);
-                                                if (dims.Width > 0 && dims.Height > 0)
-                                                {
-                                                    using (System.Drawing.Bitmap merged = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.MergeAlphaChannelToRGBGpuFromPaths(maskPath, diffusePath, dims.Width, dims.Height, false))
-                                                    {
-                                                        FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveMemoryBitmap(merged, memoryPath);
-                                                    }
-                                                }
-                                            }
-                                            maskPath = memoryPath;
-                                        }
-                                    }
-
-                                    if (!string.IsNullOrEmpty(diffusePath)) 
-                                    {
-                                        if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = System.Numerics.Vector4.One; }
-                                        else if (!item.BaseOverlays.Contains(diffusePath)) { item.BaseOverlays.Add(diffusePath); item.BaseOverlayUVs.Add(activeOverlay.UVType); item.BaseOverlayTints.Add(System.Numerics.Vector4.One); }
-                                    }
-                                    if (!string.IsNullOrEmpty(normalPath)) 
-                                    {
-                                        if (string.IsNullOrEmpty(item.Normal)) { item.Normal = normalPath; item.NormalUV = activeOverlay.UVType; }
-                                        else if (!item.NormalOverlays.Contains(normalPath)) { item.NormalOverlays.Add(normalPath); item.NormalOverlayUVs.Add(activeOverlay.UVType); }
-                                    }
-                                    if (!string.IsNullOrEmpty(maskPath)) 
-                                    {
-                                        if (string.IsNullOrEmpty(item.Mask)) { item.Mask = maskPath; item.MaskUV = activeOverlay.UVType; }
-                                        else if (!item.MaskOverlays.Contains(maskPath)) { item.MaskOverlays.Add(maskPath); item.MaskOverlayUVs.Add(activeOverlay.UVType); }
-                                    }
-                                }
+                                hasContextualLayers = true;
                             }
                         }
                         if (_textureHistory[categoryKey].Count == 0 && !hasContextualLayers)
