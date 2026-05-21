@@ -254,6 +254,31 @@ namespace DragAndDropTexturing.VideoPlayback
             }
             baseBitmap?.Dispose();
 
+            // PRE-CACHE SCALED FRAMES! 
+            // Loading 2048x2048 PNGs from disk in the tight producer loop is fatal on Linux/Wine.
+            state.CachedFramePixels = new byte[state.FrameCount][];
+            var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
+            Parallel.For(0, state.FrameCount, po, i =>
+            {
+                using (var ms = new MemoryStream(File.ReadAllBytes(state.FrameSourceFiles[i])))
+                using (var bmp = new Bitmap(ms))
+                {
+                    using (var scaled = new Bitmap(state.StampW, state.StampH, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                    {
+                        using (var g = Graphics.FromImage(scaled))
+                        {
+                            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+                            g.DrawImage(bmp, 0, 0, state.StampW, state.StampH);
+                        }
+                        var fd = scaled.LockBits(new System.Drawing.Rectangle(0, 0, state.StampW, state.StampH), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        byte[] pixels = new byte[state.StampW * state.StampH * 4];
+                        System.Runtime.InteropServices.Marshal.Copy(fd.Scan0, pixels, 0, pixels.Length);
+                        scaled.UnlockBits(fd);
+                        state.CachedFramePixels[i] = pixels;
+                    }
+                }
+            });
+
             // Pre-compute the 80-byte .tex header (same for every frame)
             state.TexHeader = new byte[80];
             using (var hdrMs = new MemoryStream(state.TexHeader))
@@ -349,27 +374,10 @@ namespace DragAndDropTexturing.VideoPlayback
 
             try
             {
-                byte[] fileBytes = File.ReadAllBytes(state.FrameSourceFiles[sourceFrameIndex]);
-                byte[] framePixels;
-                int frameW, frameH;
-                using (var ms = new MemoryStream(fileBytes))
-                using (var frameBmp = new Bitmap(ms))
-                {
-                    Bitmap safe = frameBmp.PixelFormat == System.Drawing.Imaging.PixelFormat.Format32bppArgb
-                        ? frameBmp
-                        : frameBmp.Clone(new System.Drawing.Rectangle(0, 0, frameBmp.Width, frameBmp.Height),
-                            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                    var fd = safe.LockBits(
-                        new System.Drawing.Rectangle(0, 0, safe.Width, safe.Height),
-                        System.Drawing.Imaging.ImageLockMode.ReadOnly,
-                        System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                    framePixels = new byte[safe.Width * safe.Height * 4];
-                    System.Runtime.InteropServices.Marshal.Copy(fd.Scan0, framePixels, 0, framePixels.Length);
-                    safe.UnlockBits(fd);
-                    frameW = safe.Width;
-                    frameH = safe.Height;
-                    if (safe != frameBmp) safe.Dispose();
-                }
+                // Grab the pre-scaled bytes directly from memory cache
+                byte[] framePixels = state.CachedFramePixels[sourceFrameIndex];
+                int frameW = state.StampW;
+                int frameH = state.StampH;
 
                 byte[] composited = null;
                 try
@@ -381,43 +389,53 @@ namespace DragAndDropTexturing.VideoPlayback
                 }
                 catch (Exception gpuEx)
                 {
-                    // Fallback to CPU for Linux/Proton or unsupported GPUs
-                    _plugin.PluginLog.Warning($"[AnimatedLayers] GPU composite failed, falling back to CPU: {gpuEx.Message}");
-                    using (var baseBmp = new Bitmap(state.BaseW, state.BaseH, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                    // Fallback to pure C# byte array blending for Linux/Proton
+                    // Since we pre-scaled the frame to exactly StampW x StampH, we can do 1:1 pixel mapping.
+                    composited = new byte[state.BasePixels.Length];
+                    Buffer.BlockCopy(state.BasePixels, 0, composited, 0, state.BasePixels.Length);
+
+                    int bW = state.BaseW;
+                    int bH = state.BaseH;
+                    float opac = def.Opacity;
+                    int sW = state.StampW;
+                    int sH = state.StampH;
+                    int sX = state.StampX;
+                    int sY = state.StampY;
+
+                    // Direct BGRA alpha blending
+                    for (int fy = 0; fy < sH; fy++)
                     {
-                        var fdBase = baseBmp.LockBits(new System.Drawing.Rectangle(0, 0, state.BaseW, state.BaseH), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                        System.Runtime.InteropServices.Marshal.Copy(state.BasePixels, 0, fdBase.Scan0, state.BasePixels.Length);
-                        baseBmp.UnlockBits(fdBase);
+                        int by = sY + fy;
+                        if (by < 0 || by >= bH) continue;
 
-                        using (var frameBmp = new Bitmap(frameW, frameH, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                        for (int fx = 0; fx < sW; fx++)
                         {
-                            var fdFrame = frameBmp.LockBits(new System.Drawing.Rectangle(0, 0, frameW, frameH), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                            System.Runtime.InteropServices.Marshal.Copy(framePixels, 0, fdFrame.Scan0, framePixels.Length);
-                            frameBmp.UnlockBits(fdFrame);
+                            int bx = sX + fx;
+                            if (bx < 0 || bx >= bW) continue;
 
-                            using (var g = Graphics.FromImage(baseBmp))
+                            int fIdx = (fy * sW + fx) * 4;
+                            int bIdx = (by * bW + bx) * 4;
+
+                            byte fA = framePixels[fIdx + 3];
+                            if (fA == 0) continue;
+
+                            float alpha = (fA / 255f) * opac;
+                            if (alpha >= 0.99f)
                             {
-                                if (def.Opacity < 0.99f)
-                                {
-                                    var cm = new System.Drawing.Imaging.ColorMatrix();
-                                    cm.Matrix33 = def.Opacity;
-                                    using (var ia = new System.Drawing.Imaging.ImageAttributes())
-                                    {
-                                        ia.SetColorMatrix(cm, System.Drawing.Imaging.ColorMatrixFlag.Default, System.Drawing.Imaging.ColorAdjustType.Bitmap);
-                                        g.DrawImage(frameBmp, new System.Drawing.Rectangle(state.StampX, state.StampY, state.StampW, state.StampH), 0, 0, frameW, frameH, GraphicsUnit.Pixel, ia);
-                                    }
-                                }
-                                else
-                                {
-                                    g.DrawImage(frameBmp, state.StampX, state.StampY, state.StampW, state.StampH);
-                                }
+                                composited[bIdx] = framePixels[fIdx];
+                                composited[bIdx + 1] = framePixels[fIdx + 1];
+                                composited[bIdx + 2] = framePixels[fIdx + 2];
+                                composited[bIdx + 3] = 255;
+                            }
+                            else
+                            {
+                                float invAlpha = 1f - alpha;
+                                composited[bIdx] = (byte)(framePixels[fIdx] * alpha + composited[bIdx] * invAlpha);
+                                composited[bIdx + 1] = (byte)(framePixels[fIdx + 1] * alpha + composited[bIdx + 1] * invAlpha);
+                                composited[bIdx + 2] = (byte)(framePixels[fIdx + 2] * alpha + composited[bIdx + 2] * invAlpha);
+                                composited[bIdx + 3] = (byte)Math.Min(255, composited[bIdx + 3] + (fA * opac));
                             }
                         }
-
-                        var fdOut = baseBmp.LockBits(new System.Drawing.Rectangle(0, 0, state.BaseW, state.BaseH), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                        composited = new byte[state.BaseW * state.BaseH * 4];
-                        System.Runtime.InteropServices.Marshal.Copy(fdOut.Scan0, composited, 0, composited.Length);
-                        baseBmp.UnlockBits(fdOut);
                     }
                 }
 
@@ -770,6 +788,7 @@ namespace DragAndDropTexturing.VideoPlayback
         // Ring buffer support
         public const int RING_SIZE = 1000;
         public string[] FrameSourceFiles { get; set; }
+        public byte[][] CachedFramePixels { get; set; }
         public byte[] BasePixels { get; set; }
         public int BaseW { get; set; }
         public int BaseH { get; set; }
