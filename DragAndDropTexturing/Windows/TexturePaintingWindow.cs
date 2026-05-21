@@ -1192,6 +1192,8 @@ namespace DragAndDropTexturing.Windows
                     Position = new Vector2(0f, 0f),
                     Scale = new Vector2(0.5f, 0.5f)
                 };
+                
+                _needsComposite = true;
             }
             catch (Exception ex)
             {
@@ -1243,6 +1245,8 @@ namespace DragAndDropTexturing.Windows
             var oldSrv = _floatingLayer.SRV;
             _floatingLayer.SRV = _renderer.CreateSrvFromRgba(rgba, _floatingLayer.Width, _floatingLayer.Height);
             oldSrv?.Dispose();
+            
+            _needsComposite = true;
         }
 
         private void TryPasteClipboardImage(Vector2 cursorPos)
