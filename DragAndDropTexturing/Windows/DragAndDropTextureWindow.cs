@@ -48,6 +48,7 @@ namespace RoleplayingVoice
         private ICharacter _currentTarget;
         private bool _lockDuplicateGeneration;
         private bool _hideProgressUI;
+        private bool _isRegenerationPending;
         public Dictionary<string, string> ActiveBodyOverrides = new Dictionary<string, string>();
         private object _currentMod;
         private CharacterCustomization _currentCustomization;
@@ -659,7 +660,7 @@ namespace RoleplayingVoice
                     }
                     ImGui.EndChild();
                 }
-                else if (_lockDuplicateGeneration && !_hideProgressUI)
+                else if ((_lockDuplicateGeneration || _isRegenerationPending) && !_hideProgressUI)
                 {
                     Vector2 barPos = new Vector2(size.X / 2 - 150, size.Y - 100);
                     if (_currentTarget != null && _currentTarget.Address != nint.Zero)
@@ -686,13 +687,14 @@ namespace RoleplayingVoice
                     }
                     ImGui.SetCursorPos(barPos);
                     ImGui.BeginChild("LoadingBox", new Vector2(300, 40), true, ImGuiWindowFlags.NoScrollbar);
-                    if (_textureProcessor != null && _textureProcessor.ExportMax > 0)
+                    if (_textureProcessor != null && _textureProcessor.ExportMax > 0 && !_isRegenerationPending)
                     {
                         ImGui.ProgressBar(_textureProcessor.ExportCompletion / (float)_textureProcessor.ExportMax, new Vector2(-1, 0), _exportStatus);
                     }
                     else
                     {
-                        ImGui.ProgressBar(0f, new Vector2(-1, 0), _exportStatus);
+                        float bounce = (float)Math.Abs(Math.Sin(ImGui.GetTime() * 2.0));
+                        ImGui.ProgressBar(bounce, new Vector2(-1, 0), _exportStatus);
                     }
                     ImGui.EndChild();
                 }
@@ -1353,6 +1355,7 @@ namespace RoleplayingVoice
                 sw.Start();
                 plugin.PluginLog.Information("[Drag And Drop Debug] Export started!");
                 _lockDuplicateGeneration = true;
+                _isRegenerationPending = false;
 
                 plugin.PluginLog.Information("[Drag And Drop Texturing] Processing textures, please wait.");
                 string modPath = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
@@ -1816,7 +1819,7 @@ namespace RoleplayingVoice
 
                 if (partsToRegenerate.Count > 0)
                 {
-                    ScheduleRegeneration(charName, partsToRegenerate.ToArray());
+                    ScheduleRegeneration(charName, partsToRegenerate.ToArray(), !(raceChanged || genderChanged), false);
                 }
             }
             catch (Exception ex)
@@ -1887,7 +1890,7 @@ namespace RoleplayingVoice
                         plugin.PluginLog.Information($"[Drag And Drop Texturing] Inheritance change detected (ModDir: '{e.ModDirectory}', Collection: {e.CollectionId}). Rebuilding body textures...");
                     else
                         plugin.PluginLog.Information("[Drag And Drop Texturing] Skin mod change detected (" + e.ModDirectory + "). Rebuilding body textures...");
-                    ScheduleRegeneration(charName, new[] { "_body" });
+                    ScheduleRegeneration(charName, new[] { "_body" }, true, false);
                 }
             }
             catch (Exception ex)
@@ -1898,6 +1901,13 @@ namespace RoleplayingVoice
 
         public void ScheduleRegeneration(string charName, string[] categorySuffixes, bool skipDelays = false, bool hideProgressUI = true)
         {
+            if (!hideProgressUI)
+            {
+                _isRegenerationPending = true;
+                _hideProgressUI = false;
+                _exportStatus = "Waiting for Penumbra...";
+                _currentTarget = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+            }
             lock (_regenerationLock)
             {
                 foreach (var suffix in categorySuffixes)
@@ -2125,6 +2135,7 @@ namespace RoleplayingVoice
 
             if (character == null)
             {
+                _isRegenerationPending = false;
                 plugin.PluginLog.Error("[Drag And Drop Texturing] Character " + charName + " not found nearby. Cannot re-export.");
                 return;
             }
@@ -2142,7 +2153,11 @@ namespace RoleplayingVoice
                     Thread.Sleep(1000);
                     waitAttempts++;
                 }
-                if (_lockDuplicateGeneration) return;
+                if (_lockDuplicateGeneration)
+                {
+                    _isRegenerationPending = false;
+                    return;
+                }
 
                 try
                 {
@@ -2332,7 +2347,9 @@ namespace RoleplayingVoice
                             }
 
                             // Advanced Overlays (Proteus/Metadata from Penumbra mods)
-                            foreach (var activeOverlay in DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays)
+                            var overlaysList = new List<DragAndDropTexturing.Overlays.ResolvedAdvancedOverlay>(DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays);
+                            overlaysList.Reverse();
+                            foreach (var activeOverlay in overlaysList)
                             {
                                 if (categoryKey.EndsWith("_" + activeOverlay.TargetBodyPart.ToLower()))
                                 {
@@ -2459,6 +2476,7 @@ namespace RoleplayingVoice
                 }
                 catch (Exception e)
                 {
+                    _isRegenerationPending = false;
                     plugin.PluginLog.Error($"[Drag And Drop Texturing] Crash during generation: {e.Message}");
                     Plugin.PluginLog.Warning(e, e.Message);
                 }
