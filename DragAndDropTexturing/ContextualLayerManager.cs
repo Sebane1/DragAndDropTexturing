@@ -708,7 +708,7 @@ namespace DragAndDropTexturing
             {
                 _plugin.PluginLog.Information($"[Contextual Layers] '{layer.Name}' is already active. Processing stack increment or timer refresh...");
                 existing.Timer.Restart();
-                if (layer.Trigger == TriggerType.Emote)
+                if (layer.Trigger == TriggerType.Emote || layer.Trigger == TriggerType.Chat_Message)
                 {
                     existing.CurrentStackCount++;
                     if (existing.CurrentStackCount > existing.CachedTexturePaths.Count && !layer.ProceduralDecalMode)

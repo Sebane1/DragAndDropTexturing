@@ -91,6 +91,7 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin(IClientState clientState, IChatGui chatGui, IObjectTable objectTable, IFramework framework, IPluginLog pluginLog, IGameInteropProvider gameInteropProvider)
     {
         _pluginLog = pluginLog;
+        LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = PluginInterface.AssemblyLocation.DirectoryName;
         _penumbraAndGlamourerIpcWrapper = new PenumbraAndGlamourerIpcWrapper(PluginInterface);
         _chat = chatGui;
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();

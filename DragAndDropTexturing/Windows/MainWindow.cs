@@ -901,6 +901,9 @@ public class MainWindow : Window, IDisposable
 
     private void ExportCategoryToPsd(string key, System.Collections.Generic.List<string> files)
     {
+        if (Plugin.Chat != null)
+            Plugin.Chat.Print("[DragAndDrop] Exporting to PSD... Please wait.");
+            
         System.Threading.Tasks.Task.Run(() =>
         {
             try
@@ -915,13 +918,27 @@ public class MainWindow : Window, IDisposable
                 if (key.EndsWith("_body", StringComparison.OrdinalIgnoreCase))
                 {
                     var character = Plugin.SafeGameObjectManager.LocalPlayer;
-                    if (character != null)
+                    if (character != null && global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64 != null)
                     {
-                        var stateBase64Result = global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
-                        var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64Result.Item2);
-                        int ffxivGender = customization.Customize.Gender.Value;
-                        Guid collectionId = global::PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
-                        targetBody = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string _, Plugin);
+                        try 
+                        {
+                            var stateBase64Result = global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
+                            var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64Result.Item2);
+                            int ffxivGender = customization.Customize.Gender.Value;
+                            Guid collectionId = global::PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+                            targetBody = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string _, Plugin);
+                            
+                            // Initialize the path so FastUVTransfer maps can be found
+                            if (global::PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory != null)
+                            {
+                                string modPath = global::PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                                LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = modPath + @"\LooseTextureCompilerDLC";
+                            }
+                        }
+                        catch (Exception innerEx)
+                        {
+                            Plugin.PluginLog.Warning($"[DragAndDrop] Could not determine target body via IPC: {innerEx.Message}");
+                        }
                     }
                 }
 
@@ -990,6 +1007,9 @@ public class MainWindow : Window, IDisposable
                     }
 
                     collection.Write(psdPath, ImageMagick.MagickFormat.Psd);
+                    if (Plugin.Chat != null)
+                        Plugin.Chat.Print($"[DragAndDrop] Successfully exported PSD to: {psdPath}");
+                        
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
                     {
                         FileName = exportFolder,
@@ -999,11 +1019,15 @@ public class MainWindow : Window, IDisposable
                 }
                 else
                 {
+                    if (Plugin.Chat != null)
+                        Plugin.Chat.Print($"[DragAndDrop] Error: No valid image files found to export.");
                     Plugin.PluginLog.Warning($"No valid files found to export for category {key}");
                 }
             }
             catch (Exception ex)
             {
+                if (Plugin.Chat != null)
+                    Plugin.Chat.Print($"[DragAndDrop] Failed to export PSD! Check the plugin log for details.");
                 Plugin.PluginLog.Error(ex, $"Failed to export category {key} to PSD");
             }
         });
