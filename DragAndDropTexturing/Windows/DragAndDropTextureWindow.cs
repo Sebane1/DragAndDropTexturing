@@ -2162,6 +2162,7 @@ namespace RoleplayingVoice
                 try
                 {
                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+                    PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, localCustomization.Customize.Gender.Value, localCustomization.Customize.Clan.Value - 1, plugin);
                     List<TextureSet> textureSets = new List<TextureSet>();
                     string localModName = charName + " Texture Mod";
 
