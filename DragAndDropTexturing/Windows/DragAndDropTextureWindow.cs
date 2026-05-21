@@ -225,10 +225,17 @@ namespace RoleplayingVoice
                         }
                     }
 
+                    string overlayKey = !string.IsNullOrEmpty(diffusePath) ? diffusePath : (!string.IsNullOrEmpty(normalPath) ? normalPath : maskPath);
+                    System.Numerics.Vector4 tintColor = System.Numerics.Vector4.One;
+                    if (overlayKey != null && plugin.Configuration.PenumbraOverlayTints.TryGetValue(overlayKey, out var savedTint))
+                    {
+                        tintColor = savedTint;
+                    }
+
                     if (!string.IsNullOrEmpty(diffusePath)) 
                     {
-                        if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = System.Numerics.Vector4.One; }
-                        else if (!item.BaseOverlays.Contains(diffusePath)) { item.BaseOverlays.Add(diffusePath); item.BaseOverlayUVs.Add(activeOverlay.UVType); item.BaseOverlayTints.Add(System.Numerics.Vector4.One); }
+                        if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = tintColor; }
+                        else if (!item.BaseOverlays.Contains(diffusePath)) { item.BaseOverlays.Add(diffusePath); item.BaseOverlayUVs.Add(activeOverlay.UVType); item.BaseOverlayTints.Add(tintColor); }
                     }
                     if (!string.IsNullOrEmpty(normalPath)) 
                     {

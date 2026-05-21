@@ -42,6 +42,7 @@ public class Configuration : IPluginConfiguration
     public System.Collections.Generic.List<DragAndDropTexturing.VideoPlayback.AnimatedLayerDefinition> AnimatedLayers { get; set; } = new System.Collections.Generic.List<DragAndDropTexturing.VideoPlayback.AnimatedLayerDefinition>();
     public System.Collections.Generic.List<ActiveLayerPreset> ActiveLayerPresets { get; set; } = new();
     public int LanguageOverride { get; set; } = -1; // -1 = Auto
+    public System.Collections.Generic.Dictionary<string, System.Numerics.Vector4> PenumbraOverlayTints { get; set; } = new System.Collections.Generic.Dictionary<string, System.Numerics.Vector4>();
     // the below exist just to make saving less cumbersome
     public void Save()
     {

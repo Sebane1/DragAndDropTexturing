@@ -85,6 +85,11 @@ public class MainWindow : Window, IDisposable
                 DrawContextualLayers();
                 ImGui.EndTabItem();
             }
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Penumbra Found Mods")))
+            {
+                DrawPenumbraFoundMods();
+                ImGui.EndTabItem();
+            }
             if (ImGui.BeginTabItem(Translator.LocalizeUI("Animated Layers")))
             {
                 DrawAnimatedLayers();
@@ -482,6 +487,107 @@ public class MainWindow : Window, IDisposable
                 }
 
                 ImGui.EndTabBar();
+            }
+        }
+    }
+
+    private void DrawPenumbraFoundMods()
+    {
+        ImGui.Spacing();
+        ImGui.TextWrapped(Translator.LocalizeUI("This tab shows advanced textures (overlays) discovered from active Penumbra mods that include raw .png file options. You can customize color tinting for these layers here, but they cannot be removed since they are controlled by Penumbra."));
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        var ddt = Plugin.DragAndDropTextures;
+        if (ddt == null) return;
+
+        var overlays = DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays;
+        if (overlays == null || overlays.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No Penumbra mod overlays currently active/detected."));
+            return;
+        }
+
+        bool changed = false;
+        string rebuildCategory = null;
+
+        if (ImGui.BeginTable("PenumbraFoundModsTable", 4, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        {
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Part"), ImGuiTableColumnFlags.WidthFixed, 100);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("UV Type"), ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Tint"), ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableHeadersRow();
+
+            for (int i = 0; i < overlays.Count; i++)
+            {
+                var overlay = overlays[i];
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.Text(char.ToUpper(overlay.TargetBodyPart[0]) + overlay.TargetBodyPart.Substring(1));
+
+                ImGui.TableNextColumn();
+                ImGui.Text(overlay.UVType);
+
+                ImGui.TableNextColumn();
+                // Show preview and filename
+                string fileName = string.IsNullOrEmpty(overlay.DiffusePath) ? "" : Path.GetFileName(overlay.DiffusePath);
+                
+                var tex = GetPreviewTexture(overlay.DiffusePath);
+                var wrap = tex?.GetWrapOrDefault();
+                if (wrap != null)
+                {
+                    ImGui.Image(wrap.Handle, new Vector2(30, 30));
+                    ImGui.SameLine();
+                    ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 5);
+                }
+                
+                ImGui.Text(fileName);
+                if (!string.IsNullOrEmpty(overlay.DiffusePath) && ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(overlay.DiffusePath);
+                }
+
+                ImGui.TableNextColumn();
+                // Tint control
+                string overlayKey = !string.IsNullOrEmpty(overlay.DiffusePath) ? overlay.DiffusePath : (!string.IsNullOrEmpty(overlay.NormalPath) ? overlay.NormalPath : overlay.MaskPath);
+                if (!string.IsNullOrEmpty(overlayKey))
+                {
+                    Vector4 col = Vector4.One;
+                    if (Plugin.Configuration.PenumbraOverlayTints.TryGetValue(overlayKey, out var savedCol))
+                    {
+                        col = savedCol;
+                    }
+
+                    ImGui.SetNextItemWidth(60);
+                    if (ImGui.ColorEdit4($"##overlaytint_{i}", ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaPreviewHalf))
+                    {
+                        Plugin.Configuration.PenumbraOverlayTints[overlayKey] = col;
+                        Plugin.Configuration.Save();
+                    }
+                    if (ImGui.IsItemDeactivatedAfterEdit())
+                    {
+                        changed = true;
+                        rebuildCategory = overlay.TargetBodyPart;
+                    }
+                }
+                else
+                {
+                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "N/A");
+                }
+            }
+
+            ImGui.EndTable();
+        }
+
+        if (changed && !string.IsNullOrEmpty(rebuildCategory))
+        {
+            var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+            if (localPlayer != null)
+            {
+                string categoryKey = localPlayer.Name.TextValue + "_" + rebuildCategory.ToLower();
+                ddt.RebuildCategory(categoryKey, false);
             }
         }
     }
