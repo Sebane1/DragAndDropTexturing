@@ -2495,6 +2495,15 @@ namespace RoleplayingVoice
                             categoryModName = "Gear " + gearMeta.SlotKey + (string.IsNullOrEmpty(gearMeta.MaterialName) ? "" : " " + gearMeta.MaterialName) + (string.IsNullOrEmpty(gearMeta.ModName) ? "" : " [" + gearMeta.ModName + "]");
                         }
                     }
+                    else if (categoryKey.EndsWith("_tail") || categoryKey.Contains("fallback_Tail"))
+                    {
+                        int effectiveRace = RaceInfo.SubRaceToMainRace(localCustomization.Customize.Clan.Value - 1);
+                        item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, 4,
+                        effectiveRace,
+                        localCustomization.Customize.TailShape.Value - 1, false);
+                        TryOverrideTailTextureSet(item, collection, localCustomization.Customize.Gender.Value, effectiveRace, localCustomization.Customize.TailShape.Value - 1);
+                        categoryModName = "Tail";
+                    }
 
                     if (item != null)
                     {
