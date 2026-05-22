@@ -562,10 +562,14 @@ public class MainWindow : Window, IDisposable
                     }
 
                     ImGui.SetNextItemWidth(60);
-                    if (ImGui.ColorEdit4($"##overlaytint_{i}", ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaPreviewHalf))
+                    if (ImGui.ColorEdit4($"##overlaytint_{i}", ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoAlpha))
                     {
+                        col.W = 1.0f;
                         Plugin.Configuration.PenumbraOverlayTints[overlayKey] = col;
                         Plugin.Configuration.Save();
+                    }
+                    if (ImGui.IsItemDeactivatedAfterEdit())
+                    {
                         _pendingTintRebuildCategory = overlay.TargetBodyPart;
                     }
                 }
@@ -936,7 +940,8 @@ public class MainWindow : Window, IDisposable
                         System.Numerics.Vector4 col = tintList[i];
                         ImGui.SameLine();
                         ImGui.SetNextItemWidth(40);
-                        if (ImGui.ColorEdit4("##tint_" + key + i, ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaPreviewHalf)) {
+                        if (ImGui.ColorEdit4("##tint_" + key + i, ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoAlpha)) {
+                            col.W = 1.0f;
                             tintList[i] = col;
                         }
                         if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;

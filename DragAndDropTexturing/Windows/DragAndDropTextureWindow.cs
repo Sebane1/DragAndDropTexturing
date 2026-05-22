@@ -1517,6 +1517,10 @@ namespace RoleplayingVoice
                             category = "_face";
                             requiresFullRedraw = true;
                         }
+                        else if (tName.Contains("tail", StringComparison.OrdinalIgnoreCase) || tPath.Contains("obj/tail", StringComparison.OrdinalIgnoreCase))
+                        {
+                            category = "_tail";
+                        }
                         else if (tPath.Contains("obj/equipment") || tPath.Contains("chara/equipment") || tName.Contains("gear"))
                         {
                             category = "_gear";
@@ -1703,15 +1707,12 @@ namespace RoleplayingVoice
                                     int originalTail = cust.Customize.TailShape.Value;
                                     
                                     // Change the tail shape to force Glamourer to reload the geometry
-                                    cust.Customize.TailShape.Value = originalTail == 1 ? 2 : 1;
+                                    cust.Customize.TailShape.Value = (byte)(originalTail == 1 ? 2 : 1);
                                     PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(cust.ToBase64(), character.Value.ObjectIndex);
 
-                                    // Restore the original tail shape on the next tick
-                                    Plugin.Framework.RunOnFrameworkThread(() =>
-                                    {
-                                        cust.Customize.TailShape.Value = originalTail;
-                                        PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(cust.ToBase64(), character.Value.ObjectIndex);
-                                    });
+                                    // Restore the original tail shape immediately in the same tick
+                                    cust.Customize.TailShape.Value = (byte)originalTail;
+                                    PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(cust.ToBase64(), character.Value.ObjectIndex);
                                 }
                             }
                             else if (name.Contains("head", StringComparison.OrdinalIgnoreCase) || name.Contains("hat", StringComparison.OrdinalIgnoreCase))
