@@ -1751,7 +1751,35 @@ namespace RoleplayingVoice
                         var customization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character.Value);
                         if (customization != null && customization.Equipment != null)
                         {
-                            if (name.Contains("face", StringComparison.OrdinalIgnoreCase) ||
+                            // Minion mod: find the companion game object and redraw it directly
+                            if (name.Contains("Minion", StringComparison.OrdinalIgnoreCase))
+                            {
+                                plugin.PluginLog.Info($"[Drag And Drop] Minion redraw: looking for companion owned by {character.Value.Name?.TextValue} (GameObjectId={character.Value.GameObjectId}, ObjectIndex={character.Value.ObjectIndex})");
+                                bool found = false;
+                                foreach (var obj in plugin.SafeGameObjectManager)
+                                {
+                                    if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Companion)
+                                    {
+                                        plugin.PluginLog.Info($"[Drag And Drop] Found companion: {obj.Name} OwnerId={obj.OwnerId} ObjectIndex={obj.ObjectIndex} DataId={obj.DataId}");
+                                        // OwnerId == 0xE0000000 is FFXIV's sentinel for "owned by local player"
+                                        bool isOwnedByCharacter = obj.OwnerId == character.Value.GameObjectId
+                                            || obj.OwnerId == 0xE0000000;
+                                        if (isOwnedByCharacter)
+                                        {
+                                            plugin.PluginLog.Info($"[Drag And Drop] Redrawing minion object: {obj.Name} (ObjectIndex={obj.ObjectIndex})");
+                                            PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(obj.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!found)
+                                {
+                                    plugin.PluginLog.Warning($"[Drag And Drop] No companion found for owner. Trying RedrawObject on player instead.");
+                                    PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                                }
+                            }
+                            else if (name.Contains("face", StringComparison.OrdinalIgnoreCase) ||
                                 name.Contains("eyes", StringComparison.OrdinalIgnoreCase) ||
                                 name.Contains("eyebrow", StringComparison.OrdinalIgnoreCase) ||
                                 name.Contains("hair", StringComparison.OrdinalIgnoreCase))
@@ -2470,7 +2498,40 @@ namespace RoleplayingVoice
 
                         if (overlayPaths.Count == 0)
                         {
-                            plugin.PluginLog.Info($"[MINION REBUILD] No overlay layers for '{categoryKey}'. Skipping export.");
+                            plugin.PluginLog.Info($"[MINION REBUILD] No overlay layers for '{categoryKey}'. Disabling mod and reverting to vanilla.");
+                            // Disable the Penumbra mod so the minion reverts to vanilla
+                            try
+                            {
+                                string cleanName = gearMeta.DisplayName.Replace("(", "").Replace(")", "").Trim();
+                                cleanName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanName.ToLower());
+                                string modName = charName + " Texture " + cleanName;
+                                string modPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
+                                var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
+                                if (localPlayer != null)
+                                {
+                                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, modPath, false, modName);
+                                    plugin.PluginLog.Info($"[MINION REBUILD] Disabled mod '{modName}' in collection {collection}");
+                                    // Redraw the companion
+                                    Plugin.Framework.RunOnFrameworkThread(() =>
+                                    {
+                                        foreach (var obj in plugin.SafeGameObjectManager)
+                                        {
+                                            if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Companion
+                                                && (obj.OwnerId == localPlayer.GameObjectId || obj.OwnerId == 0xE0000000))
+                                            {
+                                                plugin.PluginLog.Info($"[MINION REBUILD] Redrawing companion after layer removal: {obj.Name} (ObjectIndex={obj.ObjectIndex})");
+                                                PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(obj.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                                                break;
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                plugin.PluginLog.Error($"[MINION REBUILD] Failed to disable mod: {ex.Message}");
+                            }
                             _isRegenerationPending = false;
                             return;
                         }
