@@ -2385,8 +2385,18 @@ namespace DragAndDropTexturing.Windows
                 string baseTexPath = null;
                 string normTexPath = null;
                 string maskTexPath = null;
+
+                if (matchedPiece != null)
+                {
+                    baseTexPath = !string.IsNullOrEmpty(matchedPiece.ResolvedBaseDiskPath) ? matchedPiece.ResolvedBaseDiskPath : matchedPiece.InternalBasePath;
+                    normTexPath = matchedPiece.InternalNormalPath;
+                    maskTexPath = matchedPiece.InternalMaskPath;
+                }
+
                 bool isBodySlot = !isGear || (activeSuffix != "hir" && activeSuffix != "til" && activeSuffix != "met");
-                if (!isFaceEditLocal && isBodySlot)
+                
+                // Do not forcefully override with human skin textures if we are working with a minion!
+                if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion)
                 {
                     if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
                     {
@@ -2458,7 +2468,7 @@ namespace DragAndDropTexturing.Windows
 
                 if (_activeBaseTexturePng == null || baseIsBlack)
                 {
-                    if (!isFaceEditLocal && isBodySlot)
+                    if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion)
                     {
                         _plugin.PluginLog.Info("[PSD Preview] Base texture from priority mod was missing or fully black. Falling back to DLC underlay skin type.");
                         string modPath = _cachedModDirectory;
@@ -2476,7 +2486,16 @@ namespace DragAndDropTexturing.Windows
 
                     if (_activeBaseTexturePng == null || baseIsBlack)
                     {
-                        if (!isFaceEditLocal && !isBodySlot)
+                        if (_cachedIsMinion && !string.IsNullOrEmpty(baseTexPath))
+                        {
+                            _plugin.PluginLog.Info($"[PSD Preview] Minion base texture missing on disk. Extracting via Lumina: {baseTexPath}");
+                            string minionBasePng = ExtractVanillaTexViaLumina(baseTexPath);
+                            if (!string.IsNullOrEmpty(minionBasePng))
+                            {
+                                _activeBaseTexturePng = minionBasePng;
+                            }
+                        }
+                        else if (!isFaceEditLocal && !isBodySlot)
                         {
                             _plugin.PluginLog.Info("[PSD Preview] Skipping vanilla base extraction for non-body slot.");
                         }
@@ -2516,7 +2535,7 @@ namespace DragAndDropTexturing.Windows
 
                 if (_activeNormalTexturePng == null || normIsBlack)
                 {
-                    if (!isFaceEditLocal && isBodySlot)
+                    if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion)
                     {
                         string modPath = _cachedModDirectory;
                         string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
@@ -2531,7 +2550,16 @@ namespace DragAndDropTexturing.Windows
 
                     if (_activeNormalTexturePng == null || normIsBlack)
                     {
-                        if (!isFaceEditLocal && !isBodySlot)
+                        if (_cachedIsMinion && !string.IsNullOrEmpty(normTexPath))
+                        {
+                            _plugin.PluginLog.Info($"[PSD Preview] Minion normal texture missing on disk. Extracting via Lumina: {normTexPath}");
+                            string minionNormPng = ExtractVanillaTexViaLumina(normTexPath);
+                            if (!string.IsNullOrEmpty(minionNormPng))
+                            {
+                                _activeNormalTexturePng = minionNormPng;
+                            }
+                        }
+                        else if (!isFaceEditLocal && !isBodySlot)
                         {
                             _plugin.PluginLog.Info("[PSD Preview] Skipping vanilla normal extraction for non-body slot.");
                         }
@@ -3115,7 +3143,21 @@ namespace DragAndDropTexturing.Windows
         private string TexToTempPng(string texPath, out bool isBlack, bool padToSquare = false)
         {
             isBlack = false;
-            if (string.IsNullOrEmpty(texPath) || !File.Exists(texPath)) return null;
+            if (string.IsNullOrEmpty(texPath)) return null;
+
+            if (!File.Exists(texPath))
+            {
+                // If it's a relative path, it might be a Lumina game path (like chara/monster/...)
+                if (!Path.IsPathRooted(texPath) || texPath.Contains("/"))
+                {
+                    string extPath = ExtractVanillaTexViaLumina(texPath, padToSquare);
+                    if (!string.IsNullOrEmpty(extPath) && File.Exists(extPath))
+                    {
+                        return extPath;
+                    }
+                }
+                return null;
+            }
 
             try
             {
