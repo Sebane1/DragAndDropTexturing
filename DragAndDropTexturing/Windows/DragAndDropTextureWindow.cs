@@ -875,6 +875,12 @@ namespace RoleplayingVoice
                                         }
                                     }
                                     maxDistance = Vector2.Distance(new Vector2(minWidth, 0), new Vector2(maxWidth, 0)) / 2f;
+                                    // For companions (minions), face bones don't exist so xPos is never set.
+                                    // Use the center of the projected bone range instead.
+                                    if (xPos == 0 && minWidth < float.MaxValue && maxWidth > 0)
+                                    {
+                                        xPos = (minWidth + maxWidth) / 2f;
+                                    }
                                     if (Vector2.Distance(new(cursorPosition.X, 0), new(xPos, 0)) < maxDistance)
                                     {
                                         selectedPlayer = item;
@@ -932,7 +938,8 @@ namespace RoleplayingVoice
                                 if (selectedPlayer.Value != null)
                                 {
                                     if (selectedPlayerCollection != mainPlayerCollection ||
-                                        selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer)
+                                        selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer ||
+                                        selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
                                     {
                                         ImGui.SetWindowFontScale(1.5f);
                                         string partName = bodyDragPart.ToString();
@@ -1020,18 +1027,36 @@ namespace RoleplayingVoice
                             {
                                 var ownerId = selectedPlayer.Value.OwnerId;
                                 bool found = false;
-                                foreach (var obj in plugin.SafeGameObjectManager)
+                                // OwnerId == 0xE0000000 is the local player sentinel
+                                if (ownerId == 0xE0000000)
                                 {
-                                    if (obj.GameObjectId == ownerId && obj is Dalamud.Game.ClientState.Objects.Types.ICharacter ownerChar)
+                                    var lp = plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                                    if (lp != null)
                                     {
-                                        targetCustomizationObject = ownerChar;
+                                        targetCustomizationObject = lp;
+                                        selectedPlayer = new KeyValuePair<string, ICharacter>(lp.Name.TextValue, selectedPlayer.Value);
                                         found = true;
-                                        break;
                                     }
                                 }
                                 if (!found)
                                 {
-                                    targetCustomizationObject = plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                                    foreach (var obj in plugin.SafeGameObjectManager)
+                                    {
+                                        if (obj.GameObjectId == ownerId && obj is Dalamud.Game.ClientState.Objects.Types.ICharacter ownerChar)
+                                        {
+                                            targetCustomizationObject = ownerChar;
+                                            selectedPlayer = new KeyValuePair<string, ICharacter>(ownerChar.Name.TextValue, selectedPlayer.Value);
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!found)
+                                {
+                                    var lp = plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                                    targetCustomizationObject = lp;
+                                    if (lp != null)
+                                        selectedPlayer = new KeyValuePair<string, ICharacter>(lp.Name.TextValue, selectedPlayer.Value);
                                 }
                             }
                             _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(targetCustomizationObject);
@@ -1069,6 +1094,46 @@ namespace RoleplayingVoice
 
                                     if (files.Count == 0) return;
 
+                                    // For companion drops, resolve the minion name and cache gear metadata
+                                    string minionCategorySuffix = null;
+                                    if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
+                                    {
+                                        try
+                                        {
+                                            var companionSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Companion>();
+                                            if (companionSheet != null)
+                                            {
+                                                var companion = companionSheet.GetRow(selectedPlayer.Value.DataId);
+                                                if (companion.RowId != 0)
+                                                {
+                                                    string minionName = companion.Singular.ToString().ToLower().Replace(" ", "").Replace("'", "").Replace("-", "");
+                                                    if (!string.IsNullOrEmpty(minionName))
+                                                    {
+                                                        minionCategorySuffix = "minion_" + minionName;
+                                                        // Resolve the WornEquipmentPiece so RebuildCategory can find game paths
+                                                        var ownerChar = targetCustomizationObject;
+                                                        if (ownerChar != null)
+                                                        {
+                                                            var minionGear = WornEquipmentResolver.ResolveMinion(selectedPlayer.Value.DataId, collection, plugin);
+                                                            string fullKey = selectedPlayer.Key + "_" + minionCategorySuffix;
+                                                            if (minionGear != null && minionGear.Count > 0)
+                                                            {
+                                                                _gearCategoryMeta[fullKey] = minionGear[0];
+                                                                plugin.PluginLog.Info($"[Drag And Drop] Cached minion gear for drag-drop: {fullKey} -> {minionGear[0].DisplayName}");
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            plugin.PluginLog.Error($"[Drag And Drop] Failed to resolve minion name: {ex.Message}");
+                                        }
+                                        if (string.IsNullOrEmpty(minionCategorySuffix))
+                                            minionCategorySuffix = "minion_body"; // fallback
+                                    }
+
                                     foreach (var file in files)
                                     {
                                         if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
@@ -1076,7 +1141,7 @@ namespace RoleplayingVoice
                                         string categoryKey = selectedPlayer.Key + "_";
                                         if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
                                         {
-                                            categoryKey += "minion_body";
+                                            categoryKey += minionCategorySuffix;
                                         }
                                         else if (bodyDragPart == BodyDragPart.Clothing)
                                         {
@@ -1137,7 +1202,7 @@ namespace RoleplayingVoice
                                         bool isBody = false;
                                         if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
                                         {
-                                            categoryKey += "minion_body";
+                                            categoryKey += minionCategorySuffix;
                                         }
                                         else if (bodyDragPart == BodyDragPart.Clothing)
                                         {
@@ -1181,17 +1246,19 @@ namespace RoleplayingVoice
 
                                         bool isFace = categoryKey.EndsWith("face");
                                         bool needsClassification = false;
+                                        bool isMinion = categoryKey.Contains("minion_");
 
+                                        // Minions don't need texture format classification
                                         // Completely unknown drag drop destination?
-                                        if (!isBody && !isFace && !categoryKey.Contains("gear_") && !categoryKey.EndsWith("tail") && !categoryKey.EndsWith("eyes") && !categoryKey.EndsWith("eyebrows"))
+                                        if (!isMinion && !isBody && !isFace && !categoryKey.Contains("gear_") && !categoryKey.EndsWith("tail") && !categoryKey.EndsWith("eyes") && !categoryKey.EndsWith("eyebrows"))
                                             needsClassification = true;
 
                                         // Body UV layout missing?
-                                        if (isBody && !fileName.Contains("bibo") && !fileName.Contains("b+") && !fileName.Contains("gen3") && !fileName.Contains("tbse") && !fileName.Contains("gen2") && !fileName.Contains("mata") && !fileName.Contains("amat"))
+                                        if (!isMinion && isBody && !fileName.Contains("bibo") && !fileName.Contains("b+") && !fileName.Contains("gen3") && !fileName.Contains("tbse") && !fileName.Contains("gen2") && !fileName.Contains("mata") && !fileName.Contains("amat"))
                                             needsClassification = true;
 
                                         // Map type missing?
-                                        if ((isBody || isFace || needsClassification) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_") && !fileName.Contains("glow") && !fileName.EndsWith("_g") && !fileName.Contains("_g_"))
+                                        if (!isMinion && (isBody || isFace || needsClassification) && !fileName.Contains("norm") && !fileName.EndsWith("_n") && !fileName.Contains("_n_") && !fileName.Contains("mask") && !fileName.EndsWith("_m") && !fileName.Contains("_m_") && !fileName.Contains("base") && !fileName.Contains("diffuse") && !fileName.EndsWith("_d") && !fileName.Contains("_d_") && !fileName.Contains("glow") && !fileName.EndsWith("_g") && !fileName.Contains("_g_"))
                                             needsClassification = true;
 
                                         if (needsClassification)
@@ -1252,6 +1319,17 @@ namespace RoleplayingVoice
                                     foreach (var categoryKey in droppedCategories)
                                     {
                                         if (!_textureHistory.ContainsKey(categoryKey) || _textureHistory[categoryKey].Count == 0) continue;
+
+                                        // Minion categories go through the dedicated minion rebuild pipeline
+                                        if (categoryKey.Contains("_minion_"))
+                                        {
+                                            string charName = selectedPlayer.Key;
+                                            string suffix = categoryKey.Substring(charName.Length);
+                                            plugin.PluginLog.Info($"[Drag And Drop] Routing minion drop to ScheduleRegeneration: charName={charName}, suffix={suffix}");
+                                            ScheduleRegeneration(charName, new[] { suffix }, true, false);
+                                            continue;
+                                        }
+
                                         string lastFile = _textureHistory[categoryKey].First();
                                         TextureSet item = null;
                                         string categoryModName = "";
@@ -1413,7 +1491,7 @@ namespace RoleplayingVoice
                                         }
                                     }
 
-                                    if (textureSets.Count == 0)
+                                    if (textureSets.Count == 0 && !droppedCategories.Any(c => c.Contains("_minion_")))
                                     {
                                         Plugin.Framework.RunOnFrameworkThread(() =>
                                         {
@@ -2418,12 +2496,50 @@ namespace RoleplayingVoice
 
                 try
                 {
-                    // Get cached minion gear metadata
+                    // Get cached minion gear metadata, or auto-resolve if missing
                     if (!_gearCategoryMeta.TryGetValue(categoryKey, out var gearMeta))
                     {
-                        plugin.PluginLog.Warning($"[MINION REBUILD] No cached gearMeta for '{categoryKey}'. Cannot export.");
-                        _isRegenerationPending = false;
-                        return;
+                        plugin.PluginLog.Info($"[MINION REBUILD] No cached gearMeta for '{categoryKey}'. Attempting auto-resolve...");
+                        try
+                        {
+                            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
+                            if (localPlayer != null)
+                            {
+                                // Find the companion object to get its DataId
+                                uint minionDataId = 0;
+                                foreach (var obj in plugin.SafeGameObjectManager)
+                                {
+                                    if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Companion
+                                        && (obj.OwnerId == localPlayer.GameObjectId || obj.OwnerId == 0xE0000000))
+                                    {
+                                        minionDataId = obj.DataId;
+                                        break;
+                                    }
+                                }
+                                if (minionDataId != 0)
+                                {
+                                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                                    var resolved = WornEquipmentResolver.ResolveMinion(minionDataId, collection, plugin);
+                                    if (resolved != null && resolved.Count > 0)
+                                    {
+                                        gearMeta = resolved[0];
+                                        _gearCategoryMeta[categoryKey] = gearMeta;
+                                        plugin.PluginLog.Info($"[MINION REBUILD] Auto-resolved gearMeta: {gearMeta.DisplayName}");
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception resolveEx)
+                        {
+                            plugin.PluginLog.Error($"[MINION REBUILD] Auto-resolve failed: {resolveEx.Message}");
+                        }
+
+                        if (gearMeta == null)
+                        {
+                            plugin.PluginLog.Warning($"[MINION REBUILD] Could not resolve gearMeta for '{categoryKey}'. Cannot export.");
+                            _isRegenerationPending = false;
+                            return;
+                        }
                     }
 
                     plugin.PluginLog.Info($"[MINION REBUILD] Starting rebuild for '{categoryKey}'. DisplayName={gearMeta.DisplayName}, BasePath={gearMeta.InternalBasePath}");
