@@ -128,6 +128,8 @@ namespace DragAndDropTexturing.Windows
         private string _cachedModDirectory = "";
         private int _cachedActiveBodyType = 0;
         private List<DragAndDropTexturing.Equipment.WornEquipmentPiece> _cachedWornGear = null;
+        private bool _cachedIsMinion = false;
+        private uint _cachedMinionDataId = 0;
         private bool _editLayerLoaded = false;   // Whether we've loaded the source into the paint layer
         private volatile bool _isLoadingModels = false;
         private volatile bool _modelsLoaded = false;
@@ -1723,7 +1725,57 @@ namespace DragAndDropTexturing.Windows
         {
             if (_isLoadingModels) return;
 
-            var character = _plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+            Dalamud.Game.ClientState.Objects.Types.ICharacter character = null;
+            _cachedIsMinion = false;
+            _cachedMinionDataId = 0;
+            if (ContextCategoryKey != null && ContextCategoryKey.Contains("_minion_"))
+            {
+                string charName = ContextCategoryKey.Split('_')[0];
+                Dalamud.Game.ClientState.Objects.Types.ICharacter owner = null;
+                foreach (var item in _plugin.SafeGameObjectManager)
+                {
+                    if (item is Dalamud.Game.ClientState.Objects.Types.ICharacter c && c.Name.TextValue == charName)
+                    {
+                        owner = c;
+                        break;
+                    }
+                }
+
+                if (owner != null)
+                {
+                    Dalamud.Game.ClientState.Objects.Types.IGameObject bestMinion = null;
+                    foreach (var item in _plugin.SafeGameObjectManager)
+                    {
+                        if (item.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Companion)
+                        {
+                            if (item.OwnerId == owner.GameObjectId)
+                            {
+                                bestMinion = item as Dalamud.Game.ClientState.Objects.Types.IGameObject;
+                                break;
+                            }
+                            if (bestMinion == null)
+                            {
+                                bestMinion = item as Dalamud.Game.ClientState.Objects.Types.IGameObject; // Fallback to first found companion
+                            }
+                        }
+                    }
+
+                    if (bestMinion != null)
+                    {
+                        character = owner; // Keep character as owner for collection/customization inheritance
+                        _cachedIsMinion = true;
+                        _cachedMinionDataId = bestMinion.DataId;
+                    }
+                }
+            }
+
+            if (character == null)
+            {
+                character = _plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                _cachedIsMinion = false;
+                _cachedMinionDataId = 0;
+            }
+
             if (character == null)
             {
                 _plugin.PluginLog.Warning("[PSD Preview] LocalPlayer is null or not a character when starting load!");
@@ -1921,7 +1973,16 @@ namespace DragAndDropTexturing.Windows
                 bool isFaceEditLocal = 
                     (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
                     (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
-                if (isFaceEditLocal)
+                
+                if (_cachedIsMinion)
+                {
+                    topPath = null;
+                    botPath = null;
+                    glvPath = null;
+                    shoPath = null;
+                    facePath = null;
+                }
+                else if (isFaceEditLocal)
                 {
                     topPath = null;
                     botPath = null;
@@ -1944,13 +2005,20 @@ namespace DragAndDropTexturing.Windows
                 List<DragAndDropTexturing.Equipment.WornEquipmentPiece> wornGear = null;
                 try
                 {
-                    wornGear = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveWornGear(
-                        _cachedCharacterName,
-                        _cachedCharacterCustomize,
-                        customization,
-                        collectionId,
-                        _plugin
-                    );
+                    if (_cachedIsMinion)
+                    {
+                        wornGear = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveMinion(_cachedMinionDataId, collectionId, _plugin);
+                    }
+                    else
+                    {
+                        wornGear = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveWornGear(
+                            _cachedCharacterName,
+                            _cachedCharacterCustomize,
+                            customization,
+                            collectionId,
+                            _plugin
+                        );
+                    }
                     _cachedWornGear = wornGear;
                 }
                 catch (Exception ex)
@@ -1978,33 +2046,33 @@ namespace DragAndDropTexturing.Windows
                     if (suffix == "top")
                     {
                         topSlotName = "Top";
-                        topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        topPath = !string.IsNullOrEmpty(matchedPiece?.InternalModelPath) ? matchedPiece.InternalModelPath : $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
                         botSlotName = "PreviewBottom";
                         botPath = null;
                     }
                     else if (suffix == "dwn")
                     {
                         botSlotName = "Bottom";
-                        botPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        botPath = !string.IsNullOrEmpty(matchedPiece?.InternalModelPath) ? matchedPiece.InternalModelPath : $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
                         topSlotName = "PreviewTop";
                         topPath = null;
                     }
                     else if (suffix == "sho")
                     {
                         topSlotName = "Shoes";
-                        topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        topPath = !string.IsNullOrEmpty(matchedPiece?.InternalModelPath) ? matchedPiece.InternalModelPath : $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
                         botPath = null;
                     }
                     else if (suffix == "glv")
                     {
                         topSlotName = "Gloves";
-                        topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        topPath = !string.IsNullOrEmpty(matchedPiece?.InternalModelPath) ? matchedPiece.InternalModelPath : $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
                         botPath = null;
                     }
                     else if (suffix == "met")
                     {
                         topSlotName = "Head";
-                        topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        topPath = !string.IsNullOrEmpty(matchedPiece?.InternalModelPath) ? matchedPiece.InternalModelPath : $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
                         botPath = null;
                     }
                     else if (suffix == "hir")
@@ -2252,9 +2320,11 @@ namespace DragAndDropTexturing.Windows
                 // Load both model slots in parallel since they're independent
                 var topSlotPath = overrideTopPath ?? topPath;
                 var botSlotPath = overrideBotPath ?? botPath;
+                string matchedMatPath = matchedPiece?.InternalMaterialPath;
+                
                 System.Threading.Tasks.Parallel.Invoke(
-                    () => { if (topSlotPath != null) LoadModelIntoSlot(topSlotName, topSlotPath, collectionId); },
-                    () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId); },
+                    () => { if (topSlotPath != null) LoadModelIntoSlot(topSlotName, topSlotPath, collectionId, matchedMatPath); },
+                    () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId, matchedMatPath); },
                     () => { if (!isGear && glvPath != null) LoadModelIntoSlot(glvSlotName, glvPath, collectionId); },
                     () => { if (!isGear && shoPath != null) LoadModelIntoSlot(shoSlotName, shoPath, collectionId); },
                     () => { 
@@ -2515,7 +2585,7 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
-        private void LoadModelIntoSlot(string slot, string path, Guid collectionId)
+        private void LoadModelIntoSlot(string slot, string path, Guid collectionId, string internalMaterialPath = null)
         {
             try
             {
@@ -2644,7 +2714,11 @@ namespace DragAndDropTexturing.Windows
                                     }
                                 }
 
-                                if (!string.IsNullOrEmpty(matSuffix))
+                                if (!string.IsNullOrEmpty(matchedPiece.InternalMaterialPath))
+                                {
+                                    searchPattern = System.IO.Path.GetFileNameWithoutExtension(matchedPiece.InternalMaterialPath).ToLower();
+                                }
+                                else if (!string.IsNullOrEmpty(matSuffix))
                                 {
                                     searchPattern = $"{eCode}_{suffix}_{matSuffix}".ToLower();
                                 }
@@ -2759,6 +2833,12 @@ namespace DragAndDropTexturing.Windows
                             }
                             // Also try the raw path directly
                             mtrlCandidates.Add(matFileName);
+                            
+                            if (!string.IsNullOrEmpty(internalMaterialPath))
+                            {
+                                mtrlCandidates.Insert(0, internalMaterialPath);
+                                _plugin.PluginLog.Info($"[Texture Painter] Injecting exact material path: {internalMaterialPath}");
+                            }
                             
                             string resolvedMtrlDisk = null;
                             string resolvedMtrlGamePath = null;
@@ -3612,6 +3692,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 else if (ContextCategoryKey.EndsWith("_hair", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "hair";
                 else if (ContextCategoryKey.EndsWith("_tail", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "tail";
                 else if (ContextCategoryKey.EndsWith("_face", StringComparison.OrdinalIgnoreCase)) return null;
+                else if (ContextCategoryKey.Contains("_minion_body", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "body";
                 else if (ContextCategoryKey.EndsWith("_body", StringComparison.OrdinalIgnoreCase)) return null;
             }
 

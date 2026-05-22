@@ -3,21 +3,26 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Bindings.ImGui;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.IO.Compression;
+using System.Net.Http;
 using Vector2 = System.Numerics.Vector2;
 using Vector3 = System.Numerics.Vector3;
 using FFXIVLooseTextureCompiler;
 using FFXIVLooseTextureCompiler.PathOrganization;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using System.IO.Compression;
-using System.Net.Http;
+using Dalamud.Game.ClientState.Objects.Enums;
+using Dalamud.Interface.Utility;
 using FFXIVLooseTextureCompiler.Racial;
 using PenumbraAndGlamourerHelpers;
-using System.Threading;
 using Ktisis.Structs;
 using Ktisis.Structs.Actor;
 using Bone = Ktisis.Structs.Bones.Bone;
@@ -793,11 +798,11 @@ namespace RoleplayingVoice
                             bool oneMinionOnly = false;
                             foreach (var item in Plugin.GetNearestObjects())
                             {
-                                Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter character = item as Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter;
-                                if (character != null)
+                                Dalamud.Game.ClientState.Objects.Types.ICharacter character = item as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                                if (character != null && (item.ObjectKind == ObjectKind.Pc || item.ObjectKind == ObjectKind.Companion))
                                 {
                                     string name = character.Name.TextValue;
-                                    if (!string.IsNullOrEmpty(character.Name.TextValue))
+                                    if (!string.IsNullOrEmpty(name))
                                     {
                                         _objects.Add(new KeyValuePair<string, ICharacter>(name, character));
                                     }
@@ -1003,12 +1008,33 @@ namespace RoleplayingVoice
                         LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = _textureProcessor.BasePath;
                         List<TextureSet> textureSets = new List<TextureSet>();
                         plugin.PluginLog.Information("[Drag And Drop Debug] Drop event triggered, selectedPlayer: " + (selectedPlayer.Value != null));
-                        if (selectedPlayer.Value != null && selectedPlayerCollection != mainPlayerCollection ||
-                            selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer)
+                        if (selectedPlayer.Value != null && 
+                            (selectedPlayerCollection != mainPlayerCollection ||
+                             selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer ||
+                             selectedPlayer.Value.ObjectKind == ObjectKind.Companion))
                         {
                             plugin.PluginLog.Information("[Drag And Drop Debug] Valid player target, getting customization...");
                             modName = selectedPlayer.Key + " Texture Mod";
-                            _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(selectedPlayer.Value);
+                            var targetCustomizationObject = selectedPlayer.Value;
+                            if (selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
+                            {
+                                var ownerId = selectedPlayer.Value.OwnerId;
+                                bool found = false;
+                                foreach (var obj in plugin.SafeGameObjectManager)
+                                {
+                                    if (obj.GameObjectId == ownerId && obj is Dalamud.Game.ClientState.Objects.Types.ICharacter ownerChar)
+                                    {
+                                        targetCustomizationObject = ownerChar;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found)
+                                {
+                                    targetCustomizationObject = plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                                }
+                            }
+                            _currentCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(targetCustomizationObject);
                             plugin.PluginLog.Information("[Drag And Drop Debug] Customization retrieved! Starting task...");
                             Task.Run(async () =>
                             {
@@ -1048,7 +1074,11 @@ namespace RoleplayingVoice
                                         if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
                                         string fileName = Path.GetFileNameWithoutExtension(file).ToLower();
                                         string categoryKey = selectedPlayer.Key + "_";
-                                        if (bodyDragPart == BodyDragPart.Clothing)
+                                        if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
+                                        {
+                                            categoryKey += "minion_body";
+                                        }
+                                        else if (bodyDragPart == BodyDragPart.Clothing)
                                         {
                                             string gearSlot = GetGearSlotFromBone(_closestBone) ?? "body";
                                             categoryKey += "gear_" + gearSlot;
@@ -1105,7 +1135,11 @@ namespace RoleplayingVoice
                                         string fileName = Path.GetFileNameWithoutExtension(f).ToLower();
                                         string categoryKey = selectedPlayer.Key + "_";
                                         bool isBody = false;
-                                        if (bodyDragPart == BodyDragPart.Clothing)
+                                        if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
+                                        {
+                                            categoryKey += "minion_body";
+                                        }
+                                        else if (bodyDragPart == BodyDragPart.Clothing)
                                         {
                                             string gearSlot = GetGearSlotFromBone(_closestBone) ?? "body";
                                             categoryKey += "gear_" + gearSlot;
@@ -2499,6 +2533,29 @@ namespace RoleplayingVoice
                                 gearMeta.InternalMaskPath,
                                 gearMeta.InternalMaterialPath);
                             categoryModName = "Gear " + gearMeta.SlotKey + (string.IsNullOrEmpty(gearMeta.MaterialName) ? "" : " " + gearMeta.MaterialName) + (string.IsNullOrEmpty(gearMeta.ModName) ? "" : " [" + gearMeta.ModName + "]");
+                        }
+                    }
+                    else if (categoryKey.Contains("_minion_"))
+                    {
+                        if (!_gearCategoryMeta.TryGetValue(categoryKey, out var gearMeta))
+                        {
+                            var minionPieces = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveMinion(character.DataId, collection, plugin);
+                            if (minionPieces.Count > 0)
+                            {
+                                gearMeta = minionPieces[0]; // Minions generally have one primary body piece
+                                _gearCategoryMeta[categoryKey] = gearMeta;
+                            }
+                        }
+
+                        if (gearMeta != null)
+                        {
+                            item = ProjectHelper.CreateEquipmentTextureSet(
+                                gearMeta.DisplayName,
+                                gearMeta.InternalBasePath,
+                                gearMeta.InternalNormalPath,
+                                gearMeta.InternalMaskPath,
+                                gearMeta.InternalMaterialPath);
+                            categoryModName = "Minion";
                         }
                     }
                     else if (categoryKey.EndsWith("_tail") || categoryKey.Contains("fallback_Tail"))

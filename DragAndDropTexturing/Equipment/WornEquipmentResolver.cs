@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 using FFXIVLooseTextureCompiler.ImageProcessing;
 using FFXIVLooseTextureCompiler.Racial;
@@ -304,6 +305,183 @@ public static class WornEquipmentResolver
         }
 
         DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] ResolveWornGear finished. Found {results.Count} pieces.");
+        return results;
+    }
+
+    public static List<WornEquipmentPiece> ResolveMinion(uint dataId, Guid collection, Plugin plugin)
+    {
+        var results = new List<WornEquipmentPiece>();
+        if (dataId == 0) return results;
+
+        try
+        {
+            var companionSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Companion>();
+            var modelCharaSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.ModelChara>();
+            if (companionSheet == null || modelCharaSheet == null) return results;
+
+            plugin.PluginLog.Info($"[ResolveMinion] Started with dataId: {dataId}");
+            uint modelCharaRowId = 0;
+            var companion = companionSheet.GetRow(dataId);
+            if (companion.RowId == 0) 
+            {
+                plugin.PluginLog.Warning($"[ResolveMinion] companion.RowId is 0 for dataId {dataId}. Falling back to assuming dataId is ModelChara ID.");
+                // Try treating dataId as ModelChara ID directly if Companion lookup fails
+                var directModelChara = modelCharaSheet.GetRow(dataId);
+                if (directModelChara.RowId == 0)
+                {
+                    plugin.PluginLog.Warning($"[ResolveMinion] dataId {dataId} is not a valid ModelChara either. Aborting.");
+                    return results;
+                }
+                modelCharaRowId = dataId;
+            }
+            else
+            {
+                modelCharaRowId = companion.Model.RowId;
+            }
+
+            plugin.PluginLog.Info($"[ResolveMinion] modelCharaRowId: {modelCharaRowId}");
+            var modelChara = modelCharaSheet.GetRow(modelCharaRowId);
+            if (modelChara.RowId == 0) 
+            {
+                plugin.PluginLog.Warning($"[ResolveMinion] modelChara.RowId is 0 for modelCharaRowId {modelCharaRowId}");
+                return results;
+            }
+
+            int modelId = modelChara.Model;
+            int baseId = modelChara.Base;
+            int variant = modelChara.Variant;
+            int type = modelChara.Type;
+
+            string typeStr = "minion";
+            char prefix = 'm';
+            switch (type)
+            {
+                case 1: typeStr = "human"; prefix = 'c'; break;
+                case 2: typeStr = "monster"; prefix = 'm'; break;
+                case 3: typeStr = "demihuman"; prefix = 'd'; break;
+                case 4: typeStr = "weapon"; prefix = 'w'; break;
+                case 5: typeStr = "minion"; prefix = 'm'; break;
+            }
+
+            string minionCode = $"{prefix}{modelId:D4}";
+            string bodyCode = $"b{baseId:D4}";
+            string mdlStr = $"{minionCode}{bodyCode}";
+            string mdlCandidate = $"chara/{typeStr}/{minionCode}/obj/body/{bodyCode}/model/{mdlStr}.mdl";
+            
+            // Try to resolve the model via Penumbra
+            string resolvedMdlDisk = "";
+            TryResolveGamePath(collection, mdlCandidate, out resolvedMdlDisk);
+            plugin.PluginLog.Info($"[ResolveMinion] Primary mdlCandidate: {mdlCandidate}. resolvedMdlDisk: {resolvedMdlDisk}");
+            
+            byte[] mdlBytes = null;
+            string actualMdlPath = mdlCandidate;
+
+            // FFXIV sometimes lies about the type (e.g. Type 3 "demihuman" but the file is actually "monster/mXXXX").
+            // We'll create a list of candidates to try.
+            var candidatesToTry = new List<(string t, char p)> {
+                (typeStr, prefix),
+                ("monster", 'm'),
+                ("demihuman", 'd'),
+                ("human", 'c'),
+                ("minion", 'm')
+            };
+
+            foreach (var (t, p) in candidatesToTry)
+            {
+                string cMinionCode = $"{p}{modelId:D4}";
+                string cMdlStr = $"{cMinionCode}{bodyCode}";
+                string cMdlCandidate = $"chara/{t}/{cMinionCode}/obj/body/{bodyCode}/model/{cMdlStr}.mdl";
+                
+                string cResolvedMdlDisk = "";
+                TryResolveGamePath(collection, cMdlCandidate, out cResolvedMdlDisk);
+
+                if (!string.IsNullOrEmpty(cResolvedMdlDisk) && File.Exists(cResolvedMdlDisk))
+                {
+                    plugin.PluginLog.Info($"[ResolveMinion] Loading MDL from disk: {cResolvedMdlDisk}");
+                    mdlBytes = File.ReadAllBytes(cResolvedMdlDisk);
+                    actualMdlPath = cMdlCandidate;
+                    typeStr = t; minionCode = cMinionCode; mdlStr = cMdlStr; prefix = p;
+                    break;
+                }
+                else
+                {
+                    var ffxivMdlFile = Plugin.DataManager.GetFile(cMdlCandidate);
+                    if (ffxivMdlFile != null)
+                    {
+                        plugin.PluginLog.Info($"[ResolveMinion] Loading MDL from Lumina game data: {cMdlCandidate}");
+                        mdlBytes = ffxivMdlFile.Data;
+                        actualMdlPath = cMdlCandidate;
+                        typeStr = t; minionCode = cMinionCode; mdlStr = cMdlStr; prefix = p;
+                        break;
+                    }
+                }
+            }
+
+            if (mdlBytes == null)
+            {
+                plugin.PluginLog.Warning($"[ResolveMinion] FAILED to load MDL from any known candidate for Model ID {modelId}");
+            }
+
+            if (mdlBytes != null)
+            {
+                string mdlString = System.Text.Encoding.ASCII.GetString(mdlBytes);
+                var matches = System.Text.RegularExpressions.Regex.Matches(mdlString, @"[\w/\-]+\.mtrl");
+                var resolvedMaterialFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (System.Text.RegularExpressions.Match match in matches)
+                {
+                    string mtrlName = match.Value.TrimStart('/');
+                    string mtrlCandidate = $"chara/{typeStr}/{minionCode}/obj/body/{bodyCode}/material/v{variant:D4}/{mtrlName}";
+                    
+                    if (resolvedMaterialFiles.Contains(mtrlCandidate)) continue;
+                    resolvedMaterialFiles.Add(mtrlCandidate);
+
+                    string mtrlDisk = "";
+                    TryResolveGamePath(collection, mtrlCandidate, out mtrlDisk);
+
+                    string mtrlPathToRead = !string.IsNullOrEmpty(mtrlDisk) ? mtrlDisk : mtrlCandidate;
+                    plugin.PluginLog.Info($"[ResolveMinion] Found material reference: {mtrlCandidate}. Disk path: {mtrlDisk}. Reading textures from: {mtrlPathToRead}");
+                    
+                    if (!TryReadMtrlTexturePaths(mtrlPathToRead, out string internalBase, out string internalNormal, out string internalMask))
+                    {
+                        plugin.PluginLog.Warning($"[ResolveMinion] TryReadMtrlTexturePaths failed for {mtrlPathToRead}");
+                        continue;
+                    }
+
+                    plugin.PluginLog.Info($"[ResolveMinion] Extracted Textures: Base={internalBase}, Normal={internalNormal}, Mask={internalMask}");
+
+                    if (string.IsNullOrEmpty(internalBase)) 
+                    {
+                        plugin.PluginLog.Warning($"[ResolveMinion] internalBase is null or empty for {mtrlPathToRead}");
+                        continue;
+                    }
+
+                    string resolvedDisk = "";
+                    TryResolveGamePath(collection, internalBase, out resolvedDisk);
+
+                    var piece = new WornEquipmentPiece
+                    {
+                        SlotKey = "body",
+                        DisplayName = $"Minion ({companion.Singular.ToString()})",
+                        ItemId = dataId,
+                        EquipSetId = mdlStr,
+                        InternalModelPath = actualMdlPath,
+                        InternalBasePath = internalBase,
+                        InternalNormalPath = internalNormal,
+                        InternalMaskPath = internalMask,
+                        InternalMaterialPath = mtrlCandidate,
+                        ResolvedBaseDiskPath = resolvedDisk ?? "",
+                        ResolvedMaterialDiskPath = mtrlDisk ?? "",
+                    };
+                    results.Add(piece);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "[Drag And Drop Debug] Exception resolving minion.");
+        }
+        
         return results;
     }
 
