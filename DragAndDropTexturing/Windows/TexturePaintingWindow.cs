@@ -3643,8 +3643,10 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                             return matchedCandidate;
                         }
                     }
-                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via explicit slot key fallback: {candidates[0].DisplayName}");
-                    return candidates[0];
+                    var moddedCandidates = candidates.Where(c => !string.IsNullOrEmpty(c.ResolvedBaseDiskPath) || !string.IsNullOrEmpty(c.ResolvedMaterialDiskPath)).ToList();
+                    var bestCandidate = moddedCandidates.Count > 0 ? moddedCandidates[0] : candidates[0];
+                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Falling back to first candidate for detected slot '{detectedSlotKey}': {bestCandidate.DisplayName}");
+                    return bestCandidate;
                 }
             }
 
@@ -3694,8 +3696,11 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 var candidates = wornGear.Where(p => p.SlotKey == detectedSlotKey).ToList();
                 if (candidates.Count > 0)
                 {
-                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via detected Slot Key: {candidates[0].DisplayName}");
-                    return candidates[0];
+                    // Prefer candidates with modded textures
+                    var moddedCandidates = candidates.Where(c => !string.IsNullOrEmpty(c.ResolvedBaseDiskPath) || !string.IsNullOrEmpty(c.ResolvedMaterialDiskPath)).ToList();
+                    var bestCandidate = moddedCandidates.Count > 0 ? moddedCandidates[0] : candidates[0];
+                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via detected Slot Key: {bestCandidate.DisplayName}");
+                    return bestCandidate;
                 }
             }
 
