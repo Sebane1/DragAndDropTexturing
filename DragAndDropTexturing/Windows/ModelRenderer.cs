@@ -455,7 +455,8 @@ float4 PS(PS_IN input) : SV_TARGET
             }
             
             // Dilation pass to fix UV seams/creases (Edge Padding)
-            int dilationPasses = 2;
+            // 8 passes covers most seam widths at typical texture resolutions (1024-4096)
+            int dilationPasses = 8;
             for (int pass = 0; pass < dilationPasses; pass++)
             {
                 float[] newPosData = (float[])posData.Clone();
@@ -1404,6 +1405,30 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
     float4 baseCol = BaseTexture[id.xy];
     float4 paint = PaintTexture[id.xy];
 
+    // Edge padding: if this texel has no paint, check neighbors.
+    // This fills UV seam gaps so crease lines don't show through.
+    if (paint.a < 0.001f)
+    {
+        // Cardinal directions first, then diagonals
+        int2 offsets[8] = {
+            int2( 0,-1), int2( 0, 1), int2(-1, 0), int2( 1, 0),
+            int2(-1,-1), int2( 1,-1), int2(-1, 1), int2( 1, 1)
+        };
+        for (int n = 0; n < 8; n++)
+        {
+            int2 np = int2(id.xy) + offsets[n];
+            if (np.x >= 0 && np.x < (int)w && np.y >= 0 && np.y < (int)h)
+            {
+                float4 neighbor = PaintTexture[np];
+                if (neighbor.a > 0.001f)
+                {
+                    paint = neighbor;
+                    break;
+                }
+            }
+        }
+    }
+
     // Alpha blend paint over base
     float outA = paint.a + baseCol.a * (1.0f - paint.a);
     float3 outRGB = (outA > 0.001f)
@@ -1456,9 +1481,11 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             float3 offset = pos - DecalCenter;
             float z = dot(offset, DecalNormal);
             
-            if (z <= 0.1f && z >= -DecalDepth && dot(norm, DecalNormal) > 0.0f)
+            // Softened normal check: allow surfaces up to ~107 degrees from projection direction
+            // This prevents hard cutoffs on curved surfaces (back, knees, forearms)
+            if (z <= 0.2f && z >= -DecalDepth && dot(norm, DecalNormal) > -0.3f)
             {
-                if (length(offset) <= DecalRadius * 1.5f)
+                if (length(offset) <= DecalRadius * 2.5f)
                 {
                     float x = dot(offset, DecalTangent);
                     float y = dot(offset, DecalBitangent);
@@ -1470,6 +1497,13 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                     {
                         float2 localUv = float2(x / radiusX * 0.5f + 0.5f, -y / radiusY * 0.5f + 0.5f);
                         stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
+                        
+                        // Feather alpha near depth boundary to avoid hard cutoff lines
+                        float depthFade = smoothstep(-DecalDepth, -DecalDepth * 0.7f, z);
+                        // Feather surfaces strongly facing away from projection (> ~107 deg)
+                        // but keep full opacity for surfaces up to ~96 deg (dot = -0.1)
+                        float normalFade = smoothstep(-0.3f, -0.1f, dot(norm, DecalNormal));
+                        stamp.a *= depthFade * normalFade;
                     }
                 }
             }
@@ -1952,6 +1986,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
         /// <summary>
         /// Reads the paint layer back from GPU to CPU as BGRA8 pixels for saving to disk.
+        /// Applies edge padding (dilation) to eliminate UV seam crease lines.
         /// </summary>
         public byte[] ReadbackPaintLayer()
         {
@@ -1972,9 +2007,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CopyResource(staging, _gpuPaintTex);
 
             var mapped = _context.Map(staging, 0, MapMode.Read);
+            byte[] result;
             try
             {
-                byte[] result = new byte[_paintTexWidth * _paintTexHeight * 4];
+                result = new byte[_paintTexWidth * _paintTexHeight * 4];
                 unsafe
                 {
                     float* src = (float*)mapped.DataPointer;
@@ -1993,11 +2029,70 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                         }
                     }
                 }
-                return result;
             }
             finally
             {
                 _context.Unmap(staging, 0);
+            }
+
+            // Edge padding: dilate painted pixels outward to cover UV seam gaps
+            DilateBgraPixels(result, _paintTexWidth, _paintTexHeight, 16);
+            return result;
+        }
+
+        /// <summary>
+        /// Dilates non-transparent pixels outward into transparent (alpha=0) neighbors.
+        /// Each pass expands the painted region by 1 pixel. This eliminates UV seam
+        /// crease lines where adjacent triangles share a 3D edge but are in separate UV islands.
+        /// </summary>
+        private static void DilateBgraPixels(byte[] pixels, int width, int height, int passes)
+        {
+            // Work buffer — we only need to track which pixels were filled in the current pass
+            byte[] buffer = new byte[pixels.Length];
+
+            for (int pass = 0; pass < passes; pass++)
+            {
+                Buffer.BlockCopy(pixels, 0, buffer, 0, pixels.Length);
+                bool anyFilled = false;
+
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        int idx = (y * width + x) * 4;
+                        if (pixels[idx + 3] > 0) continue; // Already has content
+
+                        // Search neighbors: cardinals first, then diagonals
+                        int[] offX = { 0, 0, -1, 1, -1, 1, -1, 1 };
+                        int[] offY = { -1, 1, 0, 0, -1, -1, 1, 1 };
+                        int bestIdx = -1;
+                        for (int n = 0; n < 8; n++)
+                        {
+                            int nx = x + offX[n];
+                            int ny = y + offY[n];
+                            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+                            int nIdx = (ny * width + nx) * 4;
+                            if (pixels[nIdx + 3] > 0)
+                            {
+                                bestIdx = nIdx;
+                                break; // First valid neighbor wins (cardinals checked first)
+                            }
+                        }
+
+                        if (bestIdx >= 0)
+                        {
+                            // Copy RGB from neighbor, but set alpha to 1 (fully opaque edge padding)
+                            buffer[idx + 0] = pixels[bestIdx + 0]; // B
+                            buffer[idx + 1] = pixels[bestIdx + 1]; // G
+                            buffer[idx + 2] = pixels[bestIdx + 2]; // R
+                            buffer[idx + 3] = pixels[bestIdx + 3]; // A (preserve neighbor's alpha)
+                            anyFilled = true;
+                        }
+                    }
+                }
+
+                Buffer.BlockCopy(buffer, 0, pixels, 0, pixels.Length);
+                if (!anyFilled) break; // No more empty pixels to fill
             }
         }
         

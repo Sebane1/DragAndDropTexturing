@@ -147,6 +147,7 @@ namespace DragAndDropTexturing.Windows
             public Vector2 Scale = new Vector2(0.5f, 0.5f);
             
             public int ProjectionMode = 0;
+            public float ProjectionDepth = 0f; // 0 = auto (Scale.X * 2.0)
             public Vector3 DecalCenter = Vector3.Zero;
             public Vector3 DecalNormal = Vector3.UnitY;
             public Vector3 DecalTangent = Vector3.UnitX;
@@ -440,7 +441,8 @@ namespace DragAndDropTexturing.Windows
                 if (_floatingLayer != null)
                 {
                     _renderer.PushUndoSnapshot();
-                    _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 1f);
+                    float commitDepth = _floatingLayer.ProjectionDepth > 0f ? _floatingLayer.ProjectionDepth : _floatingLayer.Scale.X * 2.0f;
+                    _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, commitDepth);
                     _floatingLayer.SRV.Dispose();
                     _floatingLayer = null;
                     _needsComposite = true;
@@ -591,11 +593,25 @@ namespace DragAndDropTexturing.Windows
                 ImGui.SameLine();
                 if (ImGui.RadioButton(Translator.LocalizeUI("3D Camera"), ref pMode, 2)) { _floatingLayer.ProjectionMode = pMode; _default3DProjectionMode = pMode; }
 
+                if (_floatingLayer.ProjectionMode > 0)
+                {
+                    float projDepth = _floatingLayer.ProjectionDepth;
+                    float displayDepth = projDepth > 0f ? projDepth : _floatingLayer.Scale.X * 2.0f;
+                    bool isAuto = projDepth <= 0f;
+                    string depthLabel = isAuto ? $"Projection Depth (Auto: {displayDepth:F2})" : "Projection Depth";
+                    if (ImGui.SliderFloat(depthLabel, ref displayDepth, 0.05f, 5.0f, "%.2f"))
+                        _floatingLayer.ProjectionDepth = displayDepth;
+                    ImGui.SameLine();
+                    if (ImGui.Button(isAuto ? "Manual" : "Auto"))
+                        _floatingLayer.ProjectionDepth = isAuto ? displayDepth : 0f;
+                }
+
                 if (ImGui.Button(Translator.LocalizeUI("Stamp Floating Layer")))
                 {
+                    float stampDepth = _floatingLayer.ProjectionDepth > 0f ? _floatingLayer.ProjectionDepth : _floatingLayer.Scale.X * 2.0f;
                     _renderer.PushUndoSnapshot();
                     if (_floatingLayer.ProjectionMode > 0)
-                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 0.5f);
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, stampDepth);
                     else
                         _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0);
                     _needsComposite = true;
@@ -1110,7 +1126,8 @@ namespace DragAndDropTexturing.Windows
                 if (_floatingLayer != null && _floatingLayer.SRV != null)
                 {                    if (_floatingLayer.ProjectionMode > 0)
                     {
-                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, 0.5f);
+                        float previewDepth = _floatingLayer.ProjectionDepth > 0f ? _floatingLayer.ProjectionDepth : _floatingLayer.Scale.X * 2.0f;
+                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, previewDepth);
                     }
                     else
                     {
