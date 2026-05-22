@@ -1080,6 +1080,7 @@ namespace RoleplayingVoice
                                                 case BodyDragPart.Face: categoryKey += "face"; break;
                                                 case BodyDragPart.Eyes: categoryKey += "eyes"; break;
                                                 case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
+                                                case BodyDragPart.Tail: categoryKey += "tail"; break;
                                                 default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
                                             }
                                         }
@@ -1123,6 +1124,7 @@ namespace RoleplayingVoice
                                         else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                                         else if (fileName.Contains("eye")) categoryKey += "eyes";
                                         else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                                        else if (fileName.Contains("tail") || fileName.Contains("sippo") || fileName.Contains("_etc_")) categoryKey += "tail";
                                         else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                                             fileName.Contains("bibo") || fileName.Contains("b+") ||
                                             fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
@@ -1134,6 +1136,7 @@ namespace RoleplayingVoice
                                                 case BodyDragPart.Face: categoryKey += "face"; break;
                                                 case BodyDragPart.Eyes: categoryKey += "eyes"; break;
                                                 case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
+                                                case BodyDragPart.Tail: categoryKey += "tail"; break;
                                                 default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
                                             }
                                         }
@@ -1142,7 +1145,7 @@ namespace RoleplayingVoice
                                         bool needsClassification = false;
 
                                         // Completely unknown drag drop destination?
-                                        if (!isBody && !isFace && !categoryKey.Contains("gear_"))
+                                        if (!isBody && !isFace && !categoryKey.Contains("gear_") && !categoryKey.EndsWith("tail") && !categoryKey.EndsWith("eyes") && !categoryKey.EndsWith("eyebrows"))
                                             needsClassification = true;
 
                                         // Body UV layout missing?
@@ -1270,6 +1273,7 @@ namespace RoleplayingVoice
                                             item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 4,
                                             effectiveRace,
                                             _currentCustomization.Customize.TailShape.Value - 1, false);
+                                            TryOverrideTailTextureSet(item, collection, _currentCustomization.Customize.Gender.Value, effectiveRace, _currentCustomization.Customize.TailShape.Value - 1);
                                             categoryModName = "Tail";
                                         }
                                         else
@@ -1325,6 +1329,7 @@ namespace RoleplayingVoice
                                                     item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 4,
                                                     effectiveRace,
                                                     _currentCustomization.Customize.TailShape.Value - 1, false);
+                                                    TryOverrideTailTextureSet(item, collection, _currentCustomization.Customize.Gender.Value, effectiveRace, _currentCustomization.Customize.TailShape.Value - 1);
                                                     categoryModName = "Tail";
                                                     break;
                                             }
@@ -1689,6 +1694,26 @@ namespace RoleplayingVoice
                             {
                                 PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.Value.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
                             }
+                            else if (name.Contains("tail", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var stateResult = PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.Value.ObjectIndex);
+                                if (stateResult.Item1 == 0 && !string.IsNullOrEmpty(stateResult.Item2))
+                                {
+                                    var cust = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateResult.Item2);
+                                    int originalTail = cust.Customize.TailShape.Value;
+                                    
+                                    // Change the tail shape to force Glamourer to reload the geometry
+                                    cust.Customize.TailShape.Value = originalTail == 1 ? 2 : 1;
+                                    PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(cust.ToBase64(), character.Value.ObjectIndex);
+
+                                    // Restore the original tail shape on the next tick
+                                    Plugin.Framework.RunOnFrameworkThread(() =>
+                                    {
+                                        cust.Customize.TailShape.Value = originalTail;
+                                        PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(cust.ToBase64(), character.Value.ObjectIndex);
+                                    });
+                                }
+                            }
                             else if (name.Contains("head", StringComparison.OrdinalIgnoreCase) || name.Contains("hat", StringComparison.OrdinalIgnoreCase))
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
                             else if (name.Contains("hands", StringComparison.OrdinalIgnoreCase) || name.Contains("glv", StringComparison.OrdinalIgnoreCase))
@@ -2048,9 +2073,54 @@ namespace RoleplayingVoice
                             waitAttempts++;
                         }
                         RebuildCategory(key, hideProgressUI);
-                        if (!skipDelays) Thread.Sleep(500);
+                if (!skipDelays) Thread.Sleep(500);
                     }
                 }, null, skipDelays ? 200 : 2000, System.Threading.Timeout.Infinite);
+            }
+        }
+        private void TryOverrideTailTextureSet(TextureSet item, Guid collectionId, int gender, int race, int tailShape)
+        {
+            try {
+                string xaelaCheck = (race == 7 ? "010" : "000") + (tailShape + 1);
+                string genderRaceCode = (gender == 0 ? FFXIVLooseTextureCompiler.Racial.RaceInfo.RaceCodeBody.Masculine[race] : FFXIVLooseTextureCompiler.Racial.RaceInfo.RaceCodeBody.Feminine[race]);
+                
+                string tailMdlPath = $"chara/human/c{genderRaceCode}/obj/tail/t{xaelaCheck}/model/c{genderRaceCode}t{xaelaCheck}_til.mdl";
+                Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Checking for modded tail model at path: {tailMdlPath}");
+                
+                if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, tailMdlPath, out string mdlDiskPath)) {
+                    Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Modded tail model FOUND at: {mdlDiskPath}");
+                    byte[] mdlBytes = System.IO.File.ReadAllBytes(mdlDiskPath);
+                    string mdlString = System.Text.Encoding.ASCII.GetString(mdlBytes);
+                    var matches = System.Text.RegularExpressions.Regex.Matches(mdlString, @"[\w/\-]+\.mtrl");
+                    
+                    Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Extracted {matches.Count} .mtrl string(s) from .mdl file.");
+                    
+                    foreach (System.Text.RegularExpressions.Match match in matches) {
+                        string mtrlName = match.Value.TrimStart('/');
+                        string mtrlCandidate = $"chara/human/c{genderRaceCode}/obj/tail/t{xaelaCheck}/material/v0001/{mtrlName}";
+                        Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Checking extracted material candidate: {mtrlCandidate}");
+                        
+                        if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, mtrlCandidate, out string mtrlDiskPath)) {
+                            Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Modded material FOUND at: {mtrlDiskPath}");
+                            if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(mtrlDiskPath, out string bPath, out string nPath, out string mPath)) {
+                                if (!string.IsNullOrEmpty(bPath)) item.InternalBasePath = bPath;
+                                if (!string.IsNullOrEmpty(nPath)) item.InternalNormalPath = nPath;
+                                if (!string.IsNullOrEmpty(mPath)) item.InternalMaskPath = mPath;
+                                item.InternalMaterialPath = mtrlCandidate;
+                                Plugin.PluginLog.Information($"[Drag And Drop Debug] Custom Tail Paths Overridden from {tailMdlPath} -> {mtrlCandidate} (Base: {bPath})");
+                                break;
+                            } else {
+                                Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Failed to read texture paths from material.");
+                            }
+                        } else {
+                            Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Material candidate was not found in Penumbra.");
+                        }
+                    }
+                } else {
+                    Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: No modded tail model found. Vanilla path assumed.");
+                }
+            } catch (Exception ex) {
+                Plugin.PluginLog.Warning(ex, "[Drag And Drop Debug] Failed to check for modded tail materials.");
             }
         }
 
@@ -2088,7 +2158,7 @@ namespace RoleplayingVoice
                     else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                     else if (fileName.Contains("eye")) categoryKey += "eyes";
                     else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
-                    else if (fileName.Contains("tail") || fileName.Contains("sippo")) categoryKey += "tail";
+                    else if (fileName.Contains("tail") || fileName.Contains("sippo") || fileName.Contains("_etc_")) categoryKey += "tail";
                     else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                         fileName.Contains("bibo") || fileName.Contains("b+") ||
                         fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }

@@ -548,7 +548,7 @@ public static class WornEquipmentResolver
             if (paths.Count == 0) return false;
 
             // Match diffuse/base textures
-            basePath = paths.Find(p => p.Contains("_d.tex") || p.Contains("_base") || p.Contains("_dif.tex"));
+            basePath = paths.Find(p => p.Contains("_d.tex") || p.Contains("_base") || p.Contains("_dif.tex") || p.Contains("_frd.tex"));
 
             // Match normal textures (both _norm and bare /norm.tex)
             normalPath = paths.Find(p => p.Contains("_n.tex") || p.Contains("_norm") || p.EndsWith("/norm.tex") || p.EndsWith("\\norm.tex"));
