@@ -1409,6 +1409,30 @@ public class MainWindow : Window, IDisposable
                 _selectedContextualLayerIndex = Plugin.ContextualLayerManager.ContextualLayers.Count - 1;
         }
 
+        ImGui.SameLine();
+        if (ImGui.Button(Translator.LocalizeUI("Import .clmp File")))
+        {
+            _fileDialogManager.OpenFileDialog(
+                Translator.LocalizeUI("Select a contextual layer preset"),
+                "Contextual Layer Presets{.clmp}",
+                (b, files) =>
+                {
+                    if (b && files != null && files.Count > 0)
+                    {
+                        foreach (var f in files)
+                        {
+                            if (f.EndsWith(".clmp", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Plugin.ContextualLayerManager.ImportLayerFromFile(f);
+                            }
+                        }
+                        if (Plugin.ContextualLayerManager.ContextualLayers.Count > 0)
+                            _selectedContextualLayerIndex = Plugin.ContextualLayerManager.ContextualLayers.Count - 1;
+                    }
+                },
+                0, null, true);
+        }
+
         ImGui.Spacing();
 
         if (Plugin.ContextualLayerManager.ContextualLayers.Count == 0)
