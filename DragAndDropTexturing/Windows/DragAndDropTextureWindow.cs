@@ -1069,6 +1069,7 @@ namespace RoleplayingVoice
                                         else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                                         else if (fileName.Contains("eye")) categoryKey += "eyes";
                                         else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                                        else if (fileName.Contains("hair") || fileName.Contains("hir")) categoryKey += "gear_hair";
                                         else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                                             fileName.Contains("bibo") || fileName.Contains("b+") ||
                                             fileName.Contains("gen3") || fileName.Contains("tbse")) categoryKey += "body";
@@ -1081,6 +1082,7 @@ namespace RoleplayingVoice
                                                 case BodyDragPart.Eyes: categoryKey += "eyes"; break;
                                                 case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
                                                 case BodyDragPart.Tail: categoryKey += "tail"; break;
+                                                case BodyDragPart.Hair: categoryKey += "gear_hair"; break;
                                                 default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
                                             }
                                         }
@@ -1125,6 +1127,7 @@ namespace RoleplayingVoice
                                         else if (fileName.Contains("eye")) categoryKey += "eyes";
                                         else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
                                         else if (fileName.Contains("tail") || fileName.Contains("sippo") || fileName.Contains("_etc_")) categoryKey += "tail";
+                                        else if (fileName.Contains("hair") || fileName.Contains("hir")) categoryKey += "gear_hair";
                                         else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                                             fileName.Contains("bibo") || fileName.Contains("b+") ||
                                             fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
@@ -1137,6 +1140,7 @@ namespace RoleplayingVoice
                                                 case BodyDragPart.Eyes: categoryKey += "eyes"; break;
                                                 case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
                                                 case BodyDragPart.Tail: categoryKey += "tail"; break;
+                                                case BodyDragPart.Hair: categoryKey += "gear_hair"; break;
                                                 default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
                                             }
                                         }
@@ -2160,6 +2164,7 @@ namespace RoleplayingVoice
                     else if (fileName.Contains("eye")) categoryKey += "eyes";
                     else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
                     else if (fileName.Contains("tail") || fileName.Contains("sippo") || fileName.Contains("_etc_")) categoryKey += "tail";
+                    else if (fileName.Contains("hair") || fileName.Contains("hir")) categoryKey += "gear_hair";
                     else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                         fileName.Contains("bibo") || fileName.Contains("b+") ||
                         fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
@@ -2172,6 +2177,7 @@ namespace RoleplayingVoice
                             case BodyDragPart.Eyes: categoryKey += "eyes"; break;
                             case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
                             case BodyDragPart.Tail: categoryKey += "tail"; break;
+                            case BodyDragPart.Hair: categoryKey += "gear_hair"; break;
                             default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
                         }
                     }
@@ -2800,8 +2806,12 @@ namespace RoleplayingVoice
             if (bone == null || bone.HkaBone.Name.String == null) return "body";
             string name = bone.HkaBone.Name.String.ToLower();
 
-            // Head slot: head, face, eyes, hair, helmet, ears, neck, teeth etc.
-            if (name.Contains("head") || name.Contains("kao") || name.Contains("mimi") || name.Contains("hair") || name.Contains("ear"))
+            // Hair slot
+            if (name.Contains("hair") || name.Contains("kami"))
+                return "hair";
+
+            // Head slot: head, face, eyes, helmet, ears, neck, teeth etc.
+            if (name.Contains("head") || name.Contains("kao") || name.Contains("mimi") || name.Contains("ear"))
                 return "head";
 
             // Hands slot: hand, arm, wrist, finger
@@ -2846,5 +2856,6 @@ namespace PenumbraAndGlamourerHelpers
         EyebrowsAndLashes,
         Clothing,
         Tail,
+        Hair,
     }
 }

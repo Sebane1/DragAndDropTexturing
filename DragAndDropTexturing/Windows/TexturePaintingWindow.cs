@@ -1698,10 +1698,25 @@ namespace DragAndDropTexturing.Windows
         public void Dispose()
         {
             _mainThreadActions.Clear();
-            _renderer?.Dispose();
+            var oldRenderer = _renderer;
             _renderer = null;
-            _cachedBaseBitmap?.Dispose();
+            
+            var oldBitmap = _cachedBaseBitmap;
             _cachedBaseBitmap = null;
+            
+            var oldLayer = _floatingLayer;
+            _floatingLayer = null;
+
+            // Defer DirectX 11 resource disposal by 1 second.
+            // This prevents the NVIDIA driver crash (C0000005 in nvwgf2umx.dll)
+            // caused by ImGui holding onto the ShaderResourceView pointer 
+            // from the last frame's draw list while the window is closing.
+            Task.Delay(1000).ContinueWith(_ => 
+            {
+                oldRenderer?.Dispose();
+                oldBitmap?.Dispose();
+                oldLayer?.Dispose();
+            });
         }
 
         private void StartLoadPlayerModels()
@@ -3653,6 +3668,17 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                             return matchedCandidate;
                         }
                     }
+                    var flexibleMatchH = System.Text.RegularExpressions.Regex.Match(editFileName, @"h(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (flexibleMatchH.Success)
+                    {
+                        string hNum = flexibleMatchH.Groups[1].Value;
+                        var matchedCandidate = candidates.FirstOrDefault(p => !string.IsNullOrEmpty(p.EquipSetId) && p.EquipSetId.Contains(hNum));
+                        if (matchedCandidate != null)
+                        {
+                            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via explicit slot key and hCode: {matchedCandidate.DisplayName}");
+                            return matchedCandidate;
+                        }
+                    }
                     var moddedCandidates = candidates.Where(c => !string.IsNullOrEmpty(c.ResolvedBaseDiskPath) || !string.IsNullOrEmpty(c.ResolvedMaterialDiskPath)).ToList();
                     var bestCandidate = moddedCandidates.Count > 0 ? moddedCandidates[0] : candidates[0];
                     _plugin.PluginLog.Info($"[FindMatchingWornPiece] Falling back to first candidate for detected slot '{detectedSlotKey}': {bestCandidate.DisplayName}");
@@ -3687,6 +3713,26 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 }
             }
 
+            var flexibleMatchHGlobal = System.Text.RegularExpressions.Regex.Match(editFileName, @"h(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (flexibleMatchHGlobal.Success)
+            {
+                string hNum = flexibleMatchHGlobal.Groups[1].Value;
+                var candidates = wornGear.Where(p => p.SlotKey == "hair").ToList();
+                if (candidates.Count > 0)
+                {
+                    foreach (var c in candidates)
+                    {
+                        if (!string.IsNullOrEmpty(c.EquipSetId) && c.EquipSetId.Contains(hNum))
+                        {
+                            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via global hNum: {c.DisplayName}");
+                            return c;
+                        }
+                    }
+                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via global hNum fallback: {candidates[0].DisplayName}");
+                    return candidates[0];
+                }
+            }
+
             // 1b. Fallback: Search for slot keywords in the filename if no eCode matches
             detectedSlotKey = null;
             if (editFileName.Contains("top") || editFileName.Contains("body") || editFileName.Contains("shirt"))
@@ -3699,6 +3745,8 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 detectedSlotKey = "hands";
             else if (editFileName.Contains("head") || editFileName.Contains("hat") || editFileName.Contains("met") || editFileName.Contains("visor"))
                 detectedSlotKey = "head";
+            else if (editFileName.Contains("hair") || editFileName.Contains("hir"))
+                detectedSlotKey = "hair";
 
             _plugin.PluginLog.Info($"[FindMatchingWornPiece] Detected Slot Key from filename: '{detectedSlotKey}'");
             if (detectedSlotKey != null)
