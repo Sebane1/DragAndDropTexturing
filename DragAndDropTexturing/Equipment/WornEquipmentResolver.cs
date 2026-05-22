@@ -458,6 +458,27 @@ public static class WornEquipmentResolver
 
                     string resolvedDisk = "";
                     TryResolveGamePath(collection, internalBase, out resolvedDisk);
+                    
+                    // Filter out our own generated minion texture mods to prevent feedback loop
+                    if (!string.IsNullOrEmpty(resolvedDisk))
+                    {
+                        try
+                        {
+                            string modDir = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                            if (!string.IsNullOrEmpty(modDir) && resolvedDisk.StartsWith(modDir, StringComparison.OrdinalIgnoreCase))
+                            {
+                                // Get the mod folder name (first directory after the mod root)
+                                string relativePath = resolvedDisk.Substring(modDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                                string modFolderName = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+                                if (modFolderName.Contains("Texture Minion"))
+                                {
+                                    plugin.PluginLog.Info($"[ResolveMinion] Skipping own mod resolved path: {resolvedDisk}");
+                                    resolvedDisk = "";
+                                }
+                            }
+                        }
+                        catch { }
+                    }
 
                     var piece = new WornEquipmentPiece
                     {

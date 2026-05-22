@@ -1564,7 +1564,7 @@ namespace DragAndDropTexturing.Windows
                 // New layer mode: create a new file
                 string importDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
                 if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
-                string bodyTag = _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "gen2";
+                string bodyTag = _cachedIsMinion ? "minion" : _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "gen2";
                 string suffix = "_base";
                 if (_newLayerType == "Normal") suffix = "_n";
                 else if (_newLayerType == "Mask") suffix = "_m";
@@ -1629,6 +1629,7 @@ namespace DragAndDropTexturing.Windows
                     {
                         if (isEditMode)
                         {
+                            _plugin.PluginLog.Info($"[Texture Painter COMMIT] Edit mode path. ContextCategoryKey={ContextCategoryKey}");
                             _plugin.PluginLog.Info($"[Texture Painter] Edit mode - triggering full rebuild for '{targetChar.Name.TextValue}'");
                             if (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.StartsWith(targetChar.Name.TextValue))
                             {
@@ -1645,6 +1646,7 @@ namespace DragAndDropTexturing.Windows
                         }
                         else
                         {
+                            _plugin.PluginLog.Info($"[Texture Painter COMMIT] New layer path. ContextCategoryKey={ContextCategoryKey}, targetName={targetChar.Name.TextValue}, startsWith={ContextCategoryKey?.StartsWith(targetChar.Name.TextValue)}, IsMinion={_cachedIsMinion}");
                             if (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.StartsWith(targetChar.Name.TextValue))
                             {
                                 _plugin.PluginLog.Info($"[Texture Painter] Appending new layer precisely to {ContextCategoryKey}");
@@ -1659,6 +1661,14 @@ namespace DragAndDropTexturing.Windows
                                     _plugin.DragAndDropTextures.TextureHistoryTints[ContextCategoryKey].Add(System.Numerics.Vector4.One);
                                 }
                                 _plugin.Configuration.Save();
+                                
+                                // For minions, cache the WornEquipmentPiece so the export path can find it
+                                if (_cachedIsMinion && _cachedWornGear != null && _cachedWornGear.Count > 0)
+                                {
+                                    _plugin.DragAndDropTextures.GearCategoryMeta[ContextCategoryKey] = _cachedWornGear[0];
+                                    _plugin.PluginLog.Info($"[Texture Painter] Cached minion WornEquipmentPiece for export: {ContextCategoryKey}");
+                                }
+                                
                                 string suffix = ContextCategoryKey.Substring(targetChar.Name.TextValue.Length);
                                 _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { suffix }, true, false);
                             }
@@ -1765,6 +1775,30 @@ namespace DragAndDropTexturing.Windows
                         character = owner; // Keep character as owner for collection/customization inheritance
                         _cachedIsMinion = true;
                         _cachedMinionDataId = bestMinion.DataId;
+                        
+                        // Update ContextCategoryKey to use the actual minion name for per-minion history
+                        try
+                        {
+                            var companionSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Companion>();
+                            if (companionSheet != null)
+                            {
+                                var companion = companionSheet.GetRow(bestMinion.DataId);
+                                if (companion.RowId != 0)
+                                {
+                                    string minionName = companion.Singular.ToString().ToLower().Replace(" ", "").Replace("'", "").Replace("-", "");
+                                    if (!string.IsNullOrEmpty(minionName))
+                                    {
+                                        string oldKey = ContextCategoryKey;
+                                        ContextCategoryKey = owner.Name.TextValue + "_minion_" + minionName;
+                                        _plugin.PluginLog.Info($"[Texture Painter] Updated minion category key: {oldKey} -> {ContextCategoryKey}");
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _plugin.PluginLog.Warning($"[Texture Painter] Failed to resolve minion name for key update: {ex.Message}");
+                        }
                     }
                 }
             }
@@ -3734,7 +3768,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 else if (ContextCategoryKey.EndsWith("_hair", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "hair";
                 else if (ContextCategoryKey.EndsWith("_tail", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "tail";
                 else if (ContextCategoryKey.EndsWith("_face", StringComparison.OrdinalIgnoreCase)) return null;
-                else if (ContextCategoryKey.Contains("_minion_body", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "body";
+                else if (ContextCategoryKey.Contains("_minion_", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "body";
                 else if (ContextCategoryKey.EndsWith("_body", StringComparison.OrdinalIgnoreCase)) return null;
             }
 

@@ -1257,7 +1257,7 @@ namespace RoleplayingVoice
                                         string categoryModName = "";
                                         string overrideType = "";
 
-                                        if (categoryKey.EndsWith("_body"))
+                                        if (categoryKey.EndsWith("_body") && !categoryKey.Contains("_minion_"))
                                         {
                                             if (_currentCustomization.Customize.Race.Value - 1 == 2)
                                             {
@@ -1538,7 +1538,9 @@ namespace RoleplayingVoice
                         string tPath = i.InternalBasePath.ToLower();
                         plugin.PluginLog.Information($"[Drag And Drop Debug] TextureSet '{i.TextureSetName}' InternalBase: {i.InternalBasePath}");
 
-                        if (tName.Contains("body") || tName.Contains("bibo") || tName.Contains("gen3") || tName.Contains("tbse") || tPath.Contains("obj/body") || tPath.Contains("bibo") || tPath.Contains("otopop") || tPath.Contains("asym lala") || tPath.Contains("relala"))
+                        if (tPath.Contains("chara/monster/") || tPath.Contains("chara/demihuman/"))
+                            category = "_minion";
+                        else if (tName.Contains("body") || tName.Contains("bibo") || tName.Contains("gen3") || tName.Contains("tbse") || tPath.Contains("obj/body") || tPath.Contains("bibo") || tPath.Contains("otopop") || tPath.Contains("asym lala") || tPath.Contains("relala"))
                             category = "_body";
                         else if (tName.Contains("eyebrows"))
                         {
@@ -1573,63 +1575,83 @@ namespace RoleplayingVoice
                                 BackupTexturePaths.AddFaceBackupPaths(useGender, useClan, useFace, i);
                             }
 
-                            plugin.PluginLog.Information($"[Drag And Drop Debug] Extracting underlay for {category}...");
-                            string baseTex, normTex, maskTex;
-                            PenumbraAndGlamourerHelperFunctions.ExtractActiveTextureFromPenumbra(collection, category, raceCode, subRaceName, out _, out baseTex, out normTex, out maskTex, plugin, i);
+                            string baseTex = "", normTex = "", maskTex = "";
 
-                            // Refresh OmniOverrides now that they've been loaded
-                            if (category == "_body")
+                            if (category == "_minion")
                             {
-                                int mainRace = RaceInfo.SubRaceToMainRace(useClan);
-                                BackupTexturePaths.AddBodyBackupPaths(useGender, mainRace, i);
-                            }
-
-                            bool usedLuminaBase = false;
-                            bool usedLuminaNorm = false;
-
-                            // Lumina fallback: if no modded textures found AND OmniOverrides didn't provide one
-                            if (string.IsNullOrEmpty(baseTex) && !string.IsNullOrEmpty(i.InternalBasePath) && (i.BackupTexturePaths == null || string.IsNullOrEmpty(i.BackupTexturePaths.Base)))
-                            {
+                                // Minions: extract directly from Lumina using the minion's own game paths
+                                // Do NOT use ExtractActiveTextureFromPenumbra — it would pull human body textures
+                                plugin.PluginLog.Information($"[Drag And Drop Debug] Minion category — extracting underlay from Lumina directly.");
                                 baseTex = ExtractVanillaTexViaLumina(i.InternalBasePath, i);
-                                usedLuminaBase = true;
-                                if (!string.IsNullOrEmpty(baseTex))
-                                    plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback base: {i.InternalBasePath}");
+                                normTex = !string.IsNullOrEmpty(i.InternalNormalPath) ? ExtractVanillaTexViaLumina(i.InternalNormalPath, i) : "";
+                                maskTex = !string.IsNullOrEmpty(i.InternalMaskPath) ? ExtractVanillaTexViaLumina(i.InternalMaskPath, i) : "";
+                                plugin.PluginLog.Information($"[Drag And Drop Debug] Minion Lumina extraction: base={!string.IsNullOrEmpty(baseTex)}, norm={!string.IsNullOrEmpty(normTex)}, mask={!string.IsNullOrEmpty(maskTex)}");
                             }
-                            if (string.IsNullOrEmpty(normTex) && !string.IsNullOrEmpty(i.InternalNormalPath) && (i.BackupTexturePaths == null || string.IsNullOrEmpty(i.BackupTexturePaths.Normal)))
+                            else
                             {
-                                normTex = ExtractVanillaTexViaLumina(i.InternalNormalPath, i);
-                                usedLuminaNorm = true;
-                                if (!string.IsNullOrEmpty(normTex))
-                                    plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback normal: {i.InternalNormalPath}");
+                                plugin.PluginLog.Information($"[Drag And Drop Debug] Extracting underlay for {category}...");
+                                PenumbraAndGlamourerHelperFunctions.ExtractActiveTextureFromPenumbra(collection, category, raceCode, subRaceName, out _, out baseTex, out normTex, out maskTex, plugin, i);
+
+                                // Refresh OmniOverrides now that they've been loaded
+                                if (category == "_body")
+                                {
+                                    int mainRace = RaceInfo.SubRaceToMainRace(useClan);
+                                    BackupTexturePaths.AddBodyBackupPaths(useGender, mainRace, i);
+                                }
                             }
-                            if (string.IsNullOrEmpty(maskTex) && !string.IsNullOrEmpty(i.InternalMaskPath))
+
+                            // Non-playable items (minions): base is already set directly in item.Base
+                            // Do NOT set BackupTexturePaths — it would interfere with the compiler
+                            if (category == "_minion")
                             {
-                                maskTex = ExtractVanillaTexViaLumina(i.InternalMaskPath, i);
-                                if (!string.IsNullOrEmpty(maskTex))
-                                    plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback mask: {i.InternalMaskPath}");
+                                i.BackupTexturePaths = null;
+                                plugin.PluginLog.Information($"[Drag And Drop Debug] Minion — skipping BackupTexturePaths.");
                             }
+                            else
+                            {
+                                bool usedLuminaBase = false;
+                                bool usedLuminaNorm = false;
 
-                            // Update BackupTexturePaths so the assembly pipeline
-                            // uses the freshly-extracted textures (not stale static presets)
-                            // This is required for all categories so the extracted normal map is preserved.
-                            bool hasValidBase = !string.IsNullOrEmpty(baseTex);
-                            bool hasValidNorm = !string.IsNullOrEmpty(normTex);
+                                // Lumina fallback: if no modded textures found AND OmniOverrides didn't provide one
+                                if (string.IsNullOrEmpty(baseTex) && !string.IsNullOrEmpty(i.InternalBasePath) && (i.BackupTexturePaths == null || string.IsNullOrEmpty(i.BackupTexturePaths.Base)))
+                                {
+                                    baseTex = ExtractVanillaTexViaLumina(i.InternalBasePath, i);
+                                    usedLuminaBase = true;
+                                    if (!string.IsNullOrEmpty(baseTex))
+                                        plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback base: {i.InternalBasePath}");
+                                }
+                                if (string.IsNullOrEmpty(normTex) && !string.IsNullOrEmpty(i.InternalNormalPath) && (i.BackupTexturePaths == null || string.IsNullOrEmpty(i.BackupTexturePaths.Normal)))
+                                {
+                                    normTex = ExtractVanillaTexViaLumina(i.InternalNormalPath, i);
+                                    usedLuminaNorm = true;
+                                    if (!string.IsNullOrEmpty(normTex))
+                                        plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback normal: {i.InternalNormalPath}");
+                                }
+                                if (string.IsNullOrEmpty(maskTex) && !string.IsNullOrEmpty(i.InternalMaskPath))
+                                {
+                                    maskTex = ExtractVanillaTexViaLumina(i.InternalMaskPath, i);
+                                    if (!string.IsNullOrEmpty(maskTex))
+                                        plugin.PluginLog.Information($"[Drag And Drop Debug] Vanilla fallback mask: {i.InternalMaskPath}");
+                                }
 
-                            string finalBase = i.BackupTexturePaths != null ? i.BackupTexturePaths.Base : "";
-                            string finalNorm = i.BackupTexturePaths != null ? i.BackupTexturePaths.Normal : "";
+                                // Update BackupTexturePaths so the assembly pipeline
+                                // uses the freshly-extracted textures (not stale static presets)
+                                bool hasValidBase = !string.IsNullOrEmpty(baseTex);
+                                bool hasValidNorm = !string.IsNullOrEmpty(normTex);
 
-                            // We must always overwrite finalBase/finalNorm with the newly extracted textures.
-                            // The static presets in BackupTexturePaths point to dead 'res\textures\...' paths 
-                            // which are only valid in the standalone compiler, not the runtime plugin.
-                            if (hasValidBase)
-                                finalBase = baseTex;
-                            if (hasValidNorm)
-                                finalNorm = normTex;
+                                string finalBase = i.BackupTexturePaths != null ? i.BackupTexturePaths.Base : "";
+                                string finalNorm = i.BackupTexturePaths != null ? i.BackupTexturePaths.Normal : "";
 
-                            if (!string.IsNullOrEmpty(finalBase) && !string.IsNullOrEmpty(finalNorm))
-                                i.BackupTexturePaths = new BackupTexturePaths(finalBase, finalNorm);
-                            else if (!string.IsNullOrEmpty(finalBase))
-                                i.BackupTexturePaths = new BackupTexturePaths(finalBase);
+                                if (hasValidBase)
+                                    finalBase = baseTex;
+                                if (hasValidNorm)
+                                    finalNorm = normTex;
+
+                                if (!string.IsNullOrEmpty(finalBase) && !string.IsNullOrEmpty(finalNorm))
+                                    i.BackupTexturePaths = new BackupTexturePaths(finalBase, finalNorm);
+                                else if (!string.IsNullOrEmpty(finalBase))
+                                    i.BackupTexturePaths = new BackupTexturePaths(finalBase);
+                            }
                         }
                     }
                 }
@@ -2078,6 +2100,11 @@ namespace RoleplayingVoice
                     if (_textureHistory.ContainsKey(key))
                     {
                         _pendingRegenerationCategories.Add(key);
+                        plugin.PluginLog.Info($"[ScheduleRegeneration] Added pending key: {key}");
+                    }
+                    else
+                    {
+                        plugin.PluginLog.Warning($"[ScheduleRegeneration] Key NOT found in history: {key} (history has {_textureHistory.Count} keys: [{string.Join(", ", _textureHistory.Keys)}])");
                     }
                 }
 
@@ -2327,8 +2354,235 @@ namespace RoleplayingVoice
                 }
             });
         }
+        /// <summary>
+        /// Fully separate minion texture rebuild pipeline.
+        /// Does NOT touch any body/face/gear/skin/contextual layer logic.
+        /// </summary>
+        private void RebuildMinionCategory(string categoryKey, bool hideProgressUI)
+        {
+            if (!_textureHistory.ContainsKey(categoryKey)) return;
+
+            string charName = categoryKey.Substring(0, categoryKey.IndexOf("_minion_"));
+            ICharacter character = null;
+            if (plugin.SafeGameObjectManager.LocalPlayer != null && plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue == charName)
+                character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+
+            if (character == null)
+            {
+                _isRegenerationPending = false;
+                plugin.PluginLog.Warning($"[MINION REBUILD] Character '{charName}' not found. Cannot export minion.");
+                return;
+            }
+
+            Task.Run(async () =>
+            {
+                int waitAttempts = 0;
+                while (_lockDuplicateGeneration && waitAttempts < 60)
+                {
+                    Thread.Sleep(1000);
+                    waitAttempts++;
+                }
+                if (_lockDuplicateGeneration)
+                {
+                    _isRegenerationPending = false;
+                    return;
+                }
+
+                try
+                {
+                    // Get cached minion gear metadata
+                    if (!_gearCategoryMeta.TryGetValue(categoryKey, out var gearMeta))
+                    {
+                        plugin.PluginLog.Warning($"[MINION REBUILD] No cached gearMeta for '{categoryKey}'. Cannot export.");
+                        _isRegenerationPending = false;
+                        return;
+                    }
+
+                    plugin.PluginLog.Info($"[MINION REBUILD] Starting rebuild for '{categoryKey}'. DisplayName={gearMeta.DisplayName}, BasePath={gearMeta.InternalBasePath}");
+
+                    // Create the TextureSet from the minion's internal paths
+                    TextureSet item = ProjectHelper.CreateEquipmentTextureSet(
+                        gearMeta.DisplayName,
+                        gearMeta.InternalBasePath,
+                        gearMeta.InternalNormalPath,
+                        gearMeta.InternalMaskPath,
+                        gearMeta.InternalMaterialPath);
+
+                    if (item == null)
+                    {
+                        plugin.PluginLog.Warning($"[MINION REBUILD] CreateEquipmentTextureSet returned null.");
+                        _isRegenerationPending = false;
+                        return;
+                    }
+
+                    // Flag as non-playable so the LooseTextureCompiler skips UV conversion
+                    // and other humanoid-specific processing
+                    item.NotAPlayableItem = true;
+                    // Skip normal/mask generation — just pass-through the Lumina textures directly
+                    // The MergeNormal path would otherwise stretch the 256x256 minion normal
+                    item.IgnoreNormalGeneration = true;
+                    item.IgnoreMaskGeneration = true;
+
+                    // Extract the minion's actual texture from Lumina and use it as the base
+                    // This ensures the real minion texture is the underlay, not a human body
+                    string minionBasePng = ExtractVanillaTexViaLumina(gearMeta.InternalBasePath, item, forceOpaqueAlpha: true);
+                    if (!string.IsNullOrEmpty(minionBasePng))
+                    {
+                        item.Base = minionBasePng;
+                        item.BaseUV = "";
+                        item.BaseTint = System.Numerics.Vector4.One;
+                        plugin.PluginLog.Info($"[MINION REBUILD] Set Lumina base texture: {minionBasePng}");
+                    }
+                    else
+                    {
+                        plugin.PluginLog.Warning($"[MINION REBUILD] Failed to extract Lumina base for {gearMeta.InternalBasePath}");
+                    }
+
+                    // Extract normal map from Lumina too
+                    if (!string.IsNullOrEmpty(gearMeta.InternalNormalPath))
+                    {
+                        string minionNormPng = ExtractVanillaTexViaLumina(gearMeta.InternalNormalPath, item);
+                        if (!string.IsNullOrEmpty(minionNormPng))
+                        {
+                            item.Normal = minionNormPng;
+                            item.NormalUV = "";
+                        }
+                    }
+
+                    // Pre-composite base + paint overlays into a single PNG
+                    // This bypasses the compiler's GPU merge pipeline (memory:// .raw)
+                    // which has stride issues at small (256x256) resolutions
+                    {
+                        var overlayPaths = new List<string>();
+                        var overlayTints = new List<System.Numerics.Vector4>();
+                        for (int i = 0; i < _textureHistory[categoryKey].Count; i++)
+                        {
+                            string f = _textureHistory[categoryKey][i];
+                            System.Numerics.Vector4 t = (_textureHistoryTints.ContainsKey(categoryKey) && i < _textureHistoryTints[categoryKey].Count)
+                                ? _textureHistoryTints[categoryKey][i] : System.Numerics.Vector4.One;
+                            if (File.Exists(f))
+                            {
+                                overlayPaths.Add(f);
+                                overlayTints.Add(t);
+                            }
+                            plugin.PluginLog.Info($"[MINION REBUILD] Overlay[{i}]: exists={File.Exists(f)} tint={t} path={f}");
+                        }
+
+                        if (overlayPaths.Count == 0)
+                        {
+                            plugin.PluginLog.Info($"[MINION REBUILD] No overlay layers for '{categoryKey}'. Skipping export.");
+                            _isRegenerationPending = false;
+                            return;
+                        }
+
+                        // Composite: draw base, then each overlay on top with alpha blending + tint
+                        using (var baseBmp = new Bitmap(item.Base))
+                        {
+                            int w = baseBmp.Width;
+                            int h = baseBmp.Height;
+                            using (var canvas = new Bitmap(w, h, PixelFormat.Format32bppArgb))
+                            {
+                                using (var g = Graphics.FromImage(canvas))
+                                {
+                                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
+                                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                                    // Draw opaque base first
+                                    g.DrawImage(baseBmp, 0, 0, w, h);
+                                    // Layer each paint overlay on top, applying tint if needed
+                                    for (int idx = 0; idx < overlayPaths.Count; idx++)
+                                    {
+                                        using (var overlay = new Bitmap(overlayPaths[idx]))
+                                        {
+                                            var tint = overlayTints[idx];
+                                            if (tint == System.Numerics.Vector4.One)
+                                            {
+                                                g.DrawImage(overlay, 0, 0, w, h);
+                                            }
+                                            else
+                                            {
+                                                // Apply tint via ColorMatrix
+                                                var cm = new System.Drawing.Imaging.ColorMatrix(new float[][] {
+                                                    new float[] { tint.X, 0, 0, 0, 0 },
+                                                    new float[] { 0, tint.Y, 0, 0, 0 },
+                                                    new float[] { 0, 0, tint.Z, 0, 0 },
+                                                    new float[] { 0, 0, 0, tint.W, 0 },
+                                                    new float[] { 0, 0, 0, 0, 1 }
+                                                });
+                                                using (var attrs = new System.Drawing.Imaging.ImageAttributes())
+                                                {
+                                                    attrs.SetColorMatrix(cm);
+                                                    g.DrawImage(overlay,
+                                                        new System.Drawing.Rectangle(0, 0, w, h),
+                                                        0, 0, overlay.Width, overlay.Height,
+                                                        GraphicsUnit.Pixel, attrs);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                // Save pre-composited result
+                                string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
+                                Directory.CreateDirectory(tempDir);
+                                string compositedPath = Path.Combine(tempDir, $"minion_composited_{categoryKey.GetHashCode():X8}.png");
+                                canvas.Save(compositedPath, System.Drawing.Imaging.ImageFormat.Png);
+                                // Set this as the sole base — no overlays for the compiler
+                                item.Base = compositedPath;
+                                plugin.PluginLog.Info($"[MINION REBUILD] Pre-composited {overlayPaths.Count} overlays → {compositedPath} ({w}x{h})");
+                            }
+                        }
+                    }
+
+                    // Build the mod name: "CharName Texture Minion Fat Cat"
+                    string cleanMinionName = gearMeta.DisplayName;
+                    cleanMinionName = cleanMinionName.Replace("(", "").Replace(")", "").Trim();
+                    cleanMinionName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanMinionName.ToLower());
+                    string localModName = charName + " Texture " + cleanMinionName;
+
+                    var textureSets = new List<TextureSet> { item };
+                    string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
+
+                    plugin.PluginLog.Info($"[MINION REBUILD] Exporting. ModName={localModName}, Path={fullModPath}, Layers={_textureHistory[categoryKey].Count}");
+
+                    // Clean stale tex files from previous exports to avoid dimension mismatches
+                    string texDir = Path.Combine(fullModPath, "do_not_edit", "textures");
+                    if (Directory.Exists(texDir))
+                    {
+                        foreach (var staleFile in Directory.GetFiles(texDir, "*.tex"))
+                        {
+                            try { File.Delete(staleFile); } catch { }
+                        }
+                    }
+
+                    // Export — pass character info for collection binding, but the TextureSet uses minion paths
+                    var localCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                    await Export(true, textureSets, fullModPath, localModName,
+                        new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
+                        localCustomization.Customize.Race.Value - 1,
+                        localCustomization.Customize.Clan.Value - 1,
+                        localCustomization.Customize.Gender.Value,
+                        localCustomization.Customize.Face.Value - 1,
+                        hideProgressUI);
+
+                    plugin.PluginLog.Info($"[MINION REBUILD] Export completed for '{localModName}'.");
+                }
+                catch (Exception e)
+                {
+                    _isRegenerationPending = false;
+                    plugin.PluginLog.Error($"[MINION REBUILD] Crash: {e.Message}");
+                    Plugin.PluginLog.Warning(e, e.Message);
+                }
+            });
+        }
+
         public void RebuildCategory(string categoryKey, bool hideProgressUI = true)
         {
+            // Route minion keys to the dedicated minion pipeline — completely separate from body/face/gear
+            if (categoryKey.Contains("_minion_"))
+            {
+                RebuildMinionCategory(categoryKey, hideProgressUI);
+                return;
+            }
+
             if (!_textureHistory.ContainsKey(categoryKey)) return;
 
             string charName = categoryKey.Split('_')[0];
@@ -2393,7 +2647,7 @@ namespace RoleplayingVoice
                         lastFile = "empty.png";
                     }
 
-                    if (categoryKey.EndsWith("_body"))
+                    if (categoryKey.EndsWith("_body") && !categoryKey.Contains("_minion_"))
                     {
                         if (localCustomization.Customize.Race.Value - 1 == 2)
                         {
@@ -2555,7 +2809,12 @@ namespace RoleplayingVoice
                                 gearMeta.InternalNormalPath,
                                 gearMeta.InternalMaskPath,
                                 gearMeta.InternalMaterialPath);
-                            categoryModName = "Minion";
+                            // Extract a clean minion name for the mod folder, e.g. "Minion (fat cat)" -> "Minion Fat Cat"
+                            string cleanMinionName = gearMeta.DisplayName;
+                            cleanMinionName = cleanMinionName.Replace("(", "").Replace(")", "").Trim();
+                            // Title-case each word
+                            cleanMinionName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanMinionName.ToLower());
+                            categoryModName = cleanMinionName;
                         }
                     }
                     else if (categoryKey.EndsWith("_tail") || categoryKey.Contains("fallback_Tail"))
@@ -2570,7 +2829,8 @@ namespace RoleplayingVoice
 
                     if (item != null)
                     {
-                        ApplyDefaultSkinType(item);
+                        if (!categoryKey.Contains("_minion_"))
+                            ApplyDefaultSkinType(item);
                         for (int _i = 0; _i < _textureHistory[categoryKey].Count; _i++)
                         {
                             string f = _textureHistory[categoryKey][_i];
@@ -2579,7 +2839,8 @@ namespace RoleplayingVoice
                         }
 
                         bool hasContextualLayers = false;
-                        if (plugin.ContextualLayerManager != null && charName == plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue)
+                        bool isMinion = categoryKey.Contains("_minion_");
+                        if (!isMinion && plugin.ContextualLayerManager != null && charName == plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue)
                         {
                             foreach (var activeLayer in plugin.ContextualLayerManager.GetActiveLayers())
                             {
@@ -2659,8 +2920,10 @@ namespace RoleplayingVoice
                         localModName = localModName.Replace("Mod", categoryModName);
 
                         string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
+                        plugin.PluginLog.Info($"[MINION EXPORT] About to Export. localModName={localModName}, fullModPath={fullModPath}, textureSets.Count={textureSets.Count}, historyCount={_textureHistory[categoryKey].Count}");
                         await Export(true, textureSets, fullModPath, localModName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
                             localCustomization.Customize.Race.Value - 1, localCustomization.Customize.Clan.Value - 1, localCustomization.Customize.Gender.Value, localCustomization.Customize.Face.Value - 1, hideProgressUI);
+                        plugin.PluginLog.Info($"[MINION EXPORT] Export completed for {localModName}");
                     }
                 }
                 catch (Exception e)
@@ -2756,7 +3019,7 @@ namespace RoleplayingVoice
         /// Extracts a vanilla .tex file from FFXIV game data via Lumina, converts to PNG, 
         /// and upscales to match the input texture resolution for use as an underlay.
         /// </summary>
-        private string ExtractVanillaTexViaLumina(string internalGamePath, TextureSet textureSet)
+        private string ExtractVanillaTexViaLumina(string internalGamePath, TextureSet textureSet, bool forceOpaqueAlpha = false)
         {
             try
             {
@@ -2766,51 +3029,38 @@ namespace RoleplayingVoice
                 // Use the existing TexIO pattern to convert the raw .tex data to Bitmap
                 using (var stream = new MemoryStream(texFile.Data))
                 {
-                    var bitmap = TexIO.TexToBitmap(stream);
-                    int texWidth = bitmap.Width;
-                    int texHeight = bitmap.Height;
+                    var rawBitmap = TexIO.TexToBitmap(stream);
+                    if (rawBitmap == null) return "";
 
-                    // Determine target resolution from the input texture
-                    int targetWidth = texWidth;
-                    int targetHeight = texHeight;
-                    string inputFile = !string.IsNullOrEmpty(textureSet.Base) ? textureSet.Base :
-                        (textureSet.BaseOverlays.Count > 0 ? textureSet.BaseOverlays[0] : "");
-                    if (!string.IsNullOrEmpty(inputFile) && File.Exists(inputFile))
+                    using (rawBitmap)
                     {
-                        try
+                        // FFXIV stores specular/shininess in the diffuse alpha channel.
+                        // Force alpha=255 so the GPU compositor treats the base as fully opaque.
+                        if (forceOpaqueAlpha)
                         {
-                            using (var inputImage = System.Drawing.Image.FromFile(inputFile))
+                            var rect = new System.Drawing.Rectangle(0, 0, rawBitmap.Width, rawBitmap.Height);
+                            var bmpData = rawBitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+                            unsafe
                             {
-                                targetWidth = inputImage.Width;
-                                targetHeight = inputImage.Height;
+                                byte* ptr = (byte*)bmpData.Scan0;
+                                int bytes = Math.Abs(bmpData.Stride) * rawBitmap.Height;
+                                for (int i = 3; i < bytes; i += 4)
+                                {
+                                    ptr[i] = 255; // Set alpha to fully opaque
+                                }
                             }
+                            rawBitmap.UnlockBits(bmpData);
                         }
-                        catch { /* keep vanilla resolution */ }
+
+                        // Save as temp PNG using standard ImageFormat.Png (same as painter's working version)
+                        string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
+                        Directory.CreateDirectory(tempDir);
+                        string safeName = internalGamePath.Replace("/", "_").Replace("\\", "_");
+                        string suffix = forceOpaqueAlpha ? "_opaque" : "";
+                        string tempPath = Path.Combine(tempDir, safeName + $"_{rawBitmap.Width}x{rawBitmap.Height}{suffix}.png");
+                        rawBitmap.Save(tempPath, System.Drawing.Imaging.ImageFormat.Png);
+                        return tempPath;
                     }
-
-                    // Upscale if needed
-                    Bitmap finalBitmap = bitmap;
-                    if (targetWidth != texWidth || targetHeight != texHeight)
-                    {
-                        finalBitmap = new Bitmap(targetWidth, targetHeight, PixelFormat.Format32bppArgb);
-                        using (var g = Graphics.FromImage(finalBitmap))
-                        {
-                            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                            g.DrawImage(bitmap, 0, 0, targetWidth, targetHeight);
-                        }
-                    }
-
-                    // Save as temp PNG
-                    string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
-                    Directory.CreateDirectory(tempDir);
-                    string safeName = internalGamePath.Replace("/", "_").Replace("\\", "_");
-                    string tempPath = Path.Combine(tempDir, safeName + $"_{targetWidth}x{targetHeight}.png");
-                    TexIO.SaveBitmap(finalBitmap, tempPath);
-
-                    if (finalBitmap != bitmap) finalBitmap.Dispose();
-                    bitmap.Dispose();
-
-                    return tempPath;
                 }
             }
             catch (Exception ex)
