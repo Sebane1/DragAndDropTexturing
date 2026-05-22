@@ -50,10 +50,10 @@ namespace DragAndDropTexturing.Windows
         private string _selectedMaterial = null;
         private string _customMaterialRegex = null;
 
-        private readonly HashSet<string> _primarySlots = new HashSet<string> { "Top", "Bottom" };
-        private string[] _primarySlotArray = new[] { "Top", "Bottom" };
+        private readonly HashSet<string> _primarySlots = new HashSet<string> { "Top", "Bottom", "Hair", "Tail" };
+        private string[] _primarySlotArray = new[] { "Top", "Bottom", "Hair", "Tail" };
         private static readonly HashSet<string> _mainModelSlots = new HashSet<string> {
-            "Top", "Bottom", "PreviewTop", "PreviewBottom", "Shoes", "Gloves", "Head", "Face"
+            "Top", "Bottom", "PreviewTop", "PreviewBottom", "Shoes", "Gloves", "Head", "Face", "Hair", "Tail"
         };
 
         private float _brushHardness = 0.5f;
@@ -1951,6 +1951,8 @@ namespace DragAndDropTexturing.Windows
                                     matchedPiece.SlotKey == "legs" ? "dwn" :
                                     matchedPiece.SlotKey == "feet" ? "sho" :
                                     matchedPiece.SlotKey == "hands" ? "glv" :
+                                    matchedPiece.SlotKey == "hair" ? "hir" :
+                                    matchedPiece.SlotKey == "tail" ? "til" :
                                     matchedPiece.SlotKey == "head" ? "met" : "top";
                     activeSuffix = suffix;
 
@@ -1988,6 +1990,22 @@ namespace DragAndDropTexturing.Windows
                     {
                         topSlotName = "Head";
                         topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        botPath = null;
+                    }
+                    else if (suffix == "hir")
+                    {
+                        topSlotName = "Hair";
+                        topPath = !string.IsNullOrEmpty(matchedPiece.InternalModelPath) 
+                            ? matchedPiece.InternalModelPath 
+                            : $"chara/human/{trueRaceCode}/obj/hair/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                        botPath = null;
+                    }
+                    else if (suffix == "til")
+                    {
+                        topSlotName = "Tail";
+                        topPath = !string.IsNullOrEmpty(matchedPiece.InternalModelPath) 
+                            ? matchedPiece.InternalModelPath 
+                            : $"chara/human/{trueRaceCode}/obj/tail/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
                         botPath = null;
                     }
 
@@ -2063,6 +2081,22 @@ namespace DragAndDropTexturing.Windows
                         {
                             topSlotName = "Head";
                             topPath = $"chara/equipment/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                            botPath = null;
+                        }
+                        else if (suffix == "hir")
+                        {
+                            topSlotName = "Hair";
+                            topPath = !string.IsNullOrEmpty(matchedPiece?.InternalModelPath) 
+                                ? matchedPiece.InternalModelPath 
+                                : $"chara/human/{trueRaceCode}/obj/hair/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
+                            botPath = null;
+                        }
+                        else if (suffix == "til")
+                        {
+                            topSlotName = "Tail";
+                            topPath = !string.IsNullOrEmpty(matchedPiece?.InternalModelPath) 
+                                ? matchedPiece.InternalModelPath 
+                                : $"chara/human/{trueRaceCode}/obj/tail/{eCode}/model/{trueRaceCode}{eCode}_{suffix}.mdl";
                             botPath = null;
                         }
 
@@ -2160,7 +2194,9 @@ namespace DragAndDropTexturing.Windows
                                              activeSuffix == "dwn" ? "Bottom" :
                                              activeSuffix == "sho" ? "Shoes" :
                                              activeSuffix == "glv" ? "Gloves" :
-                                             activeSuffix == "met" ? "Head" : "Top";
+                                             activeSuffix == "met" ? "Head" :
+                                             activeSuffix == "hir" ? "Hair" :
+                                             activeSuffix == "til" ? "Tail" : "Top";
                         _primarySlots.Add(primarySlot);
                         _primarySlotArray = new[] { primarySlot };
                     }
@@ -2571,6 +2607,8 @@ namespace DragAndDropTexturing.Windows
                                                 matchedPiece.SlotKey == "legs" ? "dwn" :
                                                 matchedPiece.SlotKey == "feet" ? "sho" :
                                                 matchedPiece.SlotKey == "hands" ? "glv" :
+                                                matchedPiece.SlotKey == "hair" ? "hir" :
+                                                matchedPiece.SlotKey == "tail" ? "til" :
                                                 matchedPiece.SlotKey == "head" ? "met" : "top";
                                 string matSuffix = !string.IsNullOrEmpty(matchedPiece.MaterialName) ? $"_{matchedPiece.MaterialName.ToLower()}" : "";
                                 searchPattern = $"{eCode}_{suffix}{matSuffix}".ToLower();
@@ -2650,19 +2688,34 @@ namespace DragAndDropTexturing.Windows
                             if (matFileName.StartsWith("/")) matFileName = matFileName.Substring(1);
                             
                             // Extract equipment code from the material filename
-                            var mtrlMatch = System.Text.RegularExpressions.Regex.Match(matFileName, @"mt_c\d+e(\d+)");
+                            var mtrlMatch = System.Text.RegularExpressions.Regex.Match(matFileName, @"mt_c(\d+)([eht])(\d+)");
                             
                             // Build candidate mtrl paths to try
                             var mtrlCandidates = new List<string>();
                             if (mtrlMatch.Success)
                             {
-                                string eCode = mtrlMatch.Groups[1].Value;
-                                // Try multiple variant directories
-                                for (int v = 1; v <= 10; v++)
+                                string cCode = "c" + mtrlMatch.Groups[1].Value;
+                                string typeCode = mtrlMatch.Groups[2].Value;
+                                string codeStr = typeCode + mtrlMatch.Groups[3].Value;
+
+                                if (typeCode == "e")
                                 {
-                                    mtrlCandidates.Add($"chara/equipment/e{eCode}/material/v{v:D4}/{matFileName}");
+                                    for (int v = 1; v <= 10; v++)
+                                    {
+                                        mtrlCandidates.Add($"chara/equipment/{codeStr}/material/v{v:D4}/{matFileName}");
+                                    }
+                                    mtrlCandidates.Add($"chara/equipment/{codeStr}/material/{matFileName}");
                                 }
-                                mtrlCandidates.Add($"chara/equipment/e{eCode}/material/{matFileName}");
+                                else if (typeCode == "h")
+                                {
+                                    mtrlCandidates.Add($"chara/human/{cCode}/obj/hair/{codeStr}/material/v0001/{matFileName}");
+                                    mtrlCandidates.Add($"chara/human/{cCode}/obj/hair/{codeStr}/material/{matFileName}");
+                                }
+                                else if (typeCode == "t")
+                                {
+                                    mtrlCandidates.Add($"chara/human/{cCode}/obj/tail/{codeStr}/material/v0001/{matFileName}");
+                                    mtrlCandidates.Add($"chara/human/{cCode}/obj/tail/{codeStr}/material/{matFileName}");
+                                }
                             }
                             // Also try the raw path directly
                             mtrlCandidates.Add(matFileName);
@@ -2807,16 +2860,32 @@ namespace DragAndDropTexturing.Windows
                         string smMatFileName = sm.MaterialPath;
                         if (smMatFileName.StartsWith("/")) smMatFileName = smMatFileName.Substring(1);
                         
-                        var smMtrlMatch = System.Text.RegularExpressions.Regex.Match(smMatFileName, @"mt_c\d+e(\d+)");
+                        var smMtrlMatch = System.Text.RegularExpressions.Regex.Match(smMatFileName, @"mt_c(\d+)([eht])(\d+)");
                         var smMtrlCandidates = new List<string>();
                         if (smMtrlMatch.Success)
                         {
-                            string eCode = smMtrlMatch.Groups[1].Value;
-                            for (int v = 1; v <= 10; v++)
+                            string cCode = "c" + smMtrlMatch.Groups[1].Value;
+                            string typeCode = smMtrlMatch.Groups[2].Value;
+                            string codeStr = typeCode + smMtrlMatch.Groups[3].Value;
+
+                            if (typeCode == "e")
                             {
-                                smMtrlCandidates.Add($"chara/equipment/e{eCode}/material/v{v:D4}/{smMatFileName}");
+                                for (int v = 1; v <= 10; v++)
+                                {
+                                    smMtrlCandidates.Add($"chara/equipment/{codeStr}/material/v{v:D4}/{smMatFileName}");
+                                }
+                                smMtrlCandidates.Add($"chara/equipment/{codeStr}/material/{smMatFileName}");
                             }
-                            smMtrlCandidates.Add($"chara/equipment/e{eCode}/material/{smMatFileName}");
+                            else if (typeCode == "h")
+                            {
+                                smMtrlCandidates.Add($"chara/human/{cCode}/obj/hair/{codeStr}/material/v0001/{smMatFileName}");
+                                smMtrlCandidates.Add($"chara/human/{cCode}/obj/hair/{codeStr}/material/{smMatFileName}");
+                            }
+                            else if (typeCode == "t")
+                            {
+                                smMtrlCandidates.Add($"chara/human/{cCode}/obj/tail/{codeStr}/material/v0001/{smMatFileName}");
+                                smMtrlCandidates.Add($"chara/human/{cCode}/obj/tail/{codeStr}/material/{smMatFileName}");
+                            }
                         }
                         smMtrlCandidates.Add(smMatFileName);
                         
@@ -3476,21 +3545,15 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
             System.Collections.Generic.List<DragAndDropTexturing.Equipment.WornEquipmentPiece> wornGear,
             Guid collectionId)
         {
-            if (string.IsNullOrEmpty(editSourcePath) || wornGear == null)
+            if (wornGear == null)
             {
-                _plugin.PluginLog.Warning($"[FindMatchingWornPiece] editSourcePath or wornGear is null. Path: '{editSourcePath}'");
                 return null;
             }
 
-            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Starting search. Path: '{editSourcePath}', Collection: '{collectionId}', Worn Pieces: {wornGear.Count}");
-            foreach (var piece in wornGear)
-            {
-                _plugin.PluginLog.Info($"[FindMatchingWornPiece] Piece in inventory: Slot={piece.SlotKey}, ItemId={piece.ItemId}, Base='{piece.InternalBasePath}', Norm='{piece.InternalNormalPath}', Mask='{piece.InternalMaskPath}'");
-            }
+            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Starting search. Path: '{editSourcePath}', ContextKey: '{ContextCategoryKey}', Collection: '{collectionId}', Worn Pieces: {wornGear.Count}");
 
-            string normalizedEditPath = editSourcePath.Replace("/", "\\").ToLowerInvariant();
-            string editFileName = Path.GetFileNameWithoutExtension(normalizedEditPath);
-            _plugin.PluginLog.Info($"[FindMatchingWornPiece] editFileName cleaned: '{editFileName}'");
+            string normalizedEditPath = !string.IsNullOrEmpty(editSourcePath) ? editSourcePath.Replace("/", "\\").ToLowerInvariant() : "";
+            string editFileName = !string.IsNullOrEmpty(editSourcePath) ? Path.GetFileNameWithoutExtension(normalizedEditPath) : "";
 
             string detectedSlotKey = null;
             
@@ -3501,9 +3564,11 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 else if (ContextCategoryKey.Contains("_gear_feet")) detectedSlotKey = "feet";
                 else if (ContextCategoryKey.Contains("_gear_hands")) detectedSlotKey = "hands";
                 else if (ContextCategoryKey.Contains("_gear_head")) detectedSlotKey = "head";
+                else if (ContextCategoryKey.EndsWith("_hair", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "hair";
+                else if (ContextCategoryKey.EndsWith("_tail", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "tail";
             }
 
-            if (detectedSlotKey == null)
+            if (detectedSlotKey == null && !string.IsNullOrEmpty(editFileName))
             {
                 if (editFileName.Contains("_worn_body"))
                     detectedSlotKey = "body";
@@ -3523,7 +3588,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 if (candidates.Count > 0)
                 {
                     // First try to match by material name since we have multiple candidates for the same slot
-                    string editFileNameNoExt = System.IO.Path.GetFileNameWithoutExtension(editFileName);
+                    string editFileNameNoExt = !string.IsNullOrEmpty(editFileName) ? System.IO.Path.GetFileNameWithoutExtension(editFileName) : "";
                     string[] nameParts = editFileNameNoExt.Split('_');
                     string lastSection = nameParts.Length > 0 ? nameParts[nameParts.Length - 1] : "";
 

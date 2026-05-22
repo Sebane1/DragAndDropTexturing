@@ -772,6 +772,14 @@ public class MainWindow : Window, IDisposable
                     {
                         Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_face");
                     }
+                    if (ImGui.Selectable(Translator.LocalizeUI("Hair")))
+                    {
+                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_hair");
+                    }
+                    if (ImGui.Selectable(Translator.LocalizeUI("Tail")))
+                    {
+                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_tail");
+                    }
                     ImGui.EndPopup();
                 }
             }
@@ -797,6 +805,14 @@ public class MainWindow : Window, IDisposable
                 if (ImGui.Selectable(Translator.LocalizeUI("Face")))
                 {
                     Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_face");
+                }
+                if (ImGui.Selectable(Translator.LocalizeUI("Hair")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_hair");
+                }
+                if (ImGui.Selectable(Translator.LocalizeUI("Tail")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_tail");
                 }
                 ImGui.EndPopup();
             }

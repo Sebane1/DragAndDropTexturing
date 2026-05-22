@@ -22,6 +22,7 @@ public sealed class WornEquipmentPiece
     }
     public ulong ItemId { get; init; }
     public string EquipSetId { get; init; } = "";
+    public string InternalModelPath { get; init; } = "";
     public string InternalBasePath { get; init; } = "";
     public string InternalNormalPath { get; init; } = "";
     public string InternalMaskPath { get; init; } = "";
@@ -257,6 +258,52 @@ public static class WornEquipmentResolver
             }
         }
 
+        if (customization.Customize.Hairstyle.Value > 0)
+        {
+            try
+            {
+                var hairPieces = TryResolveHairPieces(collection, raceCodes, customization.Customize.Hairstyle.Value, characterName);
+                foreach (var piece in hairPieces)
+                {
+                    bool isGeneratedMod = !string.IsNullOrEmpty(piece.ModName) &&
+                                          piece.ModName.StartsWith(characterName, StringComparison.OrdinalIgnoreCase) &&
+                                          (piece.ModName.Contains("Texture", StringComparison.OrdinalIgnoreCase) || piece.ModName.EndsWith("Mod", StringComparison.OrdinalIgnoreCase));
+                    if (!isGeneratedMod)
+                    {
+                        DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] Hair: Successfully resolved piece: {piece.DisplayName}");
+                        results.Add(piece);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DragAndDropTexturing.Plugin.Log.Error(ex, $"[Drag And Drop Debug] Exception while processing Hair: {ex.Message}");
+            }
+        }
+
+        if (customization.Customize.TailShape.Value > 0)
+        {
+            try
+            {
+                var tailPieces = TryResolveTailPieces(collection, raceCodes, customization.Customize.TailShape.Value, characterName);
+                foreach (var piece in tailPieces)
+                {
+                    bool isGeneratedMod = !string.IsNullOrEmpty(piece.ModName) &&
+                                          piece.ModName.StartsWith(characterName, StringComparison.OrdinalIgnoreCase) &&
+                                          (piece.ModName.Contains("Texture", StringComparison.OrdinalIgnoreCase) || piece.ModName.EndsWith("Mod", StringComparison.OrdinalIgnoreCase));
+                    if (!isGeneratedMod)
+                    {
+                        DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] Tail: Successfully resolved piece: {piece.DisplayName}");
+                        results.Add(piece);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DragAndDropTexturing.Plugin.Log.Error(ex, $"[Drag And Drop Debug] Exception while processing Tail: {ex.Message}");
+            }
+        }
+
         DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] ResolveWornGear finished. Found {results.Count} pieces.");
         return results;
     }
@@ -488,6 +535,325 @@ public static class WornEquipmentResolver
             }
         }
 
+        return pieces;
+    }
+
+    private static List<WornEquipmentPiece> TryResolveHairPieces(Guid collection, string[] raceCodes, int hairId, string characterName)
+    {
+        var pieces = new List<WornEquipmentPiece>();
+        string hairStr = $"h{hairId:D4}";
+        var resolvedMaterialFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        string bestMdlCandidate = null;
+        byte[] bestMdlBytes = null;
+        string bestRaceCode = null;
+
+        foreach (string raceCode in raceCodes)
+        {
+            var mdlCandidates = EquipmentPathBuilder.BuildHairModelCandidates(raceCode, hairStr);
+            foreach (string mdlCandidate in mdlCandidates)
+            {
+                if (TryResolveGamePath(collection, mdlCandidate, out string mdlDisk) && !string.IsNullOrEmpty(mdlDisk))
+                {
+                    try 
+                    { 
+                        bestMdlBytes = File.ReadAllBytes(mdlDisk); 
+                        bestMdlCandidate = mdlCandidate;
+                        bestRaceCode = raceCode;
+                        break;
+                    } 
+                    catch { }
+                }
+            }
+            if (bestMdlBytes != null) break;
+        }
+
+        if (bestMdlBytes == null)
+        {
+            foreach (string raceCode in raceCodes)
+            {
+                var mdlCandidates = EquipmentPathBuilder.BuildHairModelCandidates(raceCode, hairStr);
+                foreach (string mdlCandidate in mdlCandidates)
+                {
+                    try
+                    {
+                        var ffxivMdlFile = DragAndDropTexturing.Plugin.DataManager.GetFile(mdlCandidate);
+                        if (ffxivMdlFile != null) 
+                        {
+                            bestMdlBytes = ffxivMdlFile.Data;
+                            bestMdlCandidate = mdlCandidate;
+                            bestRaceCode = raceCode;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+                if (bestMdlBytes != null) break;
+            }
+        }
+
+        if (bestMdlBytes != null)
+        {
+            var mtrlCandidates = EquipmentPathBuilder.BuildHairMtrlCandidates(bestRaceCode, hairStr, "0001").ToList();
+            try
+            {
+                string mdlString = System.Text.Encoding.ASCII.GetString(bestMdlBytes);
+                var matches = System.Text.RegularExpressions.Regex.Matches(mdlString, @"[\w/\-]+\.mtrl");
+                foreach (System.Text.RegularExpressions.Match match in matches)
+                {
+                    string filename = Path.GetFileName(match.Value);
+                    
+                    // Extract race code from the material filename (e.g. mt_c0201... -> c0201)
+                    string matRaceCode = bestRaceCode;
+                    var rcMatch = System.Text.RegularExpressions.Regex.Match(filename, @"mt_(c\d{4})");
+                    if (rcMatch.Success) matRaceCode = rcMatch.Groups[1].Value;
+
+                    var fullPaths = new List<string>
+                    {
+                        $"chara/human/{matRaceCode}/obj/hair/{hairStr}/material/v0001/{filename}",
+                        $"chara/human/{matRaceCode}/obj/hair/{hairStr}/material/{filename}"
+                    };
+
+                    foreach (var p in fullPaths)
+                    {
+                        if (!mtrlCandidates.Contains(p))
+                            mtrlCandidates.Insert(0, p);
+                    }
+                }
+            }
+            catch { }
+
+            foreach (string mtrlPath in mtrlCandidates)
+            {
+                string mtrlDisk = "";
+                TryResolveGamePath(collection, mtrlPath, out mtrlDisk);
+                string mtrlPathToRead = !string.IsNullOrEmpty(mtrlDisk) ? mtrlDisk : mtrlPath;
+
+                string cleanMatName = Path.GetFileNameWithoutExtension(mtrlPath).Replace("mt_", "");
+                if (resolvedMaterialFiles.Contains(cleanMatName))
+                    continue;
+
+                if (!TryReadMtrlTexturePaths(mtrlPathToRead, out string internalBase, out string internalNormal, out string internalMask))
+                    continue;
+
+                string internalMtrl = mtrlPath.Replace("\\", "/");
+                resolvedMaterialFiles.Add(cleanMatName);
+
+                string resolvedDisk = "";
+                TryResolveGamePath(collection, internalBase, out resolvedDisk);
+
+                var piece = new WornEquipmentPiece
+                {
+                    SlotKey = "hair",
+                    DisplayName = $"Hair {hairId} ({Capitalize(cleanMatName.Split('_').Last())})",
+                    ItemId = 0,
+                    EquipSetId = hairStr,
+                    InternalModelPath = bestMdlCandidate,
+                    InternalBasePath = internalBase,
+                    InternalNormalPath = internalNormal,
+                    InternalMaskPath = internalMask,
+                    InternalMaterialPath = internalMtrl,
+                    ResolvedBaseDiskPath = resolvedDisk ?? "",
+                    ResolvedMaterialDiskPath = mtrlDisk ?? "",
+                };
+                pieces.Add(piece);
+            }
+        }
+        
+        if (pieces.Count == 0)
+        {
+            foreach (string raceCode in raceCodes)
+            {
+                var texCandidates = EquipmentPathBuilder.BuildHairTextureCandidates(raceCode, hairStr, "01").ToList();
+                foreach (string candidate in texCandidates)
+                {
+                    if (!TryResolveGamePath(collection, candidate, out _))
+                        continue;
+                    
+                    string internalBase = candidate.Replace("\\", "/");
+                    string internalNormal = EquipmentPathBuilder.GuessNormalPath(internalBase);
+                    string internalMask = EquipmentPathBuilder.GuessMaskPath(internalBase);
+
+                    string resolvedDisk = "";
+                    TryResolveGamePath(collection, internalBase, out resolvedDisk);
+
+                    var piece = new WornEquipmentPiece
+                    {
+                        SlotKey = "hair",
+                        DisplayName = $"Hair {hairId}",
+                        ItemId = 0,
+                        EquipSetId = hairStr,
+                        InternalBasePath = internalBase,
+                        InternalNormalPath = internalNormal,
+                        InternalMaskPath = internalMask,
+                        InternalMaterialPath = "",
+                        ResolvedBaseDiskPath = resolvedDisk ?? "",
+                    };
+                    pieces.Add(piece);
+                    break;
+                }
+                if (pieces.Count > 0) break;
+            }
+        }
+        return pieces;
+    }
+
+    private static List<WornEquipmentPiece> TryResolveTailPieces(Guid collection, string[] raceCodes, int tailId, string characterName)
+    {
+        var pieces = new List<WornEquipmentPiece>();
+        string tailStr = $"t{tailId:D4}";
+        var resolvedMaterialFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        string bestMdlCandidate = null;
+        byte[] bestMdlBytes = null;
+        string bestRaceCode = null;
+
+        foreach (string raceCode in raceCodes)
+        {
+            var mdlCandidates = EquipmentPathBuilder.BuildTailModelCandidates(raceCode, tailStr);
+            foreach (string mdlCandidate in mdlCandidates)
+            {
+                if (TryResolveGamePath(collection, mdlCandidate, out string mdlDisk) && !string.IsNullOrEmpty(mdlDisk))
+                {
+                    try 
+                    { 
+                        bestMdlBytes = File.ReadAllBytes(mdlDisk); 
+                        bestMdlCandidate = mdlCandidate;
+                        bestRaceCode = raceCode;
+                        break;
+                    } 
+                    catch { }
+                }
+            }
+            if (bestMdlBytes != null) break;
+        }
+
+        if (bestMdlBytes == null)
+        {
+            foreach (string raceCode in raceCodes)
+            {
+                var mdlCandidates = EquipmentPathBuilder.BuildTailModelCandidates(raceCode, tailStr);
+                foreach (string mdlCandidate in mdlCandidates)
+                {
+                    try
+                    {
+                        var ffxivMdlFile = DragAndDropTexturing.Plugin.DataManager.GetFile(mdlCandidate);
+                        if (ffxivMdlFile != null) 
+                        {
+                            bestMdlBytes = ffxivMdlFile.Data;
+                            bestMdlCandidate = mdlCandidate;
+                            bestRaceCode = raceCode;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+                if (bestMdlBytes != null) break;
+            }
+        }
+
+        if (bestMdlBytes != null)
+        {
+            var mtrlCandidates = EquipmentPathBuilder.BuildTailMtrlCandidates(bestRaceCode, tailStr, "0001").ToList();
+            try
+            {
+                string mdlString = System.Text.Encoding.ASCII.GetString(bestMdlBytes);
+                var matches = System.Text.RegularExpressions.Regex.Matches(mdlString, @"[\w/\-]+\.mtrl");
+                foreach (System.Text.RegularExpressions.Match match in matches)
+                {
+                    string filename = Path.GetFileName(match.Value);
+                    
+                    string matRaceCode = bestRaceCode;
+                    var rcMatch = System.Text.RegularExpressions.Regex.Match(filename, @"mt_(c\d{4})");
+                    if (rcMatch.Success) matRaceCode = rcMatch.Groups[1].Value;
+
+                    var fullPaths = new List<string>
+                    {
+                        $"chara/human/{matRaceCode}/obj/tail/{tailStr}/material/v0001/{filename}",
+                        $"chara/human/{matRaceCode}/obj/tail/{tailStr}/material/{filename}"
+                    };
+
+                    foreach (var p in fullPaths)
+                    {
+                        if (!mtrlCandidates.Contains(p))
+                            mtrlCandidates.Insert(0, p);
+                    }
+                }
+            }
+            catch { }
+
+            foreach (string mtrlPath in mtrlCandidates)
+            {
+                string mtrlDisk = "";
+                TryResolveGamePath(collection, mtrlPath, out mtrlDisk);
+                string mtrlPathToRead = !string.IsNullOrEmpty(mtrlDisk) ? mtrlDisk : mtrlPath;
+
+                string cleanMatName = Path.GetFileNameWithoutExtension(mtrlPath).Replace("mt_", "");
+                if (resolvedMaterialFiles.Contains(cleanMatName))
+                    continue;
+
+                if (!TryReadMtrlTexturePaths(mtrlPathToRead, out string internalBase, out string internalNormal, out string internalMask))
+                    continue;
+
+                string internalMtrl = mtrlPath.Replace("\\", "/");
+                resolvedMaterialFiles.Add(cleanMatName);
+
+                string resolvedDisk = "";
+                TryResolveGamePath(collection, internalBase, out resolvedDisk);
+
+                var piece = new WornEquipmentPiece
+                {
+                    SlotKey = "tail",
+                    DisplayName = $"Tail {tailId} ({Capitalize(cleanMatName.Split('_').Last())})",
+                    ItemId = 0,
+                    EquipSetId = tailStr,
+                    InternalModelPath = bestMdlCandidate,
+                    InternalBasePath = internalBase,
+                    InternalNormalPath = internalNormal,
+                    InternalMaskPath = internalMask,
+                    InternalMaterialPath = internalMtrl,
+                    ResolvedBaseDiskPath = resolvedDisk ?? "",
+                    ResolvedMaterialDiskPath = mtrlDisk ?? "",
+                };
+                pieces.Add(piece);
+            }
+        }
+        
+        if (pieces.Count == 0)
+        {
+            foreach (string raceCode in raceCodes)
+            {
+                var texCandidates = EquipmentPathBuilder.BuildTailTextureCandidates(raceCode, tailStr, "01").ToList();
+                foreach (string candidate in texCandidates)
+                {
+                    if (!TryResolveGamePath(collection, candidate, out _))
+                        continue;
+                    
+                    string internalBase = candidate.Replace("\\", "/");
+                    string internalNormal = EquipmentPathBuilder.GuessNormalPath(internalBase);
+                    string internalMask = EquipmentPathBuilder.GuessMaskPath(internalBase);
+
+                    string resolvedDisk = "";
+                    TryResolveGamePath(collection, internalBase, out resolvedDisk);
+
+                    var piece = new WornEquipmentPiece
+                    {
+                        SlotKey = "tail",
+                        DisplayName = $"Tail {tailId}",
+                        ItemId = 0,
+                        EquipSetId = tailStr,
+                        InternalBasePath = internalBase,
+                        InternalNormalPath = internalNormal,
+                        InternalMaskPath = internalMask,
+                        InternalMaterialPath = "",
+                        ResolvedBaseDiskPath = resolvedDisk ?? "",
+                    };
+                    pieces.Add(piece);
+                    break;
+                }
+                if (pieces.Count > 0) break;
+            }
+        }
         return pieces;
     }
 
