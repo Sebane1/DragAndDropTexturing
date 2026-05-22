@@ -60,8 +60,7 @@ public sealed class WornEquipmentPiece
         {
             if (string.IsNullOrEmpty(InternalMaterialPath)) return "";
             string filename = Path.GetFileNameWithoutExtension(InternalMaterialPath).Replace("mt_", "");
-            var match = System.Text.RegularExpressions.Regex.Match(filename, @"^[a-z]\d+e\d+_[a-z]+_(.+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            return match.Success ? match.Groups[1].Value : filename;
+            return filename.Split('_').LastOrDefault() ?? filename;
         }
     }
 }
@@ -642,10 +641,11 @@ public static class WornEquipmentResolver
                 string resolvedDisk = "";
                 TryResolveGamePath(collection, internalBase, out resolvedDisk);
 
+                string materialNameStr = cleanMatName.Split('_').LastOrDefault() ?? "";
                 var piece = new WornEquipmentPiece
                 {
                     SlotKey = "hair",
-                    DisplayName = $"Hair {hairId} ({Capitalize(cleanMatName.Split('_').Last())})",
+                    DisplayName = $"Hair {hairId} ({Capitalize(materialNameStr)})",
                     ItemId = 0,
                     EquipSetId = hairStr,
                     InternalModelPath = bestMdlCandidate,
@@ -801,10 +801,11 @@ public static class WornEquipmentResolver
                 string resolvedDisk = "";
                 TryResolveGamePath(collection, internalBase, out resolvedDisk);
 
+                string materialNameStr = cleanMatName.Split('_').LastOrDefault() ?? "";
                 var piece = new WornEquipmentPiece
                 {
                     SlotKey = "tail",
-                    DisplayName = $"Tail {tailId} ({Capitalize(cleanMatName.Split('_').Last())})",
+                    DisplayName = $"Tail {tailId} ({Capitalize(materialNameStr)})",
                     ItemId = 0,
                     EquipSetId = tailStr,
                     InternalModelPath = bestMdlCandidate,

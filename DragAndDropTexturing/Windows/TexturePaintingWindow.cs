@@ -2600,20 +2600,7 @@ namespace DragAndDropTexturing.Windows
                     {
                         if (!string.IsNullOrEmpty(EditSourcePath))
                         {
-                            _plugin.PluginLog.Info($"[PSD Preview] Evaluating EditSourcePath for isolation pattern: {EditSourcePath}");
-                            
-                            var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_(c\d+)(e\d+)_([a-z]+)_([a-z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                            var bodyMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+([bfth]\d+)_([a-z]+)\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-                            if (gearMatch.Success)
-                            {
-                                searchPattern = $"{gearMatch.Groups[2].Value}_{gearMatch.Groups[3].Value}_{gearMatch.Groups[4].Value}".ToLower();
-                                autoDetectedMaterial = gearMatch.Groups[4].Value;
-                            }
-                            else if (bodyMatch.Success)
-                            {
-                                searchPattern = bodyMatch.Groups[1].Value.ToLower();
-                            }
+                            _plugin.PluginLog.Info($"[PSD Preview] EditSourcePath provided: {EditSourcePath}");
                         }
 
                         if (string.IsNullOrEmpty(searchPattern))
