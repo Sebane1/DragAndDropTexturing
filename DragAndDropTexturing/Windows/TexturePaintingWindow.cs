@@ -148,6 +148,7 @@ namespace DragAndDropTexturing.Windows
             
             public int ProjectionMode = 0;
             public float ProjectionDepth = 0f; // 0 = auto (Scale.X * 2.0)
+            public float Rotation = 0f; // Rotation angle in radians
             public Vector3 DecalCenter = Vector3.Zero;
             public Vector3 DecalNormal = Vector3.UnitY;
             public Vector3 DecalTangent = Vector3.UnitX;
@@ -159,6 +160,23 @@ namespace DragAndDropTexturing.Windows
             }
         }
         private FloatingLayer _floatingLayer = null;
+
+        /// <summary>
+        /// Rotates the floating layer's tangent/bitangent around its normal by the layer's Rotation angle.
+        /// </summary>
+        private static void GetRotatedTangents(FloatingLayer layer, out Vector3 rotatedTangent, out Vector3 rotatedBitangent)
+        {
+            if (Math.Abs(layer.Rotation) < 0.001f)
+            {
+                rotatedTangent = layer.DecalTangent;
+                rotatedBitangent = layer.DecalBitangent;
+                return;
+            }
+            float cos = (float)Math.Cos(layer.Rotation);
+            float sin = (float)Math.Sin(layer.Rotation);
+            rotatedTangent = layer.DecalTangent * cos - layer.DecalBitangent * sin;
+            rotatedBitangent = layer.DecalTangent * sin + layer.DecalBitangent * cos;
+        }
         private int _default3DProjectionMode = 1;
         private int _dragHandle = -1;
         private string _importPath = "";
@@ -442,7 +460,13 @@ namespace DragAndDropTexturing.Windows
                 {
                     _renderer.PushUndoSnapshot();
                     float commitDepth = _floatingLayer.ProjectionDepth > 0f ? _floatingLayer.ProjectionDepth : _floatingLayer.Scale.X * 2.0f;
-                    _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, commitDepth);
+                    if (_floatingLayer.ProjectionMode > 0)
+                    {
+                        GetRotatedTangents(_floatingLayer, out var rotT, out var rotB);
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, rotT, rotB, _floatingLayer.Scale.X * 0.5f, commitDepth);
+                    }
+                    else
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0, angle: _floatingLayer.Rotation);
                     _floatingLayer.SRV.Dispose();
                     _floatingLayer = null;
                     _needsComposite = true;
@@ -606,14 +630,31 @@ namespace DragAndDropTexturing.Windows
                         _floatingLayer.ProjectionDepth = isAuto ? displayDepth : 0f;
                 }
 
+                // Rotation slider (degrees for UI, stored as radians)
+                float rotDeg = _floatingLayer.Rotation * (180f / (float)Math.PI);
+                if (ImGui.SliderFloat("Rotation", ref rotDeg, -180f, 180f, "%.1f°"))
+                {
+                    _floatingLayer.Rotation = rotDeg * ((float)Math.PI / 180f);
+                    _needsComposite = true;
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Reset##rot"))
+                {
+                    _floatingLayer.Rotation = 0f;
+                    _needsComposite = true;
+                }
+
                 if (ImGui.Button(Translator.LocalizeUI("Stamp Floating Layer")))
                 {
                     float stampDepth = _floatingLayer.ProjectionDepth > 0f ? _floatingLayer.ProjectionDepth : _floatingLayer.Scale.X * 2.0f;
                     _renderer.PushUndoSnapshot();
                     if (_floatingLayer.ProjectionMode > 0)
-                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, stampDepth);
+                    {
+                        GetRotatedTangents(_floatingLayer, out var rotT, out var rotB);
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, rotT, rotB, _floatingLayer.Scale.X * 0.5f, stampDepth);
+                    }
                     else
-                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0);
+                        _renderer.GpuStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0, angle: _floatingLayer.Rotation);
                     _needsComposite = true;
                     _floatingLayer.Dispose();
                     _floatingLayer = null;
@@ -1127,11 +1168,12 @@ namespace DragAndDropTexturing.Windows
                 {                    if (_floatingLayer.ProjectionMode > 0)
                     {
                         float previewDepth = _floatingLayer.ProjectionDepth > 0f ? _floatingLayer.ProjectionDepth : _floatingLayer.Scale.X * 2.0f;
-                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, _floatingLayer.DecalTangent, _floatingLayer.DecalBitangent, _floatingLayer.Scale.X * 0.5f, previewDepth);
+                        GetRotatedTangents(_floatingLayer, out var rotT, out var rotB);
+                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, rotT, rotB, _floatingLayer.Scale.X * 0.5f, previewDepth);
                     }
                     else
                     {
-                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0);
+                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0, angle: _floatingLayer.Rotation);
                     } }
                 _needsComposite = false;
             }

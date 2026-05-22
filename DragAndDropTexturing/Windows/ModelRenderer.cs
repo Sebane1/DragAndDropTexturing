@@ -92,7 +92,7 @@ namespace DragAndDropTexturing.Windows
             public Vector3 DecalTangent;
             public int ProjectionMode;
             public Vector3 DecalBitangent;
-            public float Padding1;
+            public float StampAngle; // Rotation angle in radians
             public Matrix4x4 ViewProj;
             public Vector3 CameraEye;
             public float AspectRatio;
@@ -1449,7 +1449,7 @@ cbuffer StampParams : register(b0)
     float3 DecalTangent;
     int ProjectionMode;
     float3 DecalBitangent;
-    float Padding1;
+    float StampAngle;
     matrix ViewProj;
     float3 CameraEye;
     float AspectRatio;
@@ -1554,10 +1554,21 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
     }
     else // 2D Canvas
     {
-        if (uv.x >= UVPosition.x && uv.x <= UVPosition.x + UVScale.x &&
-            uv.y >= UVPosition.y && uv.y <= UVPosition.y + UVScale.y)
+        // Rotate UV around stamp center
+        float2 stampCenter = UVPosition + UVScale * 0.5f;
+        float2 rel = uv - stampCenter;
+        if (abs(StampAngle) > 0.001f)
         {
-            float2 localUv = (uv - UVPosition) / UVScale;
+            float cs = cos(-StampAngle);
+            float sn = sin(-StampAngle);
+            rel = float2(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs);
+        }
+        float2 rotatedUv = rel + stampCenter;
+        
+        if (rotatedUv.x >= UVPosition.x && rotatedUv.x <= UVPosition.x + UVScale.x &&
+            rotatedUv.y >= UVPosition.y && rotatedUv.y <= UVPosition.y + UVScale.y)
+        {
+            float2 localUv = (rotatedUv - UVPosition) / UVScale;
             stamp = StampTex.SampleLevel(StampSampler, localUv, 0);
         }
     }
@@ -1810,7 +1821,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             }
         }
 
-        public void GpuStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, int projectionMode = 0, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)
+        public void GpuStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, int projectionMode = 0, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f, float angle = 0f)
         {
             if (!_gpuPaintReady || _context == null || stampSrv == null) return;
             if (projectionMode > 0 && (PositionMapSRV == null || NormalMapSRV == null)) return;
@@ -1826,7 +1837,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 DecalTangent = tangent,
                 ProjectionMode = projectionMode,
                 DecalBitangent = bitangent,
-                Padding1 = 0,
+                StampAngle = angle,
                 ViewProj = Matrix4x4.Transpose(_lastWvp),
                 CameraEye = _lastEye,
                 AspectRatio = (float)Width / Height
@@ -1854,7 +1865,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _context.CSSetShader(null);
         }
 
-        public void GpuPreviewStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, int projectionMode = 0, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f)
+        public void GpuPreviewStampTexture(ID3D11ShaderResourceView stampSrv, Vector2 position, Vector2 scale, int projectionMode = 0, Vector3 center = default, Vector3 normal = default, Vector3 tangent = default, Vector3 bitangent = default, float radius = 0.5f, float depth = 1f, float angle = 0f)
         {
             if (!_gpuPaintReady || _context == null || stampSrv == null) return;
             if (projectionMode > 0 && (PositionMapSRV == null || NormalMapSRV == null)) return;
@@ -1870,7 +1881,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 DecalTangent = tangent,
                 ProjectionMode = projectionMode,
                 DecalBitangent = bitangent,
-                Padding1 = 0,
+                StampAngle = angle,
                 ViewProj = Matrix4x4.Transpose(_lastWvp),
                 CameraEye = _lastEye,
                 AspectRatio = (float)Width / Height
