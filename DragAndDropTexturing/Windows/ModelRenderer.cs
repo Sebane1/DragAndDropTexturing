@@ -40,6 +40,7 @@ namespace DragAndDropTexturing.Windows
         private ID3D11ComputeShader _stampCS;
         private ID3D11Buffer _brushCB;
         private ID3D11Buffer _stampCB;
+        private ID3D11Buffer _compositeCB;
         private ID3D11SamplerState _stampSampler;
         private int _paintTexWidth, _paintTexHeight;
         private bool _gpuPaintReady;
@@ -75,8 +76,8 @@ namespace DragAndDropTexturing.Windows
             public float NoiseScale;     // 4  (grain frequency, 0 = off)
             public float NoiseAmount;    // 4  (how much noise modulates alpha, 0-1)  offset 48
             public float Seed;           // 4  (random seed for noise)                 offset 52
-            public float Padding_A;      // 4  alignment padding                       offset 56
-            public float Padding_B;      // 4  alignment padding                       offset 60
+            public int TexWidth;         // 4  texture dimensions                      offset 56
+            public int TexHeight;        // 4  texture dimensions                      offset 60
             public Vector4 Color;        // 16                                         offset 64
         }
 
@@ -96,6 +97,19 @@ namespace DragAndDropTexturing.Windows
             public Matrix4x4 ViewProj;
             public Vector3 CameraEye;
             public float AspectRatio;
+            public int TexWidth;
+            public int TexHeight;
+            public int _pad0;
+            public int _pad1;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CompositeDims
+        {
+            public int TexWidth;
+            public int TexHeight;
+            public int _pad0;
+            public int _pad1;
         }
 
         public IntPtr ShaderResourceViewHandle => _shaderResourceView?.NativePointer ?? IntPtr.Zero;
@@ -1151,8 +1165,8 @@ cbuffer BrushParams : register(b0)
     float NoiseScale;  // grain frequency, 0 = off
     float NoiseAmount; // how much noise modulates alpha, 0-1
     float Seed;        // random seed for noise
-    float Padding_A;   // alignment padding
-    float Padding_B;   // alignment padding
+    uint TexWidth;     // texture dimensions (replaces GetDimensions for Wine/Linux compat)
+    uint TexHeight;
     float4 Color;
 };
 RWTexture2D<float4> PaintLayer : register(u0);
@@ -1264,8 +1278,8 @@ float2 SampleDisplacementBilinear(float2 pos, int2 size)
 [numthreads(16, 16, 1)]
 void CSPaint(uint3 id : SV_DispatchThreadID)
 {
-    uint w, h;
-    PaintLayer.GetDimensions(w, h);
+    uint w = TexWidth;
+    uint h = TexHeight;
     if (id.x >= w || id.y >= h) return;
 
     //   Fill Tool  
@@ -1391,6 +1405,11 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
 }";
 
         private const string CompositeShaderCode = @"
+cbuffer CompositeDims : register(b0)
+{
+    uint TexWidth;
+    uint TexHeight;
+};
 Texture2D<float4> BaseTexture : register(t0);
 Texture2D<float4> PaintTexture : register(t1);
 RWTexture2D<float4> Output : register(u0);
@@ -1398,8 +1417,8 @@ RWTexture2D<float4> Output : register(u0);
 [numthreads(16, 16, 1)]
 void CSComposite(uint3 id : SV_DispatchThreadID)
 {
-    uint w, h;
-    Output.GetDimensions(w, h);
+    uint w = TexWidth;
+    uint h = TexHeight;
     if (id.x >= w || id.y >= h) return;
 
     float4 baseCol = BaseTexture[id.xy];
@@ -1453,6 +1472,8 @@ cbuffer StampParams : register(b0)
     matrix ViewProj;
     float3 CameraEye;
     float AspectRatio;
+    uint TexWidth;
+    uint TexHeight;
 };
 Texture2D<float4> StampTex : register(t0);
 SamplerState StampSampler : register(s0);
@@ -1463,8 +1484,8 @@ Texture2D<float4> NormalMap : register(t2);
 [numthreads(16, 16, 1)]
 void CSStamp(uint3 id : SV_DispatchThreadID)
 {
-    uint w, h;
-    PaintLayer.GetDimensions(w, h);
+    uint w = TexWidth;
+    uint h = TexHeight;
     if (id.x >= w || id.y >= h) return;
 
     float2 uv = float2(id.x, id.y) / float2(w, h);
@@ -1671,7 +1692,14 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
             _stampCB = _device.CreateBuffer(new BufferDescription
             {
-                ByteWidth = Marshal.SizeOf<StampParams>(), // 16 bytes
+                ByteWidth = Marshal.SizeOf<StampParams>(),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ConstantBuffer
+            });
+
+            _compositeCB = _device.CreateBuffer(new BufferDescription
+            {
+                ByteWidth = Marshal.SizeOf<CompositeDims>(),
                 Usage = ResourceUsage.Default,
                 BindFlags = BindFlags.ConstantBuffer
             });
@@ -1746,6 +1774,8 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 NoiseScale = noiseScale,
                 NoiseAmount = noiseAmount,
                 Seed = seed,
+                TexWidth = _paintTexWidth,
+                TexHeight = _paintTexHeight,
                 Color = color
             };
 
@@ -1840,7 +1870,9 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 StampAngle = angle,
                 ViewProj = Matrix4x4.Transpose(_lastWvp),
                 CameraEye = _lastEye,
-                AspectRatio = (float)Width / Height
+                AspectRatio = (float)Width / Height,
+                TexWidth = _paintTexWidth,
+                TexHeight = _paintTexHeight
             };
 
             _context.UpdateSubresource(stampParams, _stampCB);
@@ -1884,7 +1916,9 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 StampAngle = angle,
                 ViewProj = Matrix4x4.Transpose(_lastWvp),
                 CameraEye = _lastEye,
-                AspectRatio = (float)Width / Height
+                AspectRatio = (float)Width / Height,
+                TexWidth = _paintTexWidth,
+                TexHeight = _paintTexHeight
             };
 
             _context.UpdateSubresource(stampParams, _stampCB);
@@ -1937,7 +1971,11 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
         {
             if (!_gpuPaintReady || _context == null || _gpuBaseSRV == null) return;
 
+            var dims = new CompositeDims { TexWidth = _paintTexWidth, TexHeight = _paintTexHeight };
+            _context.UpdateSubresource(dims, _compositeCB);
+
             _context.CSSetShader(_compositeCS);
+            _context.CSSetConstantBuffer(0, _compositeCB);
             _context.CSSetShaderResource(0, _gpuBaseSRV);
             _context.CSSetShaderResource(1, _gpuPaintSRV);
             _context.CSSetUnorderedAccessView(0, _gpuCompositeUAV);
@@ -2300,6 +2338,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _stampCS?.Dispose(); _stampCS = null;
             _brushCB?.Dispose(); _brushCB = null;
             _stampCB?.Dispose(); _stampCB = null;
+            _compositeCB?.Dispose(); _compositeCB = null;
             _stampSampler?.Dispose(); _stampSampler = null;
         }
 
