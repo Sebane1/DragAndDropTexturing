@@ -1265,6 +1265,13 @@ namespace RoleplayingVoice
                                             _currentCustomization.Customize.Clan.Value - 1, 0, false);
                                             categoryModName = "Face";
                                         }
+                                        else if (categoryKey.EndsWith("_tail"))
+                                        {
+                                            item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 4,
+                                            effectiveRace,
+                                            _currentCustomization.Customize.TailShape.Value - 1, false);
+                                            categoryModName = "Tail";
+                                        }
                                         else
                                         {
                                             switch (bodyDragPart)
@@ -1313,6 +1320,12 @@ namespace RoleplayingVoice
                                                     _currentCustomization.Customize.Clan.Value - 1, 0, false);
                                                     categoryModName = "Eyebrows";
                                                     overrideType = "Normal";
+                                                    break;
+                                                case BodyDragPart.Tail:
+                                                    item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 4,
+                                                    effectiveRace,
+                                                    _currentCustomization.Customize.TailShape.Value - 1, false);
+                                                    categoryModName = "Tail";
                                                     break;
                                             }
                                         }
@@ -2075,6 +2088,7 @@ namespace RoleplayingVoice
                     else if (fileName.Contains("eyebrow") || fileName.Contains("lash")) categoryKey += "eyebrows";
                     else if (fileName.Contains("eye")) categoryKey += "eyes";
                     else if (fileName.Contains("face") || fileName.Contains("makeup")) categoryKey += "face";
+                    else if (fileName.Contains("tail") || fileName.Contains("sippo")) categoryKey += "tail";
                     else if (fileName.Contains("mata") || fileName.Contains("amat") || fileName.Contains("materiala") || fileName.Contains("gen2") ||
                         fileName.Contains("bibo") || fileName.Contains("b+") ||
                         fileName.Contains("gen3") || fileName.Contains("tbse")) { categoryKey += "body"; isBody = true; }
@@ -2086,6 +2100,7 @@ namespace RoleplayingVoice
                             case BodyDragPart.Face: categoryKey += "face"; break;
                             case BodyDragPart.Eyes: categoryKey += "eyes"; break;
                             case BodyDragPart.EyebrowsAndLashes: categoryKey += "eyebrows"; break;
+                            case BodyDragPart.Tail: categoryKey += "tail"; break;
                             default: categoryKey += "fallback_" + bodyDragPart.ToString(); break;
                         }
                     }
@@ -2725,6 +2740,10 @@ namespace RoleplayingVoice
             if (name.Contains("leg") || name.Contains("knee") || name.Contains("momo") || name.Contains("waist") || name.Contains("hara") || name.Contains("hip") || name.Contains("kosi") || name.Contains("pelvis"))
                 return "legs";
 
+            // Tail slot: sippo, tail
+            if (name.Contains("sippo") || name.Contains("tail"))
+                return "tail";
+
             // Body slot: chest, spine, neck, shoulder, back, breast
             if (name.Contains("spine") || name.Contains("chest") || name.Contains("mune") || name.Contains("kubi") || name.Contains("neck") || name.Contains("kata") || name.Contains("shoulder") || name.Contains("back") || name.Contains("breast") || name.Contains("torso"))
                 return "body";
@@ -2746,5 +2765,6 @@ namespace PenumbraAndGlamourerHelpers
         Body,
         EyebrowsAndLashes,
         Clothing,
+        Tail,
     }
 }
