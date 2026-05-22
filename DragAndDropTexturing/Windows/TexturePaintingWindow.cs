@@ -2596,23 +2596,27 @@ namespace DragAndDropTexturing.Windows
                     {
                         searchPattern = _selectedMaterial.ToLower();
                     }
-                    else if (!string.IsNullOrEmpty(EditSourcePath))
+                    else
                     {
-                        _plugin.PluginLog.Info($"[PSD Preview] Evaluating EditSourcePath for isolation pattern: {EditSourcePath}");
-                        
-                        var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_(c\d+)(e\d+)_([a-z]+)_([a-z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                        var bodyMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+([bfth]\d+)_([a-z]+)\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (!string.IsNullOrEmpty(EditSourcePath))
+                        {
+                            _plugin.PluginLog.Info($"[PSD Preview] Evaluating EditSourcePath for isolation pattern: {EditSourcePath}");
+                            
+                            var gearMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_(c\d+)(e\d+)_([a-z]+)_([a-z]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            var bodyMatch = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(EditSourcePath), @"^v\d+_c\d+([bfth]\d+)_([a-z]+)\.png", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-                        if (gearMatch.Success)
-                        {
-                            searchPattern = $"{gearMatch.Groups[2].Value}_{gearMatch.Groups[3].Value}_{gearMatch.Groups[4].Value}".ToLower();
-                            autoDetectedMaterial = gearMatch.Groups[4].Value;
+                            if (gearMatch.Success)
+                            {
+                                searchPattern = $"{gearMatch.Groups[2].Value}_{gearMatch.Groups[3].Value}_{gearMatch.Groups[4].Value}".ToLower();
+                                autoDetectedMaterial = gearMatch.Groups[4].Value;
+                            }
+                            else if (bodyMatch.Success)
+                            {
+                                searchPattern = bodyMatch.Groups[1].Value.ToLower();
+                            }
                         }
-                        else if (bodyMatch.Success)
-                        {
-                            searchPattern = bodyMatch.Groups[1].Value.ToLower();
-                        }
-                        else
+
+                        if (string.IsNullOrEmpty(searchPattern))
                         {
                             var matchedPiece = FindMatchingWornPiece(EditSourcePath, _cachedWornGear, collectionId);
                             if (matchedPiece != null)
@@ -2625,9 +2629,28 @@ namespace DragAndDropTexturing.Windows
                                                 matchedPiece.SlotKey == "hair" ? "hir" :
                                                 matchedPiece.SlotKey == "tail" ? "til" :
                                                 matchedPiece.SlotKey == "head" ? "met" : "top";
-                                string matSuffix = !string.IsNullOrEmpty(matchedPiece.MaterialName) ? $"_{matchedPiece.MaterialName.ToLower()}" : "";
-                                searchPattern = $"{eCode}_{suffix}{matSuffix}".ToLower();
-                                autoDetectedMaterial = matchedPiece.MaterialName;
+                                
+                                // For hair and tail, TryResolveHairPieces sets DisplayName which includes the material (e.g. "Hair 126 (B)")
+                                // But MaterialName might be null. Let's try to extract it from DisplayName if it's not set.
+                                string matSuffix = !string.IsNullOrEmpty(matchedPiece.MaterialName) ? matchedPiece.MaterialName.ToLower() : "";
+                                if (string.IsNullOrEmpty(matSuffix) && (matchedPiece.SlotKey == "hair" || matchedPiece.SlotKey == "tail"))
+                                {
+                                    var matMatch = System.Text.RegularExpressions.Regex.Match(matchedPiece.DisplayName, @"\((.+?)\)");
+                                    if (matMatch.Success)
+                                    {
+                                        matSuffix = matMatch.Groups[1].Value.ToLower();
+                                    }
+                                }
+
+                                if (!string.IsNullOrEmpty(matSuffix))
+                                {
+                                    searchPattern = $"{eCode}_{suffix}_{matSuffix}".ToLower();
+                                }
+                                else
+                                {
+                                    searchPattern = $"{eCode}_{suffix}".ToLower();
+                                }
+                                autoDetectedMaterial = matSuffix;
                             }
                             
                             if (string.IsNullOrEmpty(autoDetectedMaterial) && !string.IsNullOrEmpty(EditSourcePath))
