@@ -2300,7 +2300,8 @@ namespace DragAndDropTexturing.Windows
                 string baseTexPath = null;
                 string normTexPath = null;
                 string maskTexPath = null;
-                if (!isFaceEditLocal)
+                bool isBodySlot = !isGear || (activeSuffix != "hir" && activeSuffix != "til" && activeSuffix != "met");
+                if (!isFaceEditLocal && isBodySlot)
                 {
                     if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
                     {
@@ -2372,7 +2373,7 @@ namespace DragAndDropTexturing.Windows
 
                 if (_activeBaseTexturePng == null || baseIsBlack)
                 {
-                    if (!isFaceEditLocal)
+                    if (!isFaceEditLocal && isBodySlot)
                     {
                         _plugin.PluginLog.Info("[PSD Preview] Base texture from priority mod was missing or fully black. Falling back to DLC underlay skin type.");
                         string modPath = _cachedModDirectory;
@@ -2390,40 +2391,47 @@ namespace DragAndDropTexturing.Windows
 
                     if (_activeBaseTexturePng == null || baseIsBlack)
                     {
-                        _plugin.PluginLog.Info("[PSD Preview] DLC fallback failed. Extracting vanilla texture via Lumina.");
-                        int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
-                        string vanillaBasePng = null;
-                        bool isFaceEdit = 
-                            (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
-                            (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
-                        if (isFaceEdit)
+                        if (!isFaceEditLocal && !isBodySlot)
                         {
-                            int subRaceValue = Math.Max(0, ffxivClan - 1);
-                            int faceType = Math.Max(0, faceId - 1);
-                            int materialType = isEditingNormal ? 1 : (isEditingMask ? 2 : 0);
-                            string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
-                            vanillaBasePng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquare);
-                            if (string.IsNullOrEmpty(vanillaBasePng))
-                            {
-                                string fpOld = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, false);
-                                vanillaBasePng = ExtractVanillaTexViaLumina(fpOld, shouldPadToSquare);
-                            }
+                            _plugin.PluginLog.Info("[PSD Preview] Skipping vanilla base extraction for non-body slot.");
                         }
                         else
                         {
-                            string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(isEditingNormal ? 1 : (isEditingMask ? 2 : 0), ffxivGenderInt, 0, ffxivRace, 0, false);
-                            vanillaBasePng = ExtractVanillaTexViaLumina(vanillaBodyTexPath);
-                        }
-                        if (!string.IsNullOrEmpty(vanillaBasePng))
-                        {
-                            _activeBaseTexturePng = vanillaBasePng;
+                            _plugin.PluginLog.Info("[PSD Preview] DLC fallback failed. Extracting vanilla texture via Lumina.");
+                            int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
+                            string vanillaBasePng = null;
+                            bool isFaceEdit = 
+                                (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
+                                (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
+                            if (isFaceEdit)
+                            {
+                                int subRaceValue = Math.Max(0, ffxivClan - 1);
+                                int faceType = Math.Max(0, faceId - 1);
+                                int materialType = isEditingNormal ? 1 : (isEditingMask ? 2 : 0);
+                                string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
+                                vanillaBasePng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquare);
+                                if (string.IsNullOrEmpty(vanillaBasePng))
+                                {
+                                    string fpOld = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(materialType, ffxivGenderInt, subRaceValue, 0, faceType, 0, false);
+                                    vanillaBasePng = ExtractVanillaTexViaLumina(fpOld, shouldPadToSquare);
+                                }
+                            }
+                            else
+                            {
+                                string vanillaBodyTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(isEditingNormal ? 1 : (isEditingMask ? 2 : 0), ffxivGenderInt, 0, ffxivRace, 0, false);
+                                vanillaBasePng = ExtractVanillaTexViaLumina(vanillaBodyTexPath);
+                            }
+                            if (!string.IsNullOrEmpty(vanillaBasePng))
+                            {
+                                _activeBaseTexturePng = vanillaBasePng;
+                            }
                         }
                     }
                 }
 
                 if (_activeNormalTexturePng == null || normIsBlack)
                 {
-                    if (!isFaceEditLocal)
+                    if (!isFaceEditLocal && isBodySlot)
                     {
                         string modPath = _cachedModDirectory;
                         string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
@@ -2438,31 +2446,38 @@ namespace DragAndDropTexturing.Windows
 
                     if (_activeNormalTexturePng == null || normIsBlack)
                     {
-                        int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
-                        string vanillaNormPng = null;
-                        bool isFaceEdit = 
-                            (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
-                            (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
-                        if (isFaceEdit)
+                        if (!isFaceEditLocal && !isBodySlot)
                         {
-                            int subRaceValue = Math.Max(0, ffxivClan - 1);
-                            int faceType = Math.Max(0, faceId - 1);
-                            string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(1, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
-                            vanillaNormPng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquare);
-                            if (string.IsNullOrEmpty(vanillaNormPng))
-                            {
-                                string fpOld = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(1, ffxivGenderInt, subRaceValue, 0, faceType, 0, false);
-                                vanillaNormPng = ExtractVanillaTexViaLumina(fpOld, shouldPadToSquare);
-                            }
+                            _plugin.PluginLog.Info("[PSD Preview] Skipping vanilla normal extraction for non-body slot.");
                         }
                         else
                         {
-                            string vanillaNormTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(1, ffxivGenderInt, 0, ffxivRace, 0, false);
-                            vanillaNormPng = ExtractVanillaTexViaLumina(vanillaNormTexPath);
-                        }
-                        if (!string.IsNullOrEmpty(vanillaNormPng))
-                        {
-                            _activeNormalTexturePng = vanillaNormPng;
+                            int ffxivGenderInt = ffxivGender == 1 ? 1 : 0;
+                            string vanillaNormPng = null;
+                            bool isFaceEdit = 
+                                (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
+                                (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
+                            if (isFaceEdit)
+                            {
+                                int subRaceValue = Math.Max(0, ffxivClan - 1);
+                                int faceType = Math.Max(0, faceId - 1);
+                                string fpAsym = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(1, ffxivGenderInt, subRaceValue, 0, faceType, 0, true);
+                                vanillaNormPng = ExtractVanillaTexViaLumina(fpAsym, shouldPadToSquare);
+                                if (string.IsNullOrEmpty(vanillaNormPng))
+                                {
+                                    string fpOld = FFXIVLooseTextureCompiler.Racial.RacePaths.GetFacePath(1, ffxivGenderInt, subRaceValue, 0, faceType, 0, false);
+                                    vanillaNormPng = ExtractVanillaTexViaLumina(fpOld, shouldPadToSquare);
+                                }
+                            }
+                            else
+                            {
+                                string vanillaNormTexPath = FFXIVLooseTextureCompiler.Racial.RacePaths.GetBodyTexturePath(1, ffxivGenderInt, 0, ffxivRace, 0, false);
+                                vanillaNormPng = ExtractVanillaTexViaLumina(vanillaNormTexPath);
+                            }
+                            if (!string.IsNullOrEmpty(vanillaNormPng))
+                            {
+                                _activeNormalTexturePng = vanillaNormPng;
+                            }
                         }
                     }
                 }
@@ -2776,6 +2791,8 @@ namespace DragAndDropTexturing.Windows
                                                        slot.Contains("Bottom") ? "legs" :
                                                        slot == "Shoes" ? "feet" :
                                                        slot == "Gloves" ? "hands" :
+                                                       slot == "Hair" ? "hair" :
+                                                       slot == "Tail" ? "tail" :
                                                        slot == "Head" ? "head" : null;
                                 string pngPath = DragAndDropTexturing.Equipment.WornEquipmentResolver.ExportResolvedTextureToPng(
                                     texToLoad, collectionId, exportDir, _plugin, targetSlotKey);
@@ -2785,9 +2802,12 @@ namespace DragAndDropTexturing.Windows
                                     if (!string.IsNullOrEmpty(pngPath))
                                     {
                                         _plugin.PluginLog.Info($"[Texture Painter] Clothing texture resolved for override: {pngPath}");
-                                        _clothingTexturePngOverride = pngPath;
-                                        _editLayerLoaded = false;
-                                        _needsComposite = true;
+                                        if (slot == "Top" || slot == "Bottom" || slot == "Shoes" || slot == "Gloves" || slot == "Head" || slot == "Hair" || slot == "Tail")
+                                        {
+                                            _clothingTexturePngOverride = pngPath;
+                                            _editLayerLoaded = false;
+                                            _needsComposite = true;
+                                        }
                                     }
                                     else
                                     {
@@ -3566,6 +3586,8 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 else if (ContextCategoryKey.Contains("_gear_head")) detectedSlotKey = "head";
                 else if (ContextCategoryKey.EndsWith("_hair", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "hair";
                 else if (ContextCategoryKey.EndsWith("_tail", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "tail";
+                else if (ContextCategoryKey.EndsWith("_face", StringComparison.OrdinalIgnoreCase)) return null;
+                else if (ContextCategoryKey.EndsWith("_body", StringComparison.OrdinalIgnoreCase)) return null;
             }
 
             if (detectedSlotKey == null && !string.IsNullOrEmpty(editFileName))
@@ -3689,10 +3711,13 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
 
                     string cleanPath = CleanTexFilename(path);
                     _plugin.PluginLog.Info($"[FindMatchingWornPiece] Comparing cleanEdit '{cleanEdit}' to cleanPath '{cleanPath}' (raw: '{path}')");
-                    if (cleanEdit == cleanPath || cleanEdit.Contains(cleanPath) || cleanPath.Contains(cleanEdit))
+                    if (!string.IsNullOrEmpty(cleanEdit) && !string.IsNullOrEmpty(cleanPath))
                     {
-                        _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via clean path comparison: {piece.DisplayName}");
-                        return piece;
+                        if (cleanEdit == cleanPath || cleanEdit.Contains(cleanPath) || cleanPath.Contains(cleanEdit))
+                        {
+                            _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via clean path comparison: {piece.DisplayName}");
+                            return piece;
+                        }
                     }
 
                     try
@@ -3702,10 +3727,13 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                         {
                             string cleanResolved = CleanTexFilename(resolved);
                             _plugin.PluginLog.Info($"[FindMatchingWornPiece] Penumbra resolved path: '{resolved}', cleanResolved: '{cleanResolved}'");
-                            if (cleanEdit == cleanResolved || cleanEdit.Contains(cleanResolved) || cleanResolved.Contains(cleanEdit))
+                            if (!string.IsNullOrEmpty(cleanEdit) && !string.IsNullOrEmpty(cleanResolved))
                             {
-                                _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via clean resolved path comparison: {piece.DisplayName}");
-                                return piece;
+                                if (cleanEdit == cleanResolved || cleanEdit.Contains(cleanResolved) || cleanResolved.Contains(cleanEdit))
+                                {
+                                    _plugin.PluginLog.Info($"[FindMatchingWornPiece] Match found via clean resolved path comparison: {piece.DisplayName}");
+                                    return piece;
+                                }
                             }
                         }
                     }
