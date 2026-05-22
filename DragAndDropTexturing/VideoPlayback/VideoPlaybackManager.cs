@@ -617,25 +617,25 @@ namespace DragAndDropTexturing.VideoPlayback
                                                     character.ObjectIndex,
                                                     Glamourer.Api.Enums.ApiEquipSlot.Body,
                                                     (ulong)cust.Equipment.Body.ItemId,
-                                                    new List<byte> { (byte)cust.Equipment.Body.Stain });
+                                                    new List<byte> { (byte)cust.Equipment.Body.Stain, (byte)cust.Equipment.Body.Stain2 });
                                                 
                                                 ipc.SetItem.Invoke(
                                                     character.ObjectIndex,
                                                     Glamourer.Api.Enums.ApiEquipSlot.Legs,
                                                     (ulong)cust.Equipment.Legs.ItemId,
-                                                    new List<byte> { (byte)cust.Equipment.Legs.Stain });
+                                                    new List<byte> { (byte)cust.Equipment.Legs.Stain, (byte)cust.Equipment.Legs.Stain2 });
 
                                                 ipc.SetItem.Invoke(
                                                     character.ObjectIndex,
                                                     Glamourer.Api.Enums.ApiEquipSlot.Hands,
                                                     (ulong)cust.Equipment.Hands.ItemId,
-                                                    new List<byte> { (byte)cust.Equipment.Hands.Stain });
+                                                    new List<byte> { (byte)cust.Equipment.Hands.Stain, (byte)cust.Equipment.Hands.Stain2 });
 
                                                 ipc.SetItem.Invoke(
                                                     character.ObjectIndex,
                                                     Glamourer.Api.Enums.ApiEquipSlot.Feet,
                                                     (ulong)cust.Equipment.Feet.ItemId,
-                                                    new List<byte> { (byte)cust.Equipment.Feet.Stain });
+                                                    new List<byte> { (byte)cust.Equipment.Feet.Stain, (byte)cust.Equipment.Feet.Stain2 });
                                             }
                                         }
                                     }

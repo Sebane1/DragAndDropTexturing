@@ -1882,23 +1882,23 @@ namespace RoleplayingVoice
                                 }
                             }
                             else if (name.Contains("head", StringComparison.OrdinalIgnoreCase) || name.Contains("hat", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Head, (ulong)customization.Equipment.Head.ItemId, new List<byte> { (byte)customization.Equipment.Head.Stain, (byte)customization.Equipment.Head.Stain2 });
                             else if (name.Contains("hands", StringComparison.OrdinalIgnoreCase) || name.Contains("glv", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain, (byte)customization.Equipment.Hands.Stain2 });
                             else if (name.Contains("legs", StringComparison.OrdinalIgnoreCase) || name.Contains("dwn", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain, (byte)customization.Equipment.Legs.Stain2 });
                             else if (name.Contains("feet", StringComparison.OrdinalIgnoreCase) || name.Contains("sho", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain, (byte)customization.Equipment.Feet.Stain2 });
                             else if (name.Contains("ears", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Ears, (ulong)customization.Equipment.Ears.ItemId, new List<byte> { (byte)customization.Equipment.Ears.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Ears, (ulong)customization.Equipment.Ears.ItemId, new List<byte> { (byte)customization.Equipment.Ears.Stain, (byte)customization.Equipment.Ears.Stain2 });
                             else if (name.Contains("neck", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Neck, (ulong)customization.Equipment.Neck.ItemId, new List<byte> { (byte)customization.Equipment.Neck.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Neck, (ulong)customization.Equipment.Neck.ItemId, new List<byte> { (byte)customization.Equipment.Neck.Stain, (byte)customization.Equipment.Neck.Stain2 });
                             else if (name.Contains("wrists", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Wrists, (ulong)customization.Equipment.Wrists.ItemId, new List<byte> { (byte)customization.Equipment.Wrists.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Wrists, (ulong)customization.Equipment.Wrists.ItemId, new List<byte> { (byte)customization.Equipment.Wrists.Stain, (byte)customization.Equipment.Wrists.Stain2 });
                             else if (name.Contains("ring_r", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.RFinger, (ulong)customization.Equipment.RFinger.ItemId, new List<byte> { (byte)customization.Equipment.RFinger.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.RFinger, (ulong)customization.Equipment.RFinger.ItemId, new List<byte> { (byte)customization.Equipment.RFinger.Stain, (byte)customization.Equipment.RFinger.Stain2 });
                             else if (name.Contains("ring_l", StringComparison.OrdinalIgnoreCase))
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.LFinger, (ulong)customization.Equipment.LFinger.ItemId, new List<byte> { (byte)customization.Equipment.LFinger.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.LFinger, (ulong)customization.Equipment.LFinger.ItemId, new List<byte> { (byte)customization.Equipment.LFinger.Stain, (byte)customization.Equipment.LFinger.Stain2 });
                             else
                             {
                                 // A body texture update (e.g. Bibo+) affects multiple equipment slots since the mesh is often split.
@@ -1906,10 +1906,10 @@ namespace RoleplayingVoice
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, 0, new List<byte> { 0 });
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, 0, new List<byte> { 0 });
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, 0, new List<byte> { 0 });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain });
-                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain, (byte)customization.Equipment.Body.Stain2 });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain, (byte)customization.Equipment.Legs.Stain2 });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain, (byte)customization.Equipment.Feet.Stain2 });
+                                PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain, (byte)customization.Equipment.Hands.Stain2 });
                             }
                         }
                     });
