@@ -200,7 +200,7 @@ namespace DragAndDropTexturing.Windows
         private int _overrideBotSelectedIndex = 0;
         private string _targetKeyword = null;
         private string _newLayerType = "Base";
-        private readonly string[] _newLayerTypes = { "Base", "Normal", "Mask", "Glow", "Outfit" };
+        private readonly string[] _newLayerTypes = { "Base", "Normal", "Mask", "Glow", "Index" };
 
         // Procedural Decal Stamp Queue
         private class DecalPixelData
@@ -483,6 +483,14 @@ namespace DragAndDropTexturing.Windows
                     if (b) Save16BitTiff(s);
                 });
             }
+
+            ImGui.SameLine();
+            ImGui.BeginDisabled(string.IsNullOrEmpty(_activeBaseTexturePng) || !File.Exists(_activeBaseTexturePng));
+            if (ImGui.Button(Translator.LocalizeUI("Export Underlay to Layers")))
+            {
+                ExportUnderlayToLayers();
+            }
+            ImGui.EndDisabled();
 
             if (EditSourcePath != null)
             {
@@ -1319,11 +1327,21 @@ namespace DragAndDropTexturing.Windows
             {
                 try
                 {
-                    if (System.Windows.Forms.Clipboard.ContainsImage())
+                    var dataObj = System.Windows.Forms.Clipboard.GetDataObject();
+                    if (dataObj == null) return;
+
+                    // PNG format (preserves alpha)
+                    if (dataObj.GetDataPresent("PNG"))
                     {
-                        clipboardImage = System.Windows.Forms.Clipboard.GetImage();
+                        var pngStream = dataObj.GetData("PNG") as System.IO.MemoryStream;
+                        if (pngStream != null)
+                        {
+                            clipboardImage = System.Drawing.Image.FromStream(pngStream);
+                        }
                     }
-                    else if (System.Windows.Forms.Clipboard.ContainsFileDropList())
+
+                    // File drop list
+                    if (clipboardImage == null && System.Windows.Forms.Clipboard.ContainsFileDropList())
                     {
                         var files = System.Windows.Forms.Clipboard.GetFileDropList();
                         foreach (string file in files)
@@ -1336,6 +1354,12 @@ namespace DragAndDropTexturing.Windows
                                 catch { }
                             }
                         }
+                    }
+
+                    // Standard clipboard image (alpha may be lost)
+                    if (clipboardImage == null && System.Windows.Forms.Clipboard.ContainsImage())
+                    {
+                        clipboardImage = System.Windows.Forms.Clipboard.GetImage();
                     }
                 }
                 catch { }
@@ -1606,6 +1630,70 @@ namespace DragAndDropTexturing.Windows
                 }
             });
         }
+        private void ExportUnderlayToLayers()
+        {
+            if (string.IsNullOrEmpty(_activeBaseTexturePng) || !File.Exists(_activeBaseTexturePng))
+            {
+                _plugin.PluginLog.Warning("[Texture Painter] No underlay texture available to export.");
+                return;
+            }
+
+            string contextKey = ContextCategoryKey;
+            if (string.IsNullOrEmpty(contextKey))
+            {
+                _plugin.PluginLog.Warning("[Texture Painter] No ContextCategoryKey set — cannot add underlay to layers.");
+                return;
+            }
+
+            string sourcePath = _activeBaseTexturePng;
+            string charName = _plugin.SafeGameObjectManager.LocalPlayer?.Name?.TextValue ?? "";
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    // Copy the underlay to SavedOverlays
+                    string importDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
+                    if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
+                    string destPath = Path.Combine(importDir, $"underlay_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
+                    File.Copy(sourcePath, destPath, true);
+                    _plugin.PluginLog.Info($"[Texture Painter] Exported underlay to: {destPath}");
+
+                    // Add to texture history
+                    if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(contextKey))
+                    {
+                        _plugin.DragAndDropTextures.TextureHistory[contextKey] = new List<string>();
+                        _plugin.DragAndDropTextures.TextureHistoryTints[contextKey] = new List<System.Numerics.Vector4>();
+                    }
+                    if (!_plugin.DragAndDropTextures.TextureHistory[contextKey].Contains(destPath))
+                    {
+                        // Insert at position 0 so the underlay is the bottom-most layer
+                        _plugin.DragAndDropTextures.TextureHistory[contextKey].Insert(0, destPath);
+                        _plugin.DragAndDropTextures.TextureHistoryTints[contextKey].Insert(0, System.Numerics.Vector4.One);
+                    }
+
+                    // Cache gear metadata if needed
+                    if (_cachedWornGear != null && _cachedWornGear.Count > 0 && !_plugin.DragAndDropTextures.GearCategoryMeta.ContainsKey(contextKey))
+                    {
+                        _plugin.DragAndDropTextures.GearCategoryMeta[contextKey] = _cachedWornGear[0];
+                    }
+
+                    _plugin.Configuration.Save();
+                    _plugin.PluginLog.Info($"[Texture Painter] Added underlay as bottom layer in '{contextKey}'.");
+
+                    // Trigger rebuild
+                    if (!string.IsNullOrEmpty(charName) && contextKey.StartsWith(charName))
+                    {
+                        string suffix = contextKey.Substring(charName.Length);
+                        _plugin.DragAndDropTextures.ScheduleRegeneration(charName, new[] { suffix }, true, false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _plugin.PluginLog.Error($"[Texture Painter] Export underlay failed: {ex.Message}");
+                }
+            });
+        }
 
         private void CommitPaintLayer()
         {
@@ -1630,7 +1718,7 @@ namespace DragAndDropTexturing.Windows
                 if (_newLayerType == "Normal") suffix = "_n";
                 else if (_newLayerType == "Mask") suffix = "_m";
                 else if (_newLayerType == "Glow") suffix = "_glow";
-                else if (_newLayerType == "Outfit") suffix = "_base";
+                else if (_newLayerType == "Index") suffix = "_id";
                 outPath = Path.Combine(importDir, $"{bodyTag}{suffix}_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
                 _plugin.PluginLog.Info($"[Texture Painter] New layer mode. BodyTag={bodyTag}, OutPath={outPath}");
             }
@@ -2518,6 +2606,12 @@ namespace DragAndDropTexturing.Windows
                      EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase))) ||
                      (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Mask");
 
+                bool isEditingIndex = (!string.IsNullOrEmpty(EditSourcePath) && 
+                    (EditSourcePath.IndexOf("_id_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     EditSourcePath.EndsWith("_id.png", StringComparison.OrdinalIgnoreCase) ||
+                     EditSourcePath.EndsWith("_id.tex", StringComparison.OrdinalIgnoreCase))) ||
+                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Index");
+
                 // Load both model slots in parallel since they're independent
                 var topSlotPath = overrideTopPath ?? topPath;
                 var botSlotPath = overrideBotPath ?? botPath;
@@ -2649,6 +2743,19 @@ namespace DragAndDropTexturing.Windows
                 else if (isEditingMask)
                 {
                     baseTexPath = maskTexPath;
+                }
+                else if (isEditingIndex)
+                {
+                    // Derive index path from normal: replace _n.tex or _norm.tex with _id.tex
+                    if (!string.IsNullOrEmpty(normTexPath))
+                    {
+                        string indexPath = System.Text.RegularExpressions.Regex.Replace(normTexPath, @"_(n|norm)\.tex$", "_id.tex", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (indexPath != normTexPath)
+                        {
+                            baseTexPath = indexPath;
+                            _plugin.PluginLog.Info($"[PSD Preview] Derived index texture path from normal: {baseTexPath}");
+                        }
+                    }
                 }
 
                 _plugin.PluginLog.Info($"[PSD Preview] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
@@ -3108,7 +3215,18 @@ namespace DragAndDropTexturing.Windows
                                      EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase))) ||
                                      (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Mask");
 
-                                string texToLoad = isEditingNormal ? normP : (isEditingMask ? maskP : baseP);
+                                bool isEditingIndex2 = (!string.IsNullOrEmpty(EditSourcePath) && 
+                                    (EditSourcePath.IndexOf("_id_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                     EditSourcePath.EndsWith("_id.png", StringComparison.OrdinalIgnoreCase) ||
+                                     EditSourcePath.EndsWith("_id.tex", StringComparison.OrdinalIgnoreCase))) ||
+                                     (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Index");
+
+                                string texToLoad;
+                                if (isEditingNormal) texToLoad = normP;
+                                else if (isEditingMask) texToLoad = maskP;
+                                else if (isEditingIndex2 && !string.IsNullOrEmpty(normP))
+                                    texToLoad = System.Text.RegularExpressions.Regex.Replace(normP, @"_(n|norm)\.tex$", "_id.tex", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                                else texToLoad = baseP;
                                 string resolvedTexDisk = null;
                                 
                                 if (!string.IsNullOrEmpty(texToLoad))
@@ -3268,7 +3386,18 @@ namespace DragAndDropTexturing.Windows
                                  EditSourcePath.EndsWith("_m.tex", StringComparison.OrdinalIgnoreCase))) ||
                                  (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Mask");
 
-                            string smTexToLoad = isEditingNormal ? smNormP : (isEditingMask ? smMaskP : smBaseP);
+                            bool smIsEditingIndex = (!string.IsNullOrEmpty(EditSourcePath) && 
+                                (EditSourcePath.IndexOf("_id_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                 EditSourcePath.EndsWith("_id.png", StringComparison.OrdinalIgnoreCase) ||
+                                 EditSourcePath.EndsWith("_id.tex", StringComparison.OrdinalIgnoreCase))) ||
+                                 (string.IsNullOrEmpty(EditSourcePath) && _newLayerType == "Index");
+
+                            string smTexToLoad;
+                            if (isEditingNormal) smTexToLoad = smNormP;
+                            else if (isEditingMask) smTexToLoad = smMaskP;
+                            else if (smIsEditingIndex && !string.IsNullOrEmpty(smNormP))
+                                smTexToLoad = System.Text.RegularExpressions.Regex.Replace(smNormP, @"_(n|norm)\.tex$", "_id.tex", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            else smTexToLoad = smBaseP;
                             if (!string.IsNullOrEmpty(smTexToLoad))
                             {
                                 string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
