@@ -237,17 +237,17 @@ namespace RoleplayingVoice
                         tintColor = savedTint;
                     }
 
-                    if (!string.IsNullOrEmpty(diffusePath)) 
+                    if (!string.IsNullOrEmpty(diffusePath))
                     {
                         if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = tintColor; }
                         else if (!item.BaseOverlays.Contains(diffusePath)) { item.BaseOverlays.Add(diffusePath); item.BaseOverlayUVs.Add(activeOverlay.UVType); item.BaseOverlayTints.Add(tintColor); }
                     }
-                    if (!string.IsNullOrEmpty(normalPath)) 
+                    if (!string.IsNullOrEmpty(normalPath))
                     {
                         if (string.IsNullOrEmpty(item.Normal)) { item.Normal = normalPath; item.NormalUV = activeOverlay.UVType; }
                         else if (!item.NormalOverlays.Contains(normalPath)) { item.NormalOverlays.Add(normalPath); item.NormalOverlayUVs.Add(activeOverlay.UVType); }
                     }
-                    if (!string.IsNullOrEmpty(maskPath)) 
+                    if (!string.IsNullOrEmpty(maskPath))
                     {
                         if (string.IsNullOrEmpty(item.Mask)) { item.Mask = maskPath; item.MaskUV = activeOverlay.UVType; }
                         else if (!item.MaskOverlays.Contains(maskPath)) { item.MaskOverlays.Add(maskPath); item.MaskOverlayUVs.Add(activeOverlay.UVType); }
@@ -1037,7 +1037,7 @@ namespace RoleplayingVoice
                             return;
                         }
 
-                        if (selectedPlayer.Value != null && 
+                        if (selectedPlayer.Value != null &&
                             (selectedPlayerCollection != mainPlayerCollection ||
                              selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer ||
                              selectedPlayer.Value.ObjectKind == ObjectKind.Companion ||
@@ -1172,7 +1172,7 @@ namespace RoleplayingVoice
                                                 var mountRow = mountSheet?.GetRow(mountRowId);
                                                 string mountSingular = mountRow?.Singular.ToString() ?? "";
                                                 string mountName = mountSingular.ToLower().Replace(" ", "").Replace("'", "").Replace("-", "");
-                                                
+
                                                 // Check if any dropped file has _mount_ in its name
                                                 bool hasExplicitMountFile = files.Any(f => Path.GetFileNameWithoutExtension(f).ToLower().Contains("_mount_") || Path.GetFileNameWithoutExtension(f).ToLower().StartsWith("mount"));
                                                 if (hasExplicitMountFile)
@@ -1884,20 +1884,23 @@ namespace RoleplayingVoice
                 collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.Value.ObjectIndex).Item3.Id;
                 try { PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, path, true, name); } catch { }
                 try { PenumbraAndGlamourerIpcWrapper.Instance.TrySetModPriority.Invoke(collection, path, 100, name); } catch { }
-                try {
+                try
+                {
                     var settings = PenumbraAndGlamourerIpcWrapper.Instance.GetCurrentModSettings.Invoke(collection, path, name, true);
                     foreach (var group in settings.Item2.Value.Item3)
                     {
                         try { PenumbraAndGlamourerIpcWrapper.Instance.TrySetModSetting.Invoke(collection, path, group.Key, "Enable", name); } catch { }
                     }
-                } catch { }
+                }
+                catch { }
 
                 // First-time AddMod triggers async file compaction; wait for it.
                 if (!modAlreadyExists)
                 {
                     Thread.Sleep(200);
                 }
-                else {
+                else
+                {
                     Thread.Sleep(100);
                 }
                 // Double-yield: Penumbra defers path recalculation to the next framework tick, so we nest two RunOnFrameworkThread calls to guarantee it completes first.
@@ -1950,7 +1953,7 @@ namespace RoleplayingVoice
                                 {
                                     var cust = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateResult.Item2);
                                     int originalTail = cust.Customize.TailShape.Value;
-                                    
+
                                     // Change the tail shape to force Glamourer to reload the geometry
                                     cust.Customize.TailShape.Value = (byte)(originalTail == 1 ? 2 : 1);
                                     PenumbraAndGlamourerIpcWrapper.Instance.ApplyState.Invoke(cust.ToBase64(), character.Value.ObjectIndex);
@@ -1985,10 +1988,30 @@ namespace RoleplayingVoice
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, 0, new List<byte> { 0 });
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, 0, new List<byte> { 0 });
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, 0, new List<byte> { 0 });
+
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain, (byte)customization.Equipment.Body.Stain2 });
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain, (byte)customization.Equipment.Legs.Stain2 });
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain, (byte)customization.Equipment.Feet.Stain2 });
                                 PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain, (byte)customization.Equipment.Hands.Stain2 });
+
+                                Task.Run(() =>
+                                {
+                                    Task.Delay(500);
+
+                                    Plugin.Framework.RunOnFrameworkThread(() =>
+                                    {
+                                        // Double tap in case the first refresh failed.
+                                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, 0, new List<byte> { 0 });
+                                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, 0, new List<byte> { 0 });
+                                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, 0, new List<byte> { 0 });
+                                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, 0, new List<byte> { 0 });
+
+                                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Body, (ulong)customization.Equipment.Body.ItemId, new List<byte> { (byte)customization.Equipment.Body.Stain, (byte)customization.Equipment.Body.Stain2 });
+                                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Legs, (ulong)customization.Equipment.Legs.ItemId, new List<byte> { (byte)customization.Equipment.Legs.Stain, (byte)customization.Equipment.Legs.Stain2 });
+                                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Feet, (ulong)customization.Equipment.Feet.ItemId, new List<byte> { (byte)customization.Equipment.Feet.Stain, (byte)customization.Equipment.Feet.Stain2 });
+                                        PenumbraAndGlamourerIpcWrapper.Instance.SetItem.Invoke(character.Value.ObjectIndex, Glamourer.Api.Enums.ApiEquipSlot.Hands, (ulong)customization.Equipment.Hands.ItemId, new List<byte> { (byte)customization.Equipment.Hands.Stain, (byte)customization.Equipment.Hands.Stain2 });
+                                    });
+                                });
                             }
                         }
                     });
@@ -2324,53 +2347,66 @@ namespace RoleplayingVoice
                             waitAttempts++;
                         }
                         RebuildCategory(key, hideProgressUI);
-                if (!skipDelays) Thread.Sleep(500);
+                        if (!skipDelays) Thread.Sleep(500);
                     }
                 }, null, skipDelays ? 200 : 2000, System.Threading.Timeout.Infinite);
             }
         }
         private void TryOverrideTailTextureSet(TextureSet item, Guid collectionId, int gender, int race, int tailShape)
         {
-            try {
+            try
+            {
                 string xaelaCheck = (race == 7 ? "010" : "000") + (tailShape + 1);
                 string genderRaceCode = (gender == 0 ? FFXIVLooseTextureCompiler.Racial.RaceInfo.RaceCodeBody.Masculine[race] : FFXIVLooseTextureCompiler.Racial.RaceInfo.RaceCodeBody.Feminine[race]);
-                
+
                 string tailMdlPath = $"chara/human/c{genderRaceCode}/obj/tail/t{xaelaCheck}/model/c{genderRaceCode}t{xaelaCheck}_til.mdl";
                 Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Checking for modded tail model at path: {tailMdlPath}");
-                
-                if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, tailMdlPath, out string mdlDiskPath)) {
+
+                if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, tailMdlPath, out string mdlDiskPath))
+                {
                     Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Modded tail model FOUND at: {mdlDiskPath}");
                     byte[] mdlBytes = System.IO.File.ReadAllBytes(mdlDiskPath);
                     string mdlString = System.Text.Encoding.ASCII.GetString(mdlBytes);
                     var matches = System.Text.RegularExpressions.Regex.Matches(mdlString, @"[\w/\-]+\.mtrl");
-                    
+
                     Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Extracted {matches.Count} .mtrl string(s) from .mdl file.");
-                    
-                    foreach (System.Text.RegularExpressions.Match match in matches) {
+
+                    foreach (System.Text.RegularExpressions.Match match in matches)
+                    {
                         string mtrlName = match.Value.TrimStart('/');
                         string mtrlCandidate = $"chara/human/c{genderRaceCode}/obj/tail/t{xaelaCheck}/material/v0001/{mtrlName}";
                         Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Checking extracted material candidate: {mtrlCandidate}");
-                        
-                        if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, mtrlCandidate, out string mtrlDiskPath)) {
+
+                        if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryResolveGamePath(collectionId, mtrlCandidate, out string mtrlDiskPath))
+                        {
                             Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Modded material FOUND at: {mtrlDiskPath}");
-                            if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(mtrlDiskPath, out string bPath, out string nPath, out string mPath)) {
+                            if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(mtrlDiskPath, out string bPath, out string nPath, out string mPath))
+                            {
                                 if (!string.IsNullOrEmpty(bPath)) item.InternalBasePath = bPath;
                                 if (!string.IsNullOrEmpty(nPath)) item.InternalNormalPath = nPath;
                                 if (!string.IsNullOrEmpty(mPath)) item.InternalMaskPath = mPath;
                                 item.InternalMaterialPath = mtrlCandidate;
                                 Plugin.PluginLog.Information($"[Drag And Drop Debug] Custom Tail Paths Overridden from {tailMdlPath} -> {mtrlCandidate} (Base: {bPath})");
                                 break;
-                            } else {
+                            }
+                            else
+                            {
                                 Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Failed to read texture paths from material.");
                             }
-                        } else {
+                        }
+                        else
+                        {
                             Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: Material candidate was not found in Penumbra.");
                         }
                     }
-                } else {
+                }
+                else
+                {
                     Plugin.PluginLog.Information($"[Drag And Drop Debug] TailOverride: No modded tail model found. Vanilla path assumed.");
                 }
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 Plugin.PluginLog.Warning(ex, "[Drag And Drop Debug] Failed to check for modded tail materials.");
             }
         }
