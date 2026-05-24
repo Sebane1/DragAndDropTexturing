@@ -130,6 +130,8 @@ namespace DragAndDropTexturing.Windows
         private List<DragAndDropTexturing.Equipment.WornEquipmentPiece> _cachedWornGear = null;
         private bool _cachedIsMinion = false;
         private uint _cachedMinionDataId = 0;
+        private bool _cachedIsMount = false;
+        private uint _cachedMountDataId = 0;
         private bool _editLayerLoaded = false;   // Whether we've loaded the source into the paint layer
         private volatile bool _isLoadingModels = false;
         private volatile bool _modelsLoaded = false;
@@ -1623,7 +1625,7 @@ namespace DragAndDropTexturing.Windows
                 // New layer mode: create a new file
                 string importDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
                 if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
-                string bodyTag = _cachedIsMinion ? "minion" : _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "gen2";
+                string bodyTag = _cachedIsMinion ? "minion" : _cachedIsMount ? "mount" : _isGen3Preview ? "gen3" : _isBiboPreview ? "bibo" : _isTbsePreview ? "tbse" : "gen2";
                 string suffix = "_base";
                 if (_newLayerType == "Normal") suffix = "_n";
                 else if (_newLayerType == "Mask") suffix = "_m";
@@ -1727,6 +1729,13 @@ namespace DragAndDropTexturing.Windows
                                     _plugin.DragAndDropTextures.GearCategoryMeta[ContextCategoryKey] = _cachedWornGear[0];
                                     _plugin.PluginLog.Info($"[Texture Painter] Cached minion WornEquipmentPiece for export: {ContextCategoryKey}");
                                 }
+
+                                // For mounts, cache the WornEquipmentPiece so the export path can find it
+                                if (_cachedIsMount && _cachedWornGear != null && _cachedWornGear.Count > 0)
+                                {
+                                    _plugin.DragAndDropTextures.GearCategoryMeta[ContextCategoryKey] = _cachedWornGear[0];
+                                    _plugin.PluginLog.Info($"[Texture Painter] Cached mount WornEquipmentPiece for export: {ContextCategoryKey}");
+                                }
                                 
                                 string suffix = ContextCategoryKey.Substring(targetChar.Name.TextValue.Length);
                                 _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { suffix }, true, false);
@@ -1797,6 +1806,8 @@ namespace DragAndDropTexturing.Windows
             Dalamud.Game.ClientState.Objects.Types.ICharacter character = null;
             _cachedIsMinion = false;
             _cachedMinionDataId = 0;
+            _cachedIsMount = false;
+            _cachedMountDataId = 0;
             if (ContextCategoryKey != null && ContextCategoryKey.Contains("_minion_"))
             {
                 string charName = ContextCategoryKey.Split('_')[0];
@@ -1858,6 +1869,58 @@ namespace DragAndDropTexturing.Windows
                         {
                             _plugin.PluginLog.Warning($"[Texture Painter] Failed to resolve minion name for key update: {ex.Message}");
                         }
+                    }
+                }
+            }
+
+            if (character == null && ContextCategoryKey != null && ContextCategoryKey.Contains("_mount_"))
+            {
+                string charName = ContextCategoryKey.Split('_')[0];
+                Dalamud.Game.ClientState.Objects.Types.ICharacter owner = null;
+                foreach (var item in _plugin.SafeGameObjectManager)
+                {
+                    if (item is Dalamud.Game.ClientState.Objects.Types.ICharacter c && c.Name.TextValue == charName)
+                    {
+                        owner = c;
+                        break;
+                    }
+                }
+
+                if (owner != null)
+                {
+                    // Mounts are not separate game objects — they're embedded in the character
+                    try
+                    {
+                        var currentMount = owner.CurrentMount;
+                        if (currentMount != null && currentMount.Value.RowId != 0)
+                        {
+                            uint mountRowId = currentMount.Value.RowId;
+                            character = owner;
+                            _cachedIsMount = true;
+                            _cachedMountDataId = mountRowId;
+
+                            // Look up mount name from the sheet
+                            var mountSheet = DragAndDropTexturing.Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Mount>();
+                            var mountRow = mountSheet?.GetRow(mountRowId);
+                            string mountSingular = mountRow?.Singular.ToString() ?? "";
+                            _plugin.PluginLog.Info($"[Texture Painter] Found mount via CurrentMount: RowId={mountRowId}, Name='{mountSingular}'");
+
+                            string mountName = mountSingular.ToLower().Replace(" ", "").Replace("'", "").Replace("-", "");
+                            if (!string.IsNullOrEmpty(mountName))
+                            {
+                                string oldKey = ContextCategoryKey;
+                                ContextCategoryKey = owner.Name.TextValue + "_mount_" + mountName;
+                                _plugin.PluginLog.Info($"[Texture Painter] Updated mount category key: {oldKey} -> {ContextCategoryKey}");
+                            }
+                        }
+                        else
+                        {
+                            _plugin.PluginLog.Warning($"[Texture Painter] Character '{charName}' is not mounted (CurrentMount is null or RowId=0).");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _plugin.PluginLog.Warning($"[Texture Painter] Failed to read CurrentMount: {ex.Message}");
                     }
                 }
             }
@@ -2067,7 +2130,7 @@ namespace DragAndDropTexturing.Windows
                     (!string.IsNullOrEmpty(EditSourcePath) && (EditSourcePath.IndexOf("face", System.StringComparison.OrdinalIgnoreCase) >= 0 || EditSourcePath.IndexOf("fac_", System.StringComparison.OrdinalIgnoreCase) >= 0)) ||
                     (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.IndexOf("_face", System.StringComparison.OrdinalIgnoreCase) >= 0);
                 
-                if (_cachedIsMinion)
+                if (_cachedIsMinion || _cachedIsMount)
                 {
                     topPath = null;
                     botPath = null;
@@ -2101,6 +2164,10 @@ namespace DragAndDropTexturing.Windows
                     if (_cachedIsMinion)
                     {
                         wornGear = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveMinion(_cachedMinionDataId, collectionId, _plugin);
+                    }
+                    else if (_cachedIsMount)
+                    {
+                        wornGear = DragAndDropTexturing.Equipment.WornEquipmentResolver.ResolveMount(_cachedMountDataId, collectionId, _plugin);
                     }
                     else
                     {
@@ -2488,8 +2555,8 @@ namespace DragAndDropTexturing.Windows
 
                 bool isBodySlot = !isGear || (activeSuffix != "hir" && activeSuffix != "til" && activeSuffix != "met");
                 
-                // Do not forcefully override with human skin textures if we are working with a minion!
-                if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion)
+                // Do not forcefully override with human skin textures if we are working with a minion or mount!
+                if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion && !_cachedIsMount)
                 {
                     if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
                     {
@@ -2561,7 +2628,7 @@ namespace DragAndDropTexturing.Windows
 
                 if (_activeBaseTexturePng == null || baseIsBlack)
                 {
-                    if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion)
+                    if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion && !_cachedIsMount)
                     {
                         _plugin.PluginLog.Info("[PSD Preview] Base texture from priority mod was missing or fully black. Falling back to DLC underlay skin type.");
                         string modPath = _cachedModDirectory;
@@ -2579,7 +2646,7 @@ namespace DragAndDropTexturing.Windows
 
                     if (_activeBaseTexturePng == null || baseIsBlack)
                     {
-                        if (_cachedIsMinion && !string.IsNullOrEmpty(baseTexPath))
+                        if ((_cachedIsMinion || _cachedIsMount) && !string.IsNullOrEmpty(baseTexPath))
                         {
                             _plugin.PluginLog.Info($"[PSD Preview] Minion base texture missing on disk. Extracting via Lumina: {baseTexPath}");
                             string minionBasePng = ExtractVanillaTexViaLumina(baseTexPath);
@@ -2628,7 +2695,7 @@ namespace DragAndDropTexturing.Windows
 
                 if (_activeNormalTexturePng == null || normIsBlack)
                 {
-                    if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion)
+                    if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion && !_cachedIsMount)
                     {
                         string modPath = _cachedModDirectory;
                         string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
@@ -2643,7 +2710,7 @@ namespace DragAndDropTexturing.Windows
 
                     if (_activeNormalTexturePng == null || normIsBlack)
                     {
-                        if (_cachedIsMinion && !string.IsNullOrEmpty(normTexPath))
+                        if ((_cachedIsMinion || _cachedIsMount) && !string.IsNullOrEmpty(normTexPath))
                         {
                             _plugin.PluginLog.Info($"[PSD Preview] Minion normal texture missing on disk. Extracting via Lumina: {normTexPath}");
                             string minionNormPng = ExtractVanillaTexViaLumina(normTexPath);
@@ -3828,6 +3895,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 else if (ContextCategoryKey.EndsWith("_tail", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "tail";
                 else if (ContextCategoryKey.EndsWith("_face", StringComparison.OrdinalIgnoreCase)) return null;
                 else if (ContextCategoryKey.Contains("_minion_", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "body";
+                else if (ContextCategoryKey.Contains("_mount_", StringComparison.OrdinalIgnoreCase)) detectedSlotKey = "body";
                 else if (ContextCategoryKey.EndsWith("_body", StringComparison.OrdinalIgnoreCase)) return null;
             }
 

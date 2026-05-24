@@ -799,7 +799,7 @@ namespace RoleplayingVoice
                             foreach (var item in Plugin.GetNearestObjects())
                             {
                                 Dalamud.Game.ClientState.Objects.Types.ICharacter character = item as Dalamud.Game.ClientState.Objects.Types.ICharacter;
-                                if (character != null && (item.ObjectKind == ObjectKind.Pc || item.ObjectKind == ObjectKind.Companion))
+                                if (character != null && (item.ObjectKind == ObjectKind.Pc || item.ObjectKind == ObjectKind.Companion || item.ObjectKind == ObjectKind.Mount))
                                 {
                                     string name = character.Name.TextValue;
                                     if (!string.IsNullOrEmpty(name))
@@ -1040,12 +1040,13 @@ namespace RoleplayingVoice
                         if (selectedPlayer.Value != null && 
                             (selectedPlayerCollection != mainPlayerCollection ||
                              selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer ||
-                             selectedPlayer.Value.ObjectKind == ObjectKind.Companion))
+                             selectedPlayer.Value.ObjectKind == ObjectKind.Companion ||
+                             selectedPlayer.Value.ObjectKind == ObjectKind.Mount))
                         {
                             plugin.PluginLog.Information("[Drag And Drop Debug] Valid player target, getting customization...");
                             modName = selectedPlayer.Key + " Texture Mod";
                             var targetCustomizationObject = selectedPlayer.Value;
-                            if (selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
+                            if (selectedPlayer.Value.ObjectKind == ObjectKind.Companion || selectedPlayer.Value.ObjectKind == ObjectKind.Mount)
                             {
                                 var ownerId = selectedPlayer.Value.OwnerId;
                                 bool found = false;
@@ -1156,6 +1157,45 @@ namespace RoleplayingVoice
                                             minionCategorySuffix = "minion_body"; // fallback
                                     }
 
+                                    // For mount drops, resolve the mount name and cache gear metadata
+                                    string mountCategorySuffix = null;
+                                    if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Mount)
+                                    {
+                                        try
+                                        {
+                                            var mountSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Mount>();
+                                            if (mountSheet != null)
+                                            {
+                                                var mountRow = mountSheet.GetRow(selectedPlayer.Value.DataId);
+                                                if (mountRow.RowId != 0)
+                                                {
+                                                    string mountName = mountRow.Singular.ToString().ToLower().Replace(" ", "").Replace("'", "").Replace("-", "");
+                                                    if (!string.IsNullOrEmpty(mountName))
+                                                    {
+                                                        mountCategorySuffix = "mount_" + mountName;
+                                                        var ownerChar = targetCustomizationObject;
+                                                        if (ownerChar != null)
+                                                        {
+                                                            var mountGear = WornEquipmentResolver.ResolveMount(selectedPlayer.Value.DataId, collection, plugin);
+                                                            string fullKey = selectedPlayer.Key + "_" + mountCategorySuffix;
+                                                            if (mountGear != null && mountGear.Count > 0)
+                                                            {
+                                                                _gearCategoryMeta[fullKey] = mountGear[0];
+                                                                plugin.PluginLog.Info($"[Drag And Drop] Cached mount gear for drag-drop: {fullKey} -> {mountGear[0].DisplayName}");
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            plugin.PluginLog.Error($"[Drag And Drop] Failed to resolve mount name: {ex.Message}");
+                                        }
+                                        if (string.IsNullOrEmpty(mountCategorySuffix))
+                                            mountCategorySuffix = "mount_body"; // fallback
+                                    }
+
                                     foreach (var file in files)
                                     {
                                         if (!ValidTextureExtensions.Contains(Path.GetExtension(file))) continue;
@@ -1164,6 +1204,10 @@ namespace RoleplayingVoice
                                         if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
                                         {
                                             categoryKey += minionCategorySuffix;
+                                        }
+                                        else if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Mount)
+                                        {
+                                            categoryKey += mountCategorySuffix;
                                         }
                                         else if (bodyDragPart == BodyDragPart.Clothing)
                                         {
@@ -1225,6 +1269,10 @@ namespace RoleplayingVoice
                                         if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
                                         {
                                             categoryKey += minionCategorySuffix;
+                                        }
+                                        else if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Mount)
+                                        {
+                                            categoryKey += mountCategorySuffix;
                                         }
                                         else if (bodyDragPart == BodyDragPart.Clothing)
                                         {
@@ -1352,12 +1400,22 @@ namespace RoleplayingVoice
                                             continue;
                                         }
 
+                                        // Mount categories go through the dedicated mount rebuild pipeline
+                                        if (categoryKey.Contains("_mount_"))
+                                        {
+                                            string charName = selectedPlayer.Key;
+                                            string suffix = categoryKey.Substring(charName.Length);
+                                            plugin.PluginLog.Info($"[Drag And Drop] Routing mount drop to ScheduleRegeneration: charName={charName}, suffix={suffix}");
+                                            ScheduleRegeneration(charName, new[] { suffix }, true, false);
+                                            continue;
+                                        }
+
                                         string lastFile = _textureHistory[categoryKey].First();
                                         TextureSet item = null;
                                         string categoryModName = "";
                                         string overrideType = "";
 
-                                        if (categoryKey.EndsWith("_body") && !categoryKey.Contains("_minion_"))
+                                        if (categoryKey.EndsWith("_body") && !categoryKey.Contains("_minion_") && !categoryKey.Contains("_mount_"))
                                         {
                                             if (_currentCustomization.Customize.Race.Value - 1 == 2)
                                             {
@@ -2773,12 +2831,319 @@ namespace RoleplayingVoice
             });
         }
 
+        private void RebuildMountCategory(string categoryKey, bool hideProgressUI)
+        {
+            if (!_textureHistory.ContainsKey(categoryKey)) return;
+
+            string charName = categoryKey.Substring(0, categoryKey.IndexOf("_mount_"));
+            ICharacter character = null;
+            if (plugin.SafeGameObjectManager.LocalPlayer != null && plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue == charName)
+                character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+
+            if (character == null)
+            {
+                _isRegenerationPending = false;
+                plugin.PluginLog.Warning($"[MOUNT REBUILD] Character '{charName}' not found. Cannot export mount.");
+                return;
+            }
+
+            Task.Run(async () =>
+            {
+                int waitAttempts = 0;
+                while (_lockDuplicateGeneration && waitAttempts < 60)
+                {
+                    Thread.Sleep(1000);
+                    waitAttempts++;
+                }
+                if (_lockDuplicateGeneration)
+                {
+                    _isRegenerationPending = false;
+                    return;
+                }
+
+                try
+                {
+                    // Get cached mount gear metadata, or auto-resolve if missing
+                    if (!_gearCategoryMeta.TryGetValue(categoryKey, out var gearMeta))
+                    {
+                        plugin.PluginLog.Info($"[MOUNT REBUILD] No cached gearMeta for '{categoryKey}'. Attempting auto-resolve...");
+                        try
+                        {
+                            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
+                            if (localPlayer != null)
+                            {
+                                // Mounts are embedded in the character, use CurrentMount property
+                                uint mountDataId = 0;
+                                try
+                                {
+                                    var currentMount = localPlayer.CurrentMount;
+                                    if (currentMount != null && currentMount.Value.RowId != 0)
+                                    {
+                                        mountDataId = currentMount.Value.RowId;
+                                    }
+                                }
+                                catch { }
+                                if (mountDataId != 0)
+                                {
+                                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                                    var resolved = WornEquipmentResolver.ResolveMount(mountDataId, collection, plugin);
+                                    if (resolved != null && resolved.Count > 0)
+                                    {
+                                        gearMeta = resolved[0];
+                                        _gearCategoryMeta[categoryKey] = gearMeta;
+                                        plugin.PluginLog.Info($"[MOUNT REBUILD] Auto-resolved gearMeta: {gearMeta.DisplayName}");
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception resolveEx)
+                        {
+                            plugin.PluginLog.Error($"[MOUNT REBUILD] Auto-resolve failed: {resolveEx.Message}");
+                        }
+
+                        if (gearMeta == null)
+                        {
+                            plugin.PluginLog.Warning($"[MOUNT REBUILD] No gearMeta found for '{categoryKey}'. Cannot export.");
+                            _isRegenerationPending = false;
+                            return;
+                        }
+                    }
+
+                    // Build TextureSet using mount paths (same approach as minion)
+                    var item = ProjectHelper.CreateEquipmentTextureSet(
+                        gearMeta.DisplayName,
+                        gearMeta.InternalBasePath,
+                        gearMeta.InternalNormalPath,
+                        gearMeta.InternalMaskPath,
+                        gearMeta.InternalMaterialPath);
+
+                    // If mount has no overlay layers, disable mod and revert to vanilla
+                    if (_textureHistory[categoryKey].Count == 0 || _textureHistory[categoryKey].All(f => !File.Exists(f)))
+                    {
+                        plugin.PluginLog.Info($"[MOUNT REBUILD] No overlay layers for '{categoryKey}'. Disabling mod and reverting to vanilla.");
+                        try
+                        {
+                            string cleanName = gearMeta.DisplayName.Replace("(", "").Replace(")", "").Trim();
+                            cleanName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanName.ToLower());
+                            string modName = charName + " Texture " + cleanName;
+                            string modPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
+                            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
+                            if (localPlayer != null)
+                            {
+                                Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                                PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, modPath, false, modName);
+                                plugin.PluginLog.Info($"[MOUNT REBUILD] Disabled mod '{modName}' in collection {collection}");
+                                // Redraw the player (mount is part of the player object)
+                                Plugin.Framework.RunOnFrameworkThread(() =>
+                                {
+                                    plugin.PluginLog.Info($"[MOUNT REBUILD] Redrawing player after mount layer removal: {localPlayer.Name} (ObjectIndex={localPlayer.ObjectIndex})");
+                                    PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(localPlayer.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                                });
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            plugin.PluginLog.Error($"[MOUNT REBUILD] Failed to disable mod: {ex.Message}");
+                        }
+                        _isRegenerationPending = false;
+                        return;
+                    }
+
+                    // Flag as non-playable so the LooseTextureCompiler skips UV conversion
+                    item.NotAPlayableItem = true;
+                    item.IgnoreNormalGeneration = true;
+                    item.IgnoreMaskGeneration = true;
+
+                    // Extract the mount's actual texture from Lumina and use it as the base
+                    string mountBasePng = ExtractVanillaTexViaLumina(gearMeta.InternalBasePath, item, forceOpaqueAlpha: true);
+                    if (!string.IsNullOrEmpty(mountBasePng))
+                    {
+                        item.Base = mountBasePng;
+                        item.BaseUV = "";
+                        item.BaseTint = System.Numerics.Vector4.One;
+                        plugin.PluginLog.Info($"[MOUNT REBUILD] Set Lumina base texture: {mountBasePng}");
+                    }
+                    else
+                    {
+                        plugin.PluginLog.Warning($"[MOUNT REBUILD] Failed to extract Lumina base for {gearMeta.InternalBasePath}");
+                    }
+
+                    // Extract normal map from Lumina too
+                    if (!string.IsNullOrEmpty(gearMeta.InternalNormalPath))
+                    {
+                        string mountNormPng = ExtractVanillaTexViaLumina(gearMeta.InternalNormalPath, item);
+                        if (!string.IsNullOrEmpty(mountNormPng))
+                        {
+                            item.Normal = mountNormPng;
+                            item.NormalUV = "";
+                        }
+                    }
+
+                    // Pre-composite base + paint overlays into a single PNG
+                    {
+                        var overlayPaths = new List<string>();
+                        var overlayTints = new List<System.Numerics.Vector4>();
+                        for (int i = 0; i < _textureHistory[categoryKey].Count; i++)
+                        {
+                            string f = _textureHistory[categoryKey][i];
+                            System.Numerics.Vector4 t = (_textureHistoryTints.ContainsKey(categoryKey) && i < _textureHistoryTints[categoryKey].Count)
+                                ? _textureHistoryTints[categoryKey][i] : System.Numerics.Vector4.One;
+                            if (File.Exists(f))
+                            {
+                                overlayPaths.Add(f);
+                                overlayTints.Add(t);
+                            }
+                            plugin.PluginLog.Info($"[MOUNT REBUILD] Overlay[{i}]: exists={File.Exists(f)} tint={t} path={f}");
+                        }
+
+                        if (overlayPaths.Count == 0)
+                        {
+                            plugin.PluginLog.Info($"[MOUNT REBUILD] No overlay layers for '{categoryKey}'. Disabling mod and reverting to vanilla.");
+                            try
+                            {
+                                string cleanName = gearMeta.DisplayName.Replace("(", "").Replace(")", "").Trim();
+                                cleanName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanName.ToLower());
+                                string modName = charName + " Texture " + cleanName;
+                                string modPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
+                                var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
+                                if (localPlayer != null)
+                                {
+                                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, modPath, false, modName);
+                                    plugin.PluginLog.Info($"[MOUNT REBUILD] Disabled mod '{modName}' in collection {collection}");
+                                    // Redraw the player (mount is part of the player object)
+                                    Plugin.Framework.RunOnFrameworkThread(() =>
+                                    {
+                                        plugin.PluginLog.Info($"[MOUNT REBUILD] Redrawing player after mount layer removal: {localPlayer.Name} (ObjectIndex={localPlayer.ObjectIndex})");
+                                        PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(localPlayer.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                                    });
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                plugin.PluginLog.Error($"[MOUNT REBUILD] Failed to disable mod: {ex.Message}");
+                            }
+                            _isRegenerationPending = false;
+                            return;
+                        }
+
+                        // Composite: draw base, then each overlay on top with alpha blending + tint
+                        using (var baseBmp = new Bitmap(item.Base))
+                        {
+                            int w = baseBmp.Width;
+                            int h = baseBmp.Height;
+                            using (var canvas = new Bitmap(w, h, PixelFormat.Format32bppArgb))
+                            {
+                                using (var g = Graphics.FromImage(canvas))
+                                {
+                                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
+                                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                                    g.DrawImage(baseBmp, 0, 0, w, h);
+                                    for (int idx = 0; idx < overlayPaths.Count; idx++)
+                                    {
+                                        using (var overlay = new Bitmap(overlayPaths[idx]))
+                                        {
+                                            var tint = overlayTints[idx];
+                                            if (tint == System.Numerics.Vector4.One)
+                                            {
+                                                g.DrawImage(overlay, 0, 0, w, h);
+                                            }
+                                            else
+                                            {
+                                                var cm = new System.Drawing.Imaging.ColorMatrix(new float[][] {
+                                                    new float[] { tint.X, 0, 0, 0, 0 },
+                                                    new float[] { 0, tint.Y, 0, 0, 0 },
+                                                    new float[] { 0, 0, tint.Z, 0, 0 },
+                                                    new float[] { 0, 0, 0, tint.W, 0 },
+                                                    new float[] { 0, 0, 0, 0, 1 }
+                                                });
+                                                using (var attrs = new System.Drawing.Imaging.ImageAttributes())
+                                                {
+                                                    attrs.SetColorMatrix(cm);
+                                                    g.DrawImage(overlay,
+                                                        new System.Drawing.Rectangle(0, 0, w, h),
+                                                        0, 0, overlay.Width, overlay.Height,
+                                                        GraphicsUnit.Pixel, attrs);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                string tempDir = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
+                                Directory.CreateDirectory(tempDir);
+                                string compositedPath = Path.Combine(tempDir, $"mount_composited_{categoryKey.GetHashCode():X8}.png");
+                                canvas.Save(compositedPath, System.Drawing.Imaging.ImageFormat.Png);
+                                item.Base = compositedPath;
+                                plugin.PluginLog.Info($"[MOUNT REBUILD] Pre-composited {overlayPaths.Count} overlays → {compositedPath} ({w}x{h})");
+                            }
+                        }
+                    }
+
+                    // Build the mod name: "CharName Texture Mount Company Chocobo"
+                    string cleanMountName = gearMeta.DisplayName;
+                    cleanMountName = cleanMountName.Replace("(", "").Replace(")", "").Trim();
+                    cleanMountName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanMountName.ToLower());
+                    string localModName = charName + " Texture " + cleanMountName;
+
+                    var textureSets = new List<TextureSet> { item };
+                    string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
+
+                    plugin.PluginLog.Info($"[MOUNT REBUILD] Exporting. ModName={localModName}, Path={fullModPath}, Layers={_textureHistory[categoryKey].Count}");
+
+                    // Clean stale tex files from previous exports to avoid dimension mismatches
+                    string texDir = Path.Combine(fullModPath, "do_not_edit", "textures");
+                    if (Directory.Exists(texDir))
+                    {
+                        foreach (var staleFile in Directory.GetFiles(texDir, "*.tex"))
+                        {
+                            try { File.Delete(staleFile); } catch { }
+                        }
+                    }
+
+                    // Export — pass character info for collection binding, but the TextureSet uses mount paths
+                    var localCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                    await Export(true, textureSets, fullModPath, localModName,
+                        new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
+                        localCustomization.Customize.Race.Value - 1,
+                        localCustomization.Customize.Clan.Value - 1,
+                        localCustomization.Customize.Gender.Value,
+                        localCustomization.Customize.Face.Value - 1,
+                        hideProgressUI);
+
+                    plugin.PluginLog.Info($"[MOUNT REBUILD] Export completed for '{localModName}'. Redrawing player to apply mount texture.");
+
+                    // Redraw the player so the mount texture updates in-game
+                    Plugin.Framework.RunOnFrameworkThread(() =>
+                    {
+                        var lp = plugin.SafeGameObjectManager.LocalPlayer;
+                        if (lp != null)
+                        {
+                            PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(lp.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                        }
+                    });
+                }
+                catch (Exception e)
+                {
+                    _isRegenerationPending = false;
+                    plugin.PluginLog.Error($"[MOUNT REBUILD] Crash: {e.Message}");
+                    Plugin.PluginLog.Warning(e, e.Message);
+                }
+            });
+        }
+
         public void RebuildCategory(string categoryKey, bool hideProgressUI = true)
         {
             // Route minion keys to the dedicated minion pipeline — completely separate from body/face/gear
             if (categoryKey.Contains("_minion_"))
             {
                 RebuildMinionCategory(categoryKey, hideProgressUI);
+                return;
+            }
+
+            // Route mount keys to the dedicated mount pipeline
+            if (categoryKey.Contains("_mount_"))
+            {
+                RebuildMountCategory(categoryKey, hideProgressUI);
                 return;
             }
 

@@ -784,6 +784,10 @@ public class MainWindow : Window, IDisposable
                     {
                         Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_minion_body");
                     }
+                    if (ImGui.Selectable(Translator.LocalizeUI("Mount")))
+                    {
+                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_mount_body");
+                    }
                     ImGui.EndPopup();
                 }
             }
@@ -821,6 +825,10 @@ public class MainWindow : Window, IDisposable
                 if (ImGui.Selectable(Translator.LocalizeUI("Minion")))
                 {
                     Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_minion_body");
+                }
+                if (ImGui.Selectable(Translator.LocalizeUI("Mount")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_mount_body");
                 }
                 ImGui.EndPopup();
             }
