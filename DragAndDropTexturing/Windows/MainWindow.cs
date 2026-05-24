@@ -830,6 +830,23 @@ public class MainWindow : Window, IDisposable
                 {
                     Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_mount_body");
                 }
+                ImGui.Separator();
+                if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Top)")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_gear_body");
+                }
+                if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Bottom)")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_gear_legs");
+                }
+                if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Hands)")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_gear_hands");
+                }
+                if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Feet)")))
+                {
+                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_gear_feet");
+                }
                 ImGui.EndPopup();
             }
 

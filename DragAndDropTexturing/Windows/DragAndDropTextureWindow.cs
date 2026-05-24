@@ -799,7 +799,7 @@ namespace RoleplayingVoice
                             foreach (var item in Plugin.GetNearestObjects())
                             {
                                 Dalamud.Game.ClientState.Objects.Types.ICharacter character = item as Dalamud.Game.ClientState.Objects.Types.ICharacter;
-                                if (character != null && (item.ObjectKind == ObjectKind.Pc || item.ObjectKind == ObjectKind.Companion || item.ObjectKind == ObjectKind.Mount))
+                                if (character != null && (item.ObjectKind == ObjectKind.Pc || item.ObjectKind == ObjectKind.Companion))
                                 {
                                     string name = character.Name.TextValue;
                                     if (!string.IsNullOrEmpty(name))
@@ -1041,12 +1041,12 @@ namespace RoleplayingVoice
                             (selectedPlayerCollection != mainPlayerCollection ||
                              selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer ||
                              selectedPlayer.Value.ObjectKind == ObjectKind.Companion ||
-                             selectedPlayer.Value.ObjectKind == ObjectKind.Mount))
+                             selectedPlayer.Value.ObjectKind == ObjectKind.Companion))
                         {
                             plugin.PluginLog.Information("[Drag And Drop Debug] Valid player target, getting customization...");
                             modName = selectedPlayer.Key + " Texture Mod";
                             var targetCustomizationObject = selectedPlayer.Value;
-                            if (selectedPlayer.Value.ObjectKind == ObjectKind.Companion || selectedPlayer.Value.ObjectKind == ObjectKind.Mount)
+                            if (selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
                             {
                                 var ownerId = selectedPlayer.Value.OwnerId;
                                 bool found = false;
@@ -1157,43 +1157,42 @@ namespace RoleplayingVoice
                                             minionCategorySuffix = "minion_body"; // fallback
                                     }
 
-                                    // For mount drops, resolve the mount name and cache gear metadata
+                                    // For mount drops, detect if the player is mounted via CurrentMount
                                     string mountCategorySuffix = null;
-                                    if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Mount)
+                                    bool isMountDrop = false;
+                                    if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Pc)
                                     {
                                         try
                                         {
-                                            var mountSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Mount>();
-                                            if (mountSheet != null)
+                                            var currentMount = selectedPlayer.Value.CurrentMount;
+                                            if (currentMount != null && currentMount.Value.RowId != 0)
                                             {
-                                                var mountRow = mountSheet.GetRow(selectedPlayer.Value.DataId);
-                                                if (mountRow.RowId != 0)
+                                                uint mountRowId = currentMount.Value.RowId;
+                                                var mountSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Mount>();
+                                                var mountRow = mountSheet?.GetRow(mountRowId);
+                                                string mountSingular = mountRow?.Singular.ToString() ?? "";
+                                                string mountName = mountSingular.ToLower().Replace(" ", "").Replace("'", "").Replace("-", "");
+                                                
+                                                // Check if any dropped file has _mount_ in its name
+                                                bool hasExplicitMountFile = files.Any(f => Path.GetFileNameWithoutExtension(f).ToLower().Contains("_mount_") || Path.GetFileNameWithoutExtension(f).ToLower().StartsWith("mount"));
+                                                if (hasExplicitMountFile)
                                                 {
-                                                    string mountName = mountRow.Singular.ToString().ToLower().Replace(" ", "").Replace("'", "").Replace("-", "");
-                                                    if (!string.IsNullOrEmpty(mountName))
+                                                    isMountDrop = true;
+                                                    mountCategorySuffix = !string.IsNullOrEmpty(mountName) ? "mount_" + mountName : "mount_body";
+                                                    var mountGear = WornEquipmentResolver.ResolveMount(mountRowId, collection, plugin);
+                                                    string fullKey = selectedPlayer.Key + "_" + mountCategorySuffix;
+                                                    if (mountGear != null && mountGear.Count > 0)
                                                     {
-                                                        mountCategorySuffix = "mount_" + mountName;
-                                                        var ownerChar = targetCustomizationObject;
-                                                        if (ownerChar != null)
-                                                        {
-                                                            var mountGear = WornEquipmentResolver.ResolveMount(selectedPlayer.Value.DataId, collection, plugin);
-                                                            string fullKey = selectedPlayer.Key + "_" + mountCategorySuffix;
-                                                            if (mountGear != null && mountGear.Count > 0)
-                                                            {
-                                                                _gearCategoryMeta[fullKey] = mountGear[0];
-                                                                plugin.PluginLog.Info($"[Drag And Drop] Cached mount gear for drag-drop: {fullKey} -> {mountGear[0].DisplayName}");
-                                                            }
-                                                        }
+                                                        _gearCategoryMeta[fullKey] = mountGear[0];
+                                                        plugin.PluginLog.Info($"[Drag And Drop] Cached mount gear for drag-drop: {fullKey} -> {mountGear[0].DisplayName}");
                                                     }
                                                 }
                                             }
                                         }
                                         catch (Exception ex)
                                         {
-                                            plugin.PluginLog.Error($"[Drag And Drop] Failed to resolve mount name: {ex.Message}");
+                                            plugin.PluginLog.Error($"[Drag And Drop] Failed to detect mount: {ex.Message}");
                                         }
-                                        if (string.IsNullOrEmpty(mountCategorySuffix))
-                                            mountCategorySuffix = "mount_body"; // fallback
                                     }
 
                                     foreach (var file in files)
@@ -1205,7 +1204,7 @@ namespace RoleplayingVoice
                                         {
                                             categoryKey += minionCategorySuffix;
                                         }
-                                        else if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Mount)
+                                        else if (isMountDrop)
                                         {
                                             categoryKey += mountCategorySuffix;
                                         }
@@ -1270,7 +1269,7 @@ namespace RoleplayingVoice
                                         {
                                             categoryKey += minionCategorySuffix;
                                         }
-                                        else if (selectedPlayer.Value != null && selectedPlayer.Value.ObjectKind == ObjectKind.Mount)
+                                        else if (isMountDrop)
                                         {
                                             categoryKey += mountCategorySuffix;
                                         }

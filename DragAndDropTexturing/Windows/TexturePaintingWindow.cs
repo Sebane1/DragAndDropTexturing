@@ -200,7 +200,7 @@ namespace DragAndDropTexturing.Windows
         private int _overrideBotSelectedIndex = 0;
         private string _targetKeyword = null;
         private string _newLayerType = "Base";
-        private readonly string[] _newLayerTypes = { "Base", "Normal", "Mask", "Glow" };
+        private readonly string[] _newLayerTypes = { "Base", "Normal", "Mask", "Glow", "Outfit" };
 
         // Procedural Decal Stamp Queue
         private class DecalPixelData
@@ -492,7 +492,7 @@ namespace DragAndDropTexturing.Windows
             else
             {
                 ImGui.SameLine();
-                ImGui.SetNextItemWidth(100);
+                ImGui.SetNextItemWidth(120);
                 if (ImGui.BeginCombo("Layer Type", _newLayerType))
                 {
                     foreach (var type in _newLayerTypes)
@@ -1630,149 +1630,169 @@ namespace DragAndDropTexturing.Windows
                 if (_newLayerType == "Normal") suffix = "_n";
                 else if (_newLayerType == "Mask") suffix = "_m";
                 else if (_newLayerType == "Glow") suffix = "_glow";
+                else if (_newLayerType == "Outfit") suffix = "_base";
                 outPath = Path.Combine(importDir, $"{bodyTag}{suffix}_{Guid.NewGuid().ToString().Substring(0, 8)}.png");
                 _plugin.PluginLog.Info($"[Texture Painter] New layer mode. BodyTag={bodyTag}, OutPath={outPath}");
             }
             
-            // Read paint layer back from GPU and save as PNG
+            // GPU readback must happen on the render thread
             byte[] pixels = _renderer.ReadbackPaintLayer();
-            if (pixels != null)
-            {
-                _plugin.PluginLog.Info($"[Texture Painter] ReadbackPaintLayer returned {pixels.Length} bytes.");
-                int w = _renderer.PaintTexWidth;
-                int h = _renderer.PaintTexHeight;
-                using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                var rect = new System.Drawing.Rectangle(0, 0, w, h);
-                var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                
-                System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
-                
-                // Force a solid black background for Glow Maps to match external PNGs that load correctly
-                if (_newLayerType == "Glow" || outPath.Contains("glow"))
-                {
-                    unsafe
-                    {
-                        byte* ptr = (byte*)data.Scan0;
-                        int bytes = Math.Abs(data.Stride) * bmp.Height;
-                        for (int i = 0; i < bytes; i += 4)
-                        {
-                            // If fully transparent, set to solid black
-                            if (ptr[i + 3] == 0)
-                            {
-                                ptr[i] = 0;
-                                ptr[i + 1] = 0;
-                                ptr[i + 2] = 0;
-                                ptr[i + 3] = 255;
-                            }
-                            // If partially transparent, alpha-blend onto black
-                            else if (ptr[i + 3] < 255)
-                            {
-                                float a = ptr[i + 3] / 255f;
-                                ptr[i] = (byte)(ptr[i] * a);
-                                ptr[i + 1] = (byte)(ptr[i + 1] * a);
-                                ptr[i + 2] = (byte)(ptr[i + 2] * a);
-                                ptr[i + 3] = 255;
-                            }
-                        }
-                    }
-                }
-                
-                bmp.UnlockBits(data);
-                bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
-                _plugin.PluginLog.Info($"[Texture Painter] Paint layer saved to: {outPath}");
-                
-                var targetChar = _plugin.SafeGameObjectManager.LocalPlayer;
-                _plugin.PluginLog.Info($"[Texture Painter] LocalPlayer={targetChar?.Name?.TextValue ?? "NULL"}, DragAndDropTextures={(_plugin.DragAndDropTextures != null ? "OK" : "NULL")}");
-                if (targetChar != null && _plugin.DragAndDropTextures != null)
-                {
-                    var characterGameObject = targetChar as Dalamud.Game.ClientState.Objects.Types.ICharacter;
-                    if (characterGameObject != null)
-                    {
-                        if (isEditMode)
-                        {
-                            _plugin.PluginLog.Info($"[Texture Painter COMMIT] Edit mode path. ContextCategoryKey={ContextCategoryKey}");
-                            _plugin.PluginLog.Info($"[Texture Painter] Edit mode - triggering full rebuild for '{targetChar.Name.TextValue}'");
-                            if (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.StartsWith(targetChar.Name.TextValue))
-                            {
-                                string suffix = ContextCategoryKey.Substring(targetChar.Name.TextValue.Length);
-                                _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { suffix }, true, false);
-                            }
-                            else
-                            {
-                                _plugin.DragAndDropTextures.InjectFilesAndRebuild(
-                                    new List<string> { outPath },
-                                    new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
-                                    PenumbraAndGlamourerHelpers.BodyDragPart.Unknown);
-                            }
-                        }
-                        else
-                        {
-                            _plugin.PluginLog.Info($"[Texture Painter COMMIT] New layer path. ContextCategoryKey={ContextCategoryKey}, targetName={targetChar.Name.TextValue}, startsWith={ContextCategoryKey?.StartsWith(targetChar.Name.TextValue)}, IsMinion={_cachedIsMinion}");
-                            if (!string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.StartsWith(targetChar.Name.TextValue))
-                            {
-                                _plugin.PluginLog.Info($"[Texture Painter] Appending new layer precisely to {ContextCategoryKey}");
-                                if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(ContextCategoryKey))
-                                {
-                                    _plugin.DragAndDropTextures.TextureHistory[ContextCategoryKey] = new List<string>();
-                                    _plugin.DragAndDropTextures.TextureHistoryTints[ContextCategoryKey] = new List<System.Numerics.Vector4>();
-                                }
-                                if (!_plugin.DragAndDropTextures.TextureHistory[ContextCategoryKey].Contains(outPath))
-                                {
-                                    _plugin.DragAndDropTextures.TextureHistory[ContextCategoryKey].Add(outPath);
-                                    _plugin.DragAndDropTextures.TextureHistoryTints[ContextCategoryKey].Add(System.Numerics.Vector4.One);
-                                }
-                                _plugin.Configuration.Save();
-                                
-                                // For minions, cache the WornEquipmentPiece so the export path can find it
-                                if (_cachedIsMinion && _cachedWornGear != null && _cachedWornGear.Count > 0)
-                                {
-                                    _plugin.DragAndDropTextures.GearCategoryMeta[ContextCategoryKey] = _cachedWornGear[0];
-                                    _plugin.PluginLog.Info($"[Texture Painter] Cached minion WornEquipmentPiece for export: {ContextCategoryKey}");
-                                }
-
-                                // For mounts, cache the WornEquipmentPiece so the export path can find it
-                                if (_cachedIsMount && _cachedWornGear != null && _cachedWornGear.Count > 0)
-                                {
-                                    _plugin.DragAndDropTextures.GearCategoryMeta[ContextCategoryKey] = _cachedWornGear[0];
-                                    _plugin.PluginLog.Info($"[Texture Painter] Cached mount WornEquipmentPiece for export: {ContextCategoryKey}");
-                                }
-                                
-                                string suffix = ContextCategoryKey.Substring(targetChar.Name.TextValue.Length);
-                                _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { suffix }, true, false);
-                            }
-                            else
-                            {
-                                PenumbraAndGlamourerHelpers.BodyDragPart targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Body;
-                                if (!string.IsNullOrEmpty(ContextCategoryKey))
-                                {
-                                    if (ContextCategoryKey.Contains("_gear_")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Clothing;
-                                    else if (ContextCategoryKey.Contains("_face")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Face;
-                                    else if (ContextCategoryKey.Contains("_eyes")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Eyes;
-                                    else if (ContextCategoryKey.Contains("_eyebrows")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.EyebrowsAndLashes;
-                                }
-                                _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with targetPart={targetPart}");
-                                _plugin.DragAndDropTextures.InjectFilesAndRebuild(
-                                    new List<string> { outPath },
-                                    new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
-                                    targetPart);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        _plugin.PluginLog.Error("[Texture Painter] LocalPlayer could not be cast to ICharacter!");
-                    }
-                }
-            }
-            else
-            {
-                _plugin.PluginLog.Error("[Texture Painter] ReadbackPaintLayer returned null!");
-            }
+            int w = _renderer.PaintTexWidth;
+            int h = _renderer.PaintTexHeight;
             
             _renderer.GpuClearPaint();
             _needsComposite = true;
             EditSourcePath = null;
             IsOpen = false;
+
+            if (pixels == null)
+            {
+                _plugin.PluginLog.Error("[Texture Painter] ReadbackPaintLayer returned null!");
+                return;
+            }
+
+            _plugin.PluginLog.Info($"[Texture Painter] ReadbackPaintLayer returned {pixels.Length} bytes. Processing off-thread...");
+
+            // Capture state needed by the background task
+            string layerType = _newLayerType;
+            string contextKey = ContextCategoryKey;
+            bool cachedIsMinion = _cachedIsMinion;
+            bool cachedIsMount = _cachedIsMount;
+            var cachedWornGear = _cachedWornGear;
+
+            // Move bitmap processing, file save, and rebuild off the UI thread
+            Task.Run(() =>
+            {
+                try
+                {
+                    using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    var rect = new System.Drawing.Rectangle(0, 0, w, h);
+                    var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    
+                    System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+                    
+                    // Force a solid black background for Glow Maps to match external PNGs that load correctly
+                    if (layerType == "Glow" || outPath.Contains("glow"))
+                    {
+                        unsafe
+                        {
+                            byte* ptr = (byte*)data.Scan0;
+                            int bytes = Math.Abs(data.Stride) * bmp.Height;
+                            for (int i = 0; i < bytes; i += 4)
+                            {
+                                // If fully transparent, set to solid black
+                                if (ptr[i + 3] == 0)
+                                {
+                                    ptr[i] = 0;
+                                    ptr[i + 1] = 0;
+                                    ptr[i + 2] = 0;
+                                    ptr[i + 3] = 255;
+                                }
+                                // If partially transparent, alpha-blend onto black
+                                else if (ptr[i + 3] < 255)
+                                {
+                                    float a = ptr[i + 3] / 255f;
+                                    ptr[i] = (byte)(ptr[i] * a);
+                                    ptr[i + 1] = (byte)(ptr[i + 1] * a);
+                                    ptr[i + 2] = (byte)(ptr[i + 2] * a);
+                                    ptr[i + 3] = 255;
+                                }
+                            }
+                        }
+                    }
+                    
+                    bmp.UnlockBits(data);
+                    bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                    _plugin.PluginLog.Info($"[Texture Painter] Paint layer saved to: {outPath}");
+                    
+                    var targetChar = _plugin.SafeGameObjectManager.LocalPlayer;
+                    _plugin.PluginLog.Info($"[Texture Painter] LocalPlayer={targetChar?.Name?.TextValue ?? "NULL"}, DragAndDropTextures={(_plugin.DragAndDropTextures != null ? "OK" : "NULL")}");
+                    if (targetChar != null && _plugin.DragAndDropTextures != null)
+                    {
+                        var characterGameObject = targetChar as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                        if (characterGameObject != null)
+                        {
+                            if (isEditMode)
+                            {
+                                _plugin.PluginLog.Info($"[Texture Painter COMMIT] Edit mode path. ContextCategoryKey={contextKey}");
+                                _plugin.PluginLog.Info($"[Texture Painter] Edit mode - triggering full rebuild for '{targetChar.Name.TextValue}'");
+                                if (!string.IsNullOrEmpty(contextKey) && contextKey.StartsWith(targetChar.Name.TextValue))
+                                {
+                                    string sfx = contextKey.Substring(targetChar.Name.TextValue.Length);
+                                    _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { sfx }, true, false);
+                                }
+                                else
+                                {
+                                    _plugin.DragAndDropTextures.InjectFilesAndRebuild(
+                                        new List<string> { outPath },
+                                        new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
+                                        PenumbraAndGlamourerHelpers.BodyDragPart.Unknown);
+                                }
+                            }
+                            else
+                            {
+                                _plugin.PluginLog.Info($"[Texture Painter COMMIT] New layer path. ContextCategoryKey={contextKey}, targetName={targetChar.Name.TextValue}, startsWith={contextKey?.StartsWith(targetChar.Name.TextValue)}, IsMinion={cachedIsMinion}");
+                                if (!string.IsNullOrEmpty(contextKey) && contextKey.StartsWith(targetChar.Name.TextValue))
+                                {
+                                    _plugin.PluginLog.Info($"[Texture Painter] Appending new layer precisely to {contextKey}");
+                                    if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(contextKey))
+                                    {
+                                        _plugin.DragAndDropTextures.TextureHistory[contextKey] = new List<string>();
+                                        _plugin.DragAndDropTextures.TextureHistoryTints[contextKey] = new List<System.Numerics.Vector4>();
+                                    }
+                                    if (!_plugin.DragAndDropTextures.TextureHistory[contextKey].Contains(outPath))
+                                    {
+                                        _plugin.DragAndDropTextures.TextureHistory[contextKey].Add(outPath);
+                                        _plugin.DragAndDropTextures.TextureHistoryTints[contextKey].Add(System.Numerics.Vector4.One);
+                                    }
+                                    _plugin.Configuration.Save();
+                                    
+                                    // For minions, cache the WornEquipmentPiece so the export path can find it
+                                    if (cachedIsMinion && cachedWornGear != null && cachedWornGear.Count > 0)
+                                    {
+                                        _plugin.DragAndDropTextures.GearCategoryMeta[contextKey] = cachedWornGear[0];
+                                        _plugin.PluginLog.Info($"[Texture Painter] Cached minion WornEquipmentPiece for export: {contextKey}");
+                                    }
+
+                                    // For mounts, cache the WornEquipmentPiece so the export path can find it
+                                    if (cachedIsMount && cachedWornGear != null && cachedWornGear.Count > 0)
+                                    {
+                                        _plugin.DragAndDropTextures.GearCategoryMeta[contextKey] = cachedWornGear[0];
+                                        _plugin.PluginLog.Info($"[Texture Painter] Cached mount WornEquipmentPiece for export: {contextKey}");
+                                    }
+                                    
+                                    string sfx = contextKey.Substring(targetChar.Name.TextValue.Length);
+                                    _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { sfx }, true, false);
+                                }
+                                else
+                                {
+                                    PenumbraAndGlamourerHelpers.BodyDragPart targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Body;
+                                    if (!string.IsNullOrEmpty(contextKey))
+                                    {
+                                        if (contextKey.Contains("_gear_")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Clothing;
+                                        else if (contextKey.Contains("_face")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Face;
+                                        else if (contextKey.Contains("_eyes")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.Eyes;
+                                        else if (contextKey.Contains("_eyebrows")) targetPart = PenumbraAndGlamourerHelpers.BodyDragPart.EyebrowsAndLashes;
+                                    }
+                                    _plugin.PluginLog.Info($"[Texture Painter] Calling InjectFilesAndRebuild for '{targetChar.Name.TextValue}' with targetPart={targetPart}");
+                                    _plugin.DragAndDropTextures.InjectFilesAndRebuild(
+                                        new List<string> { outPath },
+                                        new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, characterGameObject),
+                                        targetPart);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            _plugin.PluginLog.Error("[Texture Painter] LocalPlayer could not be cast to ICharacter!");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _plugin.PluginLog.Error($"[Texture Painter] CommitPaintLayer background task failed: {ex.Message}");
+                }
+            });
         }
 
         public void Dispose()
@@ -2187,6 +2207,27 @@ namespace DragAndDropTexturing.Windows
                 }
 
                 DragAndDropTexturing.Equipment.WornEquipmentPiece matchedPiece = FindMatchingWornPiece(EditSourcePath, wornGear, collectionId);
+
+                // When opened via Outfit menu (gear context key), force the correct gear piece as the matched piece
+                if (matchedPiece == null && string.IsNullOrEmpty(EditSourcePath) && !string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.Contains("_gear_") && wornGear != null)
+                {
+                    string gearSlot = null;
+                    if (ContextCategoryKey.Contains("_gear_body")) gearSlot = "body";
+                    else if (ContextCategoryKey.Contains("_gear_legs")) gearSlot = "legs";
+                    else if (ContextCategoryKey.Contains("_gear_hands")) gearSlot = "hands";
+                    else if (ContextCategoryKey.Contains("_gear_feet")) gearSlot = "feet";
+                    else if (ContextCategoryKey.Contains("_gear_head")) gearSlot = "head";
+
+                    if (gearSlot != null)
+                    {
+                        matchedPiece = wornGear.FirstOrDefault(p => p.SlotKey == gearSlot);
+                        if (matchedPiece != null)
+                        {
+                            _plugin.PluginLog.Info($"[PSD Preview] Outfit mode: using {gearSlot} gear piece '{matchedPiece.DisplayName}' (EquipSet={matchedPiece.EquipSetId})");
+                        }
+                    }
+                }
+
                 if (matchedPiece != null)
                 {
                     isGear = true;
