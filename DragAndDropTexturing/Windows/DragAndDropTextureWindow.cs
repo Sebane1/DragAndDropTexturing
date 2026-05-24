@@ -782,7 +782,7 @@ namespace RoleplayingVoice
                     ImGui.EndChild();
                 }
 
-                if (!_lockDuplicateGeneration && !_isDownloadingDLC && !_isWaitingForPenumbra)
+                if (!_isDownloadingDLC && !_isWaitingForPenumbra)
                 {
                     Guid mainPlayerCollection = Guid.Empty;
                     Guid selectedPlayerCollection = Guid.Empty;
@@ -1015,6 +1015,28 @@ namespace RoleplayingVoice
                         LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = _textureProcessor.BasePath;
                         List<TextureSet> textureSets = new List<TextureSet>();
                         plugin.PluginLog.Information("[Drag And Drop Debug] Drop event triggered, selectedPlayer: " + (selectedPlayer.Value != null));
+
+                        // If an export is already in progress, queue the drop via InjectFilesAndRebuild
+                        // which has built-in wait logic for _lockDuplicateGeneration.
+                        if (_lockDuplicateGeneration && selectedPlayer.Value != null)
+                        {
+                            plugin.PluginLog.Information("[Drag And Drop Debug] Export in progress — queuing drop for processing after current export completes.");
+                            var queuedFiles = files.ToList();
+                            var queuedPlayer = selectedPlayer;
+                            var queuedPart = bodyDragPart;
+                            try
+                            {
+                                Plugin.Framework.RunOnFrameworkThread(() =>
+                                {
+                                    plugin.Chat.Print("[Drag And Drop Texturing] Export in progress — your drop has been queued and will process automatically.");
+                                });
+                            }
+                            catch { }
+                            InjectFilesAndRebuild(queuedFiles, queuedPlayer, queuedPart);
+                            AllowClickthrough = true;
+                            return;
+                        }
+
                         if (selectedPlayer.Value != null && 
                             (selectedPlayerCollection != mainPlayerCollection ||
                              selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer ||
