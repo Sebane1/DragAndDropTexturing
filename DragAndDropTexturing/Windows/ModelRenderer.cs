@@ -2084,8 +2084,6 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 _context.Unmap(staging, 0);
             }
 
-            // Edge padding: dilate painted pixels outward to cover UV seam gaps
-            DilateBgraPixels(result, _paintTexWidth, _paintTexHeight, 16);
             return result;
         }
 
@@ -2093,10 +2091,18 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
         /// Dilates non-transparent pixels outward into transparent (alpha=0) neighbors.
         /// Each pass expands the painted region by 1 pixel. This eliminates UV seam
         /// crease lines where adjacent triangles share a 3D edge but are in separate UV islands.
+        /// IMPORTANT: Padding pixels get RGB from their neighbor but alpha stays at 0.
+        /// This ensures the color data is available for bilinear filtering at UV seams
+        /// without making the padding visible during normal alpha-blended compositing.
         /// </summary>
         private static void DilateBgraPixels(byte[] pixels, int width, int height, int passes)
         {
-            // Work buffer — we only need to track which pixels were filled in the current pass
+            // Track which pixels are "real" (painted by the user) vs "padded" (added by dilation).
+            // Padded pixels have RGB but alpha=0. We need a separate mask because alpha=0
+            // in the original data also means "empty" — we use this to distinguish the two.
+            bool[] hasPadding = new bool[width * height];
+
+            // Work buffer
             byte[] buffer = new byte[pixels.Length];
 
             for (int pass = 0; pass < passes; pass++)
@@ -2108,8 +2114,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 {
                     for (int x = 0; x < width; x++)
                     {
-                        int idx = (y * width + x) * 4;
-                        if (pixels[idx + 3] > 0) continue; // Already has content
+                        int pi = y * width + x;
+                        int idx = pi * 4;
+                        // Skip if this pixel already has real content OR has been padded
+                        if (pixels[idx + 3] > 0 || hasPadding[pi]) continue;
 
                         // Search neighbors: cardinals first, then diagonals
                         int[] offX = { 0, 0, -1, 1, -1, 1, -1, 1 };
@@ -2120,8 +2128,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                             int nx = x + offX[n];
                             int ny = y + offY[n];
                             if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
-                            int nIdx = (ny * width + nx) * 4;
-                            if (pixels[nIdx + 3] > 0)
+                            int npi = ny * width + nx;
+                            int nIdx = npi * 4;
+                            // Valid neighbor = has real alpha content, OR was padded in a previous pass
+                            if (pixels[nIdx + 3] > 0 || hasPadding[npi])
                             {
                                 bestIdx = nIdx;
                                 break; // First valid neighbor wins (cardinals checked first)
@@ -2130,11 +2140,13 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
                         if (bestIdx >= 0)
                         {
-                            // Copy RGB from neighbor, but set alpha to 1 (fully opaque edge padding)
+                            // Copy RGB from neighbor for bilinear filtering, but keep alpha at 0
+                            // so these padding pixels are invisible during normal compositing
                             buffer[idx + 0] = pixels[bestIdx + 0]; // B
                             buffer[idx + 1] = pixels[bestIdx + 1]; // G
                             buffer[idx + 2] = pixels[bestIdx + 2]; // R
-                            buffer[idx + 3] = pixels[bestIdx + 3]; // A (preserve neighbor's alpha)
+                            buffer[idx + 3] = 0;                   // A stays transparent
+                            hasPadding[pi] = true;
                             anyFilled = true;
                         }
                     }

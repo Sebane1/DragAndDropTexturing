@@ -2557,6 +2557,42 @@ namespace DragAndDropTexturing.Windows
                 if (_overrideBotPathList.Count > 0 && _overrideBotSelectedIndex >= 0 && _overrideBotSelectedIndex < _overrideBotPathList.Count)
                     overrideBotPath = _overrideBotPathList[_overrideBotSelectedIndex].DiskPath;
 
+                // Resolve glv/sho to match the body type being edited, not the body being worn.
+                // _targetKeyword is set from EditSourcePath (e.g. "bibo" when editing a Bibo texture).
+                // Falls back to _cachedActiveBodyType for new-layer mode where there's no EditSourcePath.
+                if (!isGear)
+                {
+                    string glvShoKeyword = _targetKeyword;
+                    if (string.IsNullOrEmpty(glvShoKeyword))
+                    {
+                        int bodyType = _cachedActiveBodyType;
+                        if (bodyType == 1) glvShoKeyword = "bibo";
+                        else if (bodyType == 2) glvShoKeyword = "gen3";
+                        else if (bodyType == 3) glvShoKeyword = "tbse";
+                    }
+
+                    if (!string.IsNullOrEmpty(glvShoKeyword))
+                    {
+                        string glvShoRaceCode = glvShoKeyword == "tbse" ? "c0101" : "c0201";
+
+                        string resolvedGlv = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindMeshDiskPathInModDirectory(
+                            glvShoKeyword, $"chara/equipment/e0279/model/{glvShoRaceCode}e0279_glv.mdl");
+                        string resolvedSho = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindMeshDiskPathInModDirectory(
+                            glvShoKeyword, $"chara/equipment/e0279/model/{glvShoRaceCode}e0279_sho.mdl");
+
+                        if (!string.IsNullOrEmpty(resolvedGlv))
+                        {
+                            glvPath = resolvedGlv;
+                            _plugin.PluginLog.Info($"[PSD Preview] Resolved gloves to {glvShoKeyword} body type: {glvPath}");
+                        }
+                        if (!string.IsNullOrEmpty(resolvedSho))
+                        {
+                            shoPath = resolvedSho;
+                            _plugin.PluginLog.Info($"[PSD Preview] Resolved shoes to {glvShoKeyword} body type: {shoPath}");
+                        }
+                    }
+                }
+
                 lock (_primarySlots)
                 {
                     _primarySlots.Clear();
