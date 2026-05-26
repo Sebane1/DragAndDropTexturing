@@ -68,11 +68,20 @@ namespace DragAndDropTexturing.Windows
         private float _brushSmoothing = 0.75f;     // stroke stabilizer
         private Vector2 _smoothedMousePos = Vector2.Zero;
         private bool _wasPaintingLastFrame = false;
+        private int _paintGraceFrames = 0; // Prevents stroke reset on brief input flickers
         private int _brushBlendMode = 0;           // 0=Normal, 1=Eraser, 2=Multiply, 3=Screen, 4=Overlay, 5=SoftLight
         private int _targetChannel = 0;            // 0=RGBA, 1=R, 2=G, 3=B, 4=A
         private float _strokeSeed = 0f;            // re-seeded per stroke for noise variation
         private float _strokeDistance = 0f;        // accumulated distance for spacing
         private static readonly Random _rng = new Random();
+
+        // --- Tablet / Pen Pressure ---
+        private DragAndDropTexturing.Input.TabletInput _tabletInput;
+        private bool _pressureAffectsSize = true;
+        private bool _pressureAffectsOpacity = true;
+        private bool _pressureAffectsFlow = false;
+        private float _pressureMinSize = 0.1f;       // minimum size at zero pressure (fraction of brush size)
+        private float _pressureMinOpacity = 0.0f;    // minimum opacity at zero pressure
 
         private enum PaintTool { Brush, Eraser, Fill, Eyedropper, Liquify, Warp }
         private enum PaintShape { Circle, Square }
@@ -282,6 +291,18 @@ namespace DragAndDropTexturing.Windows
             _renderer?.Dispose();
             _renderer = null;
 
+            // Initialize tablet input if not already done
+            if (_tabletInput == null)
+            {
+                try
+                {
+                    var hwnd = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                    if (hwnd != IntPtr.Zero)
+                        _tabletInput = new DragAndDropTexturing.Input.TabletInput(hwnd);
+                }
+                catch { }
+            }
+
             _topModelDiskPath = "";
             _botModelDiskPath = "";
             _activeBaseTexturePng = "";
@@ -464,6 +485,53 @@ namespace DragAndDropTexturing.Windows
                 ImGui.SameLine();
                 ImGui.SetNextItemWidth(120);
                 ImGui.SliderFloat(Translator.LocalizeUI("Smoothing"), ref _brushSmoothing, 0f, 0.99f, "%.2f");
+
+                ImGui.Spacing();
+                ImGui.Separator();
+                bool penDetected = _tabletInput != null && _tabletInput.IsPenActive;
+                bool tabletExists = _tabletInput != null && _tabletInput.TabletDriverDetected;
+                string penLabel;
+                if (penDetected)
+                    penLabel = Translator.LocalizeUI("Pen Pressure") + $" ({_tabletInput.ActiveBackend})";
+                else if (tabletExists)
+                    penLabel = Translator.LocalizeUI("Pen Pressure") + " (Enable 'Windows Ink' in tablet driver)";
+                else
+                    penLabel = Translator.LocalizeUI("Pen Pressure") + " (No tablet detected)";
+                if (penDetected) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.4f, 1f, 0.4f, 1f));
+                else if (tabletExists) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 1f, 0.4f, 1f));
+                ImGui.Text(penLabel);
+                if (penDetected || tabletExists) ImGui.PopStyleColor();
+                if (!penDetected && _tabletInput != null)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton(Translator.LocalizeUI("Detect Pen")))
+                    {
+                        _tabletInput.TryScan();
+                    }
+                }
+
+                ImGui.Checkbox(Translator.LocalizeUI("Pressure → Size"), ref _pressureAffectsSize);
+                ImGui.SameLine();
+                ImGui.Checkbox(Translator.LocalizeUI("Pressure → Opacity"), ref _pressureAffectsOpacity);
+                ImGui.SameLine();
+                ImGui.Checkbox(Translator.LocalizeUI("Pressure → Flow"), ref _pressureAffectsFlow);
+
+                if (_pressureAffectsSize)
+                {
+                    ImGui.SetNextItemWidth(120);
+                    ImGui.SliderFloat(Translator.LocalizeUI("Min Size %"), ref _pressureMinSize, 0f, 1f, "%.0f%%");
+                }
+                if (_pressureAffectsOpacity)
+                {
+                    ImGui.SameLine();
+                    ImGui.SetNextItemWidth(120);
+                    ImGui.SliderFloat(Translator.LocalizeUI("Min Opacity %"), ref _pressureMinOpacity, 0f, 1f, "%.0f%%");
+                }
+
+                if (penDetected)
+                {
+                    ImGui.ProgressBar(_tabletInput.Pressure, new Vector2(200, 14), $"Pressure: {_tabletInput.Pressure:F2}");
+                }
 
                 ImGui.TreePop();
             }
@@ -946,12 +1014,17 @@ namespace DragAndDropTexturing.Windows
                     }
                     _vKeyPressedLastFrame = vKeyPressed;
 
+                    // Poll tablet state each frame
+                    _tabletInput?.Poll();
+
                     if (isHovered || isActive)
                     {
+                        // Always use ImGui mouse pos — tablet driver moves the system cursor
                         var rawMousePos = ImGui.GetMousePos();
+
                         if (isActive && ImGui.IsMouseDown(ImGuiMouseButton.Left) && _floatingLayer == null)
                         {
-                            if (!_wasPaintingLastFrame) 
+                            if (!_wasPaintingLastFrame && _paintGraceFrames <= 0) 
                             {
                                 _smoothedMousePos = rawMousePos;
                                 _renderer.PushUndoSnapshot();
@@ -959,13 +1032,28 @@ namespace DragAndDropTexturing.Windows
                             }
                             else 
                             {
-                                _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - _brushSmoothing);
+                                // Reduce smoothing for pen input — tablets already provide high-res coordinates
+                                bool penDrawing = _tabletInput != null && _tabletInput.IsPenActive && _tabletInput.IsPenDown;
+                                float effectiveSmoothing = penDrawing
+                                    ? _brushSmoothing * 0.3f
+                                    : _brushSmoothing;
+                                _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - effectiveSmoothing);
                             }
                             _wasPaintingLastFrame = true;
+                            _paintGraceFrames = 10; // Reset grace period
                         }
                         else
                         {
-                            _wasPaintingLastFrame = false;
+                            if (_paintGraceFrames > 0)
+                            {
+                                // Grace period — don't reset stroke yet (handles pen input flickers)
+                                _paintGraceFrames--;
+                                _smoothedMousePos = rawMousePos;
+                            }
+                            else
+                            {
+                                _wasPaintingLastFrame = false;
+                            }
                             _smoothedMousePos = rawMousePos;
                         }
                         var mousePos = _smoothedMousePos;
@@ -1509,7 +1597,22 @@ namespace DragAndDropTexturing.Windows
             
             int blendMode = _activeTool == PaintTool.Eraser ? 1 : (_activeTool == PaintTool.Liquify ? 6 : (_activeTool == PaintTool.Warp ? 7 : _brushBlendMode));
             int shapeMode = _activeTool == PaintTool.Fill ? 2 : (_activeShape == PaintShape.Square ? 1 : 0);
-            float finalAlpha = _paintColor.W * _brushOpacity;
+
+            // Auto-switch to eraser if pen eraser end is detected
+            if (_tabletInput != null && _tabletInput.IsEraser && _activeTool == PaintTool.Brush)
+                blendMode = 1;
+
+            // Apply pen pressure
+            float pressure = (_tabletInput != null && _tabletInput.IsPenActive) ? _tabletInput.Pressure : 1.0f;
+            float pressuredOpacity = _brushOpacity;
+            if (_pressureAffectsOpacity && pressure < 1.0f)
+                pressuredOpacity *= MathF.Max(_pressureMinOpacity, pressure);
+
+            float pressuredFlow = _brushFlow;
+            if (_pressureAffectsFlow && pressure < 1.0f)
+                pressuredFlow *= MathF.Max(0.01f, pressure);
+
+            float finalAlpha = _paintColor.W * pressuredOpacity;
 
             // Seed noise per stroke (reset when mouse is first pressed)
             if (!prev.HasValue)
@@ -1519,7 +1622,12 @@ namespace DragAndDropTexturing.Windows
             }
 
             // CPU-side dab loop with spacing
-            float diameter = _brushSize * 2f;
+            // Apply pressure to size
+            float pressuredSize = _brushSize;
+            if (_pressureAffectsSize && pressure < 1.0f)
+                pressuredSize *= MathF.Max(_pressureMinSize, pressure);
+
+            float diameter = pressuredSize * 2f;
             float spacingStep = Math.Max(diameter * _brushSpacing, 0.5f);
             // Convert spacing from pixel to UV space (approximate)
             float texSize = Math.Max(_renderer.PaintTexWidth, _renderer.PaintTexHeight);
@@ -1530,9 +1638,9 @@ namespace DragAndDropTexturing.Windows
                 // Warp tool: Do NOT interpolate into tiny dabs. 
                 // We advect the displacement field once per frame to prevent bilinear blurring destroying the field.
                 _renderer.GpuPaintStroke(
-                    uvHit, prev.Value, _brushSize, _brushHardness,
+                    uvHit, prev.Value, pressuredSize, _brushHardness,
                     new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
-                    blendMode, shapeMode, _brushFlow, _brushAngle,
+                    blendMode, shapeMode, pressuredFlow, _brushAngle,
                     _brushNoiseScale, _brushNoiseAmount, _strokeSeed, _targetChannel);
                 
                 _lastUvHit = uvHit;
@@ -1566,7 +1674,7 @@ namespace DragAndDropTexturing.Windows
                     }
 
                     // Size jitter
-                    float dabRadius = _brushSize;
+                    float dabRadius = pressuredSize;
                     if (_brushSizeJitter > 0.001f)
                     {
                         float jitter = 1f - _brushSizeJitter * (float)_rng.NextDouble();
@@ -1581,7 +1689,7 @@ namespace DragAndDropTexturing.Windows
                     _renderer.GpuPaintStroke(
                         dabPos, dabPrev, dabRadius, _brushHardness,
                         new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
-                        blendMode, shapeMode, _brushFlow, _brushAngle,
+                        blendMode, shapeMode, pressuredFlow, _brushAngle,
                         _brushNoiseScale, _brushNoiseAmount, dabSeed, _targetChannel);
 
                     t += spacingUV;
@@ -1591,14 +1699,14 @@ namespace DragAndDropTexturing.Windows
             else
             {
                 // First dab of a new stroke
-                float dabRadius = _brushSize;
+                float dabRadius = pressuredSize;
                 if (_brushSizeJitter > 0.001f)
                     dabRadius *= (1f - _brushSizeJitter * (float)_rng.NextDouble());
 
                 _renderer.GpuPaintStroke(
                     uvHit, null, dabRadius, _brushHardness,
                     new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
-                    blendMode, shapeMode, _brushFlow, _brushAngle,
+                    blendMode, shapeMode, pressuredFlow, _brushAngle,
                     _brushNoiseScale, _brushNoiseAmount, _strokeSeed, _targetChannel);
             }
 
@@ -1912,6 +2020,9 @@ namespace DragAndDropTexturing.Windows
             var oldLayer = _floatingLayer;
             _floatingLayer = null;
 
+            var oldTablet = _tabletInput;
+            _tabletInput = null;
+
             // Defer DirectX 11 resource disposal by 1 second.
             // This prevents the NVIDIA driver crash (C0000005 in nvwgf2umx.dll)
             // caused by ImGui holding onto the ShaderResourceView pointer 
@@ -1921,6 +2032,7 @@ namespace DragAndDropTexturing.Windows
                 oldRenderer?.Dispose();
                 oldBitmap?.Dispose();
                 oldLayer?.Dispose();
+                oldTablet?.Dispose();
             });
         }
 
