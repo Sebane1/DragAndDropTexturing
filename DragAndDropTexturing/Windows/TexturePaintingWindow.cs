@@ -69,6 +69,7 @@ namespace DragAndDropTexturing.Windows
         private Vector2 _smoothedMousePos = Vector2.Zero;
         private bool _wasPaintingLastFrame = false;
         private int _brushBlendMode = 0;           // 0=Normal, 1=Eraser, 2=Multiply, 3=Screen, 4=Overlay, 5=SoftLight
+        private int _targetChannel = 0;            // 0=RGBA, 1=R, 2=G, 3=B, 4=A
         private float _strokeSeed = 0f;            // re-seeded per stroke for noise variation
         private float _strokeDistance = 0f;        // accumulated distance for spacing
         private static readonly Random _rng = new Random();
@@ -82,6 +83,7 @@ namespace DragAndDropTexturing.Windows
         // Brush Presets
         private int _activePresetIndex = 0;
         private static readonly string[] BlendModeNames = new[] { "Normal", "Eraser", "Multiply", "Screen", "Overlay", "Soft Light" };
+        private static readonly string[] TargetChannelNames = new[] { "RGBA", "Red", "Green", "Blue", "Alpha" };
 
         private struct BrushPreset
         {
@@ -401,6 +403,21 @@ namespace DragAndDropTexturing.Windows
                 {
                     if (ImGui.Selectable(Translator.LocalizeUI(BlendModeNames[i]), i == _brushBlendMode))
                         _brushBlendMode = i;
+                }
+                ImGui.EndCombo();
+            }
+
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(80);
+            if (ImGui.BeginCombo(Translator.LocalizeUI("Channel"), Translator.LocalizeUI(TargetChannelNames[_targetChannel])))
+            {
+                for (int i = 0; i < TargetChannelNames.Length; i++)
+                {
+                    if (ImGui.Selectable(Translator.LocalizeUI(TargetChannelNames[i]), i == _targetChannel))
+                    {
+                        _targetChannel = i;
+                        _needsComposite = true;
+                    }
                 }
                 ImGui.EndCombo();
             }
@@ -1173,7 +1190,7 @@ namespace DragAndDropTexturing.Windows
             // GPU composite every frame (microseconds)
             if (_renderer != null && _gpuPaintInitialized && _needsComposite)
             {
-                _renderer.GpuComposite(_primarySlotArray);
+                _renderer.GpuComposite(_primarySlotArray, _targetChannel);
                 if (_floatingLayer != null && _floatingLayer.SRV != null)
                 {                    if (_floatingLayer.ProjectionMode > 0)
                     {
@@ -1516,7 +1533,7 @@ namespace DragAndDropTexturing.Windows
                     uvHit, prev.Value, _brushSize, _brushHardness,
                     new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
                     blendMode, shapeMode, _brushFlow, _brushAngle,
-                    _brushNoiseScale, _brushNoiseAmount, _strokeSeed);
+                    _brushNoiseScale, _brushNoiseAmount, _strokeSeed, _targetChannel);
                 
                 _lastUvHit = uvHit;
                 _needsComposite = true;
@@ -1565,7 +1582,7 @@ namespace DragAndDropTexturing.Windows
                         dabPos, dabPrev, dabRadius, _brushHardness,
                         new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
                         blendMode, shapeMode, _brushFlow, _brushAngle,
-                        _brushNoiseScale, _brushNoiseAmount, dabSeed);
+                        _brushNoiseScale, _brushNoiseAmount, dabSeed, _targetChannel);
 
                     t += spacingUV;
                     _strokeDistance += spacingStep;
@@ -1582,7 +1599,7 @@ namespace DragAndDropTexturing.Windows
                     uvHit, null, dabRadius, _brushHardness,
                     new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
                     blendMode, shapeMode, _brushFlow, _brushAngle,
-                    _brushNoiseScale, _brushNoiseAmount, _strokeSeed);
+                    _brushNoiseScale, _brushNoiseAmount, _strokeSeed, _targetChannel);
             }
 
             _lastUvHit = uvHit;
@@ -3747,7 +3764,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 }
                 
                 // Initial composite
-                _renderer.GpuComposite(_primarySlotArray);
+                _renderer.GpuComposite(_primarySlotArray, _targetChannel);
                 _needsComposite = false;
             }
             catch (Exception ex)

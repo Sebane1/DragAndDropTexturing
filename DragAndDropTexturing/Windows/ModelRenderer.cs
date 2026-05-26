@@ -79,6 +79,10 @@ namespace DragAndDropTexturing.Windows
             public int TexWidth;         // 4  texture dimensions                      offset 56
             public int TexHeight;        // 4  texture dimensions                      offset 60
             public Vector4 Color;        // 16                                         offset 64
+            public int TargetChannel;    // 4  (0=All, 1=R, 2=G, 3=B, 4=A)             offset 80
+            public int _pad0;
+            public int _pad1;
+            public int _pad2;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -108,8 +112,8 @@ namespace DragAndDropTexturing.Windows
         {
             public int TexWidth;
             public int TexHeight;
+            public int TargetChannel;
             public int _pad0;
-            public int _pad1;
         }
 
         public IntPtr ShaderResourceViewHandle => _shaderResourceView?.NativePointer ?? IntPtr.Zero;
@@ -1168,6 +1172,10 @@ cbuffer BrushParams : register(b0)
     uint TexWidth;     // texture dimensions (replaces GetDimensions for Wine/Linux compat)
     uint TexHeight;
     float4 Color;
+    int TargetChannel;
+    int _pad0;
+    int _pad1;
+    int _pad2;
 };
 RWTexture2D<float4> PaintLayer : register(u0);
 RWTexture2D<float2> DisplacementLayer : register(u1);
@@ -1399,7 +1407,21 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
             float3 outRGB = (outA > 0.001f)
                 ? (brushRGB * alpha + existing.rgb * existing.a * (1.0f - alpha)) / outA
                 : float3(0,0,0);
-            PaintLayer[id.xy] = float4(outRGB, outA);
+                
+            if (TargetChannel == 1)
+                PaintLayer[id.xy] = float4(outRGB.r, existing.g, existing.b, outA);
+            else if (TargetChannel == 2)
+                PaintLayer[id.xy] = float4(existing.r, outRGB.g, existing.b, outA);
+            else if (TargetChannel == 3)
+                PaintLayer[id.xy] = float4(existing.r, existing.g, outRGB.b, outA);
+            else if (TargetChannel == 4)
+            {
+                float brushGray = dot(brushRGB, float3(0.299, 0.587, 0.114));
+                float newA = brushGray * alpha + existing.a * (1.0f - alpha);
+                PaintLayer[id.xy] = float4(existing.rgb, newA);
+            }
+            else
+                PaintLayer[id.xy] = float4(outRGB, outA);
         }
     }
 }";
@@ -1409,6 +1431,8 @@ cbuffer CompositeDims : register(b0)
 {
     uint TexWidth;
     uint TexHeight;
+    int TargetChannel;
+    int _pad0;
 };
 Texture2D<float4> BaseTexture : register(t0);
 Texture2D<float4> PaintTexture : register(t1);
@@ -1453,7 +1477,17 @@ void CSComposite(uint3 id : SV_DispatchThreadID)
     float3 outRGB = (outA > 0.001f)
         ? (paint.rgb * paint.a + baseCol.rgb * baseCol.a * (1.0f - paint.a)) / outA
         : float3(0,0,0);
-    Output[id.xy] = float4(outRGB, outA);
+
+    if (TargetChannel == 1)
+        Output[id.xy] = float4(outRGB.r, outRGB.r, outRGB.r, 1.0f);
+    else if (TargetChannel == 2)
+        Output[id.xy] = float4(outRGB.g, outRGB.g, outRGB.g, 1.0f);
+    else if (TargetChannel == 3)
+        Output[id.xy] = float4(outRGB.b, outRGB.b, outRGB.b, 1.0f);
+    else if (TargetChannel == 4)
+        Output[id.xy] = float4(outA, outA, outA, 1.0f);
+    else
+        Output[id.xy] = float4(outRGB, outA);
 }";
 
         private const string StampShaderCode = @"
@@ -1754,7 +1788,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _baseTexHeight = height;
         }
 
-        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, float hardness, Vector4 color, int blendMode = 0, int shapeMode = 0, float flow = 1.0f, float angle = 0f, float noiseScale = 0f, float noiseAmount = 0f, float seed = 0f)
+        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, float hardness, Vector4 color, int blendMode = 0, int shapeMode = 0, float flow = 1.0f, float angle = 0f, float noiseScale = 0f, float noiseAmount = 0f, float seed = 0f, int targetChannel = 0)
         {
             if (_disposed || !_gpuPaintReady || _context == null) return;
 
@@ -1776,7 +1810,8 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 Seed = seed,
                 TexWidth = _paintTexWidth,
                 TexHeight = _paintTexHeight,
-                Color = color
+                Color = color,
+                TargetChannel = targetChannel
             };
 
             _context.UpdateSubresource(brushParams, _brushCB);
@@ -1967,11 +2002,11 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             }
         }
 
-        public void GpuComposite(string[] slots)
+        public void GpuComposite(string[] slots, int targetChannel = 0)
         {
             if (!_gpuPaintReady || _context == null || _gpuBaseSRV == null) return;
 
-            var dims = new CompositeDims { TexWidth = _paintTexWidth, TexHeight = _paintTexHeight };
+            var dims = new CompositeDims { TexWidth = _paintTexWidth, TexHeight = _paintTexHeight, TargetChannel = targetChannel };
             _context.UpdateSubresource(dims, _compositeCB);
 
             _context.CSSetShader(_compositeCS);
