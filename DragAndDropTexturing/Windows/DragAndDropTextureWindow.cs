@@ -174,8 +174,8 @@ namespace RoleplayingVoice
             }
             else if (uvType == UVMapType.Glow)
             {
-                if (string.IsNullOrEmpty(item.Glow)) { item.Glow = file; item.GlowUV = sourceUV; }
-                else if (!item.GlowOverlays.Contains(file)) { item.GlowOverlays.Add(file); item.GlowOverlayUVs.Add(sourceUV); }
+                if (string.IsNullOrEmpty(item.Glow)) { item.Glow = file; item.GlowUV = sourceUV; item.GlowTint = tint ?? System.Numerics.Vector4.One; }
+                else if (!item.GlowOverlays.Contains(file)) { item.GlowOverlays.Add(file); item.GlowOverlayUVs.Add(sourceUV); item.GlowOverlayTints.Add(tint ?? System.Numerics.Vector4.One); }
             }
         }
 
@@ -214,7 +214,7 @@ namespace RoleplayingVoice
 
                         if (!string.IsNullOrEmpty(maskPath))
                         {
-                            string memoryPath = "memory://" + maskPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked";
+                            string memoryPath = "memory://" + maskPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked_grayscale";
                             if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
                             {
                                 var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(maskPath);
@@ -222,7 +222,10 @@ namespace RoleplayingVoice
                                 {
                                     using (System.Drawing.Bitmap merged = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.MergeAlphaChannelToRGBGpuFromPaths(maskPath, diffusePath, dims.Width, dims.Height, false))
                                     {
-                                        FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveMemoryBitmap(merged, memoryPath);
+                                        using (System.Drawing.Bitmap grayscale = FFXIVLooseTextureCompiler.ImageProcessing.Grayscale.MakeGrayscale(merged))
+                                        {
+                                            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveMemoryBitmap(grayscale, memoryPath);
+                                        }
                                     }
                                 }
                             }
@@ -237,6 +240,12 @@ namespace RoleplayingVoice
                         tintColor = savedTint;
                     }
 
+                    System.Numerics.Vector4 glowTintColor = new System.Numerics.Vector4(0, 0, 0, 1f);
+                    if (overlayKey != null && plugin.Configuration.PenumbraOverlayGlowTints.TryGetValue(overlayKey, out var savedGlowTint))
+                    {
+                        glowTintColor = savedGlowTint;
+                    }
+
                     if (!string.IsNullOrEmpty(diffusePath))
                     {
                         if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = tintColor; }
@@ -249,8 +258,8 @@ namespace RoleplayingVoice
                     }
                     if (!string.IsNullOrEmpty(maskPath))
                     {
-                        if (string.IsNullOrEmpty(item.Mask)) { item.Mask = maskPath; item.MaskUV = activeOverlay.UVType; }
-                        else if (!item.MaskOverlays.Contains(maskPath)) { item.MaskOverlays.Add(maskPath); item.MaskOverlayUVs.Add(activeOverlay.UVType); }
+                        if (string.IsNullOrEmpty(item.Glow)) { item.Glow = maskPath; item.GlowUV = activeOverlay.UVType; item.GlowTint = glowTintColor; }
+                        else if (!item.GlowOverlays.Contains(maskPath)) { item.GlowOverlays.Add(maskPath); item.GlowOverlayUVs.Add(activeOverlay.UVType); item.GlowOverlayTints.Add(glowTintColor); }
                     }
                 }
             }

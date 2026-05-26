@@ -513,12 +513,13 @@ public class MainWindow : Window, IDisposable
         bool changed = false;
         string rebuildCategory = null;
 
-        if (ImGui.BeginTable("PenumbraFoundModsTable", 4, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        if (ImGui.BeginTable("PenumbraFoundModsTable", 5, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {
             ImGui.TableSetupColumn(Translator.LocalizeUI("Part"), ImGuiTableColumnFlags.WidthFixed, 100);
             ImGui.TableSetupColumn(Translator.LocalizeUI("UV Type"), ImGuiTableColumnFlags.WidthFixed, 80);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Tint"), ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Emissive"), ImGuiTableColumnFlags.WidthFixed, 80);
             ImGui.TableHeadersRow();
 
             for (int i = 0; i < overlays.Count; i++)
@@ -568,6 +569,27 @@ public class MainWindow : Window, IDisposable
                         Plugin.Configuration.PenumbraOverlayTints[overlayKey] = col;
                         Plugin.Configuration.Save();
                     }
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Base Color Tint"));
+                    if (ImGui.IsItemDeactivatedAfterEdit())
+                    {
+                        _pendingTintRebuildCategory = overlay.TargetBodyPart;
+                    }
+
+                    ImGui.TableNextColumn();
+                    Vector4 glowCol = new Vector4(0, 0, 0, 1f);
+                    if (Plugin.Configuration.PenumbraOverlayGlowTints.TryGetValue(overlayKey, out var savedGlowCol))
+                    {
+                        glowCol = savedGlowCol;
+                    }
+
+                    ImGui.SetNextItemWidth(60);
+                    if (ImGui.ColorEdit4($"##overlayglowtint_{i}", ref glowCol, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoAlpha))
+                    {
+                        glowCol.W = 1.0f;
+                        Plugin.Configuration.PenumbraOverlayGlowTints[overlayKey] = glowCol;
+                        Plugin.Configuration.Save();
+                    }
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Glow Mask Tint"));
                     if (ImGui.IsItemDeactivatedAfterEdit())
                     {
                         _pendingTintRebuildCategory = overlay.TargetBodyPart;
@@ -575,6 +597,8 @@ public class MainWindow : Window, IDisposable
                 }
                 else
                 {
+                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "N/A");
+                    ImGui.TableNextColumn();
                     ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "N/A");
                 }
             }
