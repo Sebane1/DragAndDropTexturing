@@ -252,7 +252,6 @@ namespace DragAndDropTexturing
         private void OnSoundPlayed(string path)
         {
             if (string.IsNullOrEmpty(path)) return;
-            _plugin.PluginLog.Information($"[Contextual Layers] Sound detected: {path}");
             foreach (var layer in ContextualLayers.Where(l => l.Enabled))
             {
                 if (layer.Trigger == TriggerType.Audio_Path_Load && !string.IsNullOrEmpty(layer.AudioTriggerPath))
@@ -713,7 +712,7 @@ namespace DragAndDropTexturing
             var existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
             if (existing != null)
             {
-                _plugin.PluginLog.Information($"[Contextual Layers] '{layer.Name}' is already active. Processing stack increment or timer refresh...");
+                _plugin.PluginLog.Debug($"[Contextual Layers] '{layer.Name}' is already active. Processing stack increment or timer refresh...");
                 existing.Timer.Restart();
                 if (layer.Trigger == TriggerType.Emote || layer.Trigger == TriggerType.Chat_Message)
                 {

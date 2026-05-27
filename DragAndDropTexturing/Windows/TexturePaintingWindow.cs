@@ -2689,7 +2689,7 @@ namespace DragAndDropTexturing.Windows
                 // Resolve glv/sho to match the body type being edited, not the body being worn.
                 // _targetKeyword is set from EditSourcePath (e.g. "bibo" when editing a Bibo texture).
                 // Falls back to _cachedActiveBodyType for new-layer mode where there's no EditSourcePath.
-                if (!isGear)
+                if (!isGear && !isFaceEditLocal)
                 {
                     string glvShoKeyword = _targetKeyword;
                     if (string.IsNullOrEmpty(glvShoKeyword))

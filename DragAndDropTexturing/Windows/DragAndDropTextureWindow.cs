@@ -2146,6 +2146,15 @@ namespace RoleplayingVoice
                     // Give the Task.Run inside RebuildCategory time to start and set the lock
                     Thread.Sleep(500);
                 }
+
+                // Wait for the last rebuild to finish, then refresh Penumbra Found Mods
+                int finalWait = 0;
+                while (_lockDuplicateGeneration && finalWait < 60)
+                {
+                    Thread.Sleep(1000);
+                    finalWait++;
+                }
+                RefreshActiveOverrides();
             }
             catch (Exception e)
             {
@@ -2360,6 +2369,18 @@ namespace RoleplayingVoice
                         RebuildCategory(key, hideProgressUI);
                         if (!skipDelays) Thread.Sleep(500);
                     }
+
+                    // Wait for the last rebuild to finish before refreshing overrides
+                    int finalWait = 0;
+                    while (_lockDuplicateGeneration && finalWait < 60)
+                    {
+                        Thread.Sleep(1000);
+                        finalWait++;
+                    }
+
+                    // Refresh the Penumbra Found Mods / ActiveBodyOverrides after rebuilds
+                    // so the UI and subsequent exports reflect the new race's mods
+                    RefreshActiveOverrides();
                 }, null, skipDelays ? 200 : 2000, System.Threading.Timeout.Infinite);
             }
         }
@@ -3510,6 +3531,31 @@ namespace RoleplayingVoice
 
                                 plugin.PluginLog.Info($"[Drag And Drop Texturing] Deleted/disabled empty clothing mod: {localModName}");
                                 PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(character.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                                return;
+                            }
+                            else if (categoryKey.EndsWith("_eyes") || categoryKey.EndsWith("_eyebrows"))
+                            {
+                                // No layers assigned — skip export entirely so the vanilla eye/eyebrow
+                                // textures aren't replaced with a transparent image.
+                                localModName = localModName.Replace("Mod", categoryModName);
+                                string disableModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
+
+                                try
+                                {
+                                    PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, localModName, false, localModName);
+                                }
+                                catch { }
+
+                                if (Directory.Exists(disableModPath))
+                                {
+                                    try { Directory.Delete(disableModPath, true); } catch { }
+                                }
+
+                                try { PenumbraAndGlamourerIpcWrapper.Instance.DeleteMod.Invoke(localModName, localModName); }
+                                catch { try { PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(localModName, ""); } catch { } }
+
+                                plugin.PluginLog.Info($"[Drag And Drop Texturing] No layers for {categoryModName} — skipped export to preserve vanilla textures.");
+                                _isRegenerationPending = false;
                                 return;
                             }
                             else
