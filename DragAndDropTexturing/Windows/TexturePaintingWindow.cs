@@ -12,12 +12,14 @@ using Dalamud.Bindings.ImGui;
 using PenumbraAndGlamourerHelpers;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Tiff;
+using Dalamud.Game.ClientState.Objects.Types;
 
 namespace DragAndDropTexturing.Windows
 {
     public class TexturePaintingWindow : Window, IDisposable
     {
         private readonly Plugin _plugin;
+        private ICharacter targetCharacter;
         private string _tempDir;
         private readonly Dalamud.Interface.ImGuiFileDialog.FileDialogManager _fileDialogManager = new();
         
@@ -262,6 +264,9 @@ namespace DragAndDropTexturing.Windows
                     : ImGuiWindowFlags.NoScrollbar;
             }
         }
+
+        public ICharacter TargetCharacter { get => targetCharacter; set => targetCharacter = value; }
+
         private static readonly Random _proceduralRng = new Random();
 
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
@@ -1771,12 +1776,20 @@ namespace DragAndDropTexturing.Windows
             }
 
             string sourcePath = _activeBaseTexturePng;
-            string charName = _plugin.SafeGameObjectManager.LocalPlayer?.Name?.TextValue ?? "";
+            string charName = targetCharacter?.Name?.TextValue ?? "";
 
             Task.Run(() =>
             {
                 try
                 {
+                    var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(targetCharacter.ObjectIndex);
+                    var collectionId = collection.EffectiveCollection.Id.ToString();
+                    if (!_plugin.DragAndDropTextures.TextureCollectionHistory.ContainsKey(collectionId))
+                    {
+                        _plugin.DragAndDropTextures.TextureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                    }
+                    var textureHistory = _plugin.DragAndDropTextures.TextureCollectionHistory[collectionId];
+                    var textureHistoryTints = _plugin.DragAndDropTextures.TextureCollectionHistoryTints[collectionId];
                     // Copy the underlay to SavedOverlays
                     string importDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
                     if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
@@ -1785,16 +1798,16 @@ namespace DragAndDropTexturing.Windows
                     _plugin.PluginLog.Info($"[Texture Painter] Exported underlay to: {destPath}");
 
                     // Add to texture history
-                    if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(contextKey))
+                    if (!textureHistory.ContainsKey(contextKey))
                     {
-                        _plugin.DragAndDropTextures.TextureHistory[contextKey] = new List<string>();
-                        _plugin.DragAndDropTextures.TextureHistoryTints[contextKey] = new List<System.Numerics.Vector4>();
+                        textureHistory[contextKey] = new List<string>();
+                        textureHistoryTints[contextKey] = new List<System.Numerics.Vector4>();
                     }
-                    if (!_plugin.DragAndDropTextures.TextureHistory[contextKey].Contains(destPath))
+                    if (!textureHistory[contextKey].Contains(destPath))
                     {
                         // Insert at position 0 so the underlay is the bottom-most layer
-                        _plugin.DragAndDropTextures.TextureHistory[contextKey].Insert(0, destPath);
-                        _plugin.DragAndDropTextures.TextureHistoryTints[contextKey].Insert(0, System.Numerics.Vector4.One);
+                        textureHistory[contextKey].Insert(0, destPath);
+                        textureHistoryTints[contextKey].Insert(0, System.Numerics.Vector4.One);
                     }
 
                     // Cache gear metadata if needed
@@ -1947,16 +1960,24 @@ namespace DragAndDropTexturing.Windows
                                 _plugin.PluginLog.Info($"[Texture Painter COMMIT] New layer path. ContextCategoryKey={contextKey}, targetName={targetChar.Name.TextValue}, startsWith={contextKey?.StartsWith(targetChar.Name.TextValue)}, IsMinion={cachedIsMinion}");
                                 if (!string.IsNullOrEmpty(contextKey) && contextKey.StartsWith(targetChar.Name.TextValue))
                                 {
-                                    _plugin.PluginLog.Info($"[Texture Painter] Appending new layer precisely to {contextKey}");
-                                    if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(contextKey))
+                                    var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(targetCharacter.ObjectIndex);
+                                    var collectionId = collection.EffectiveCollection.Id.ToString();
+                                    if (!_plugin.DragAndDropTextures.TextureCollectionHistory.ContainsKey(collectionId))
                                     {
-                                        _plugin.DragAndDropTextures.TextureHistory[contextKey] = new List<string>();
-                                        _plugin.DragAndDropTextures.TextureHistoryTints[contextKey] = new List<System.Numerics.Vector4>();
+                                        _plugin.DragAndDropTextures.TextureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
                                     }
-                                    if (!_plugin.DragAndDropTextures.TextureHistory[contextKey].Contains(outPath))
+                                    var textureHistory = _plugin.DragAndDropTextures.TextureCollectionHistory[collectionId];
+                                    var textureHistoryTints = _plugin.DragAndDropTextures.TextureCollectionHistoryTints[collectionId];
+                                    _plugin.PluginLog.Info($"[Texture Painter] Appending new layer precisely to {contextKey}");
+                                    if (!textureHistory.ContainsKey(contextKey))
                                     {
-                                        _plugin.DragAndDropTextures.TextureHistory[contextKey].Add(outPath);
-                                        _plugin.DragAndDropTextures.TextureHistoryTints[contextKey].Add(System.Numerics.Vector4.One);
+                                        textureHistory[contextKey] = new List<string>();
+                                        textureHistoryTints[contextKey] = new List<System.Numerics.Vector4>();
+                                    }
+                                    if (!textureHistory [contextKey].Contains(outPath))
+                                    {
+                                        textureHistory[contextKey].Add(outPath);
+                                        textureHistoryTints[contextKey].Add(System.Numerics.Vector4.One);
                                     }
                                     _plugin.Configuration.Save();
                                     

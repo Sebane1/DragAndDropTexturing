@@ -1,42 +1,39 @@
+using Dalamud.Bindings.ImGui;
+using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Interface.DragDrop;
+using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
-using Dalamud.Bindings.ImGui;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Drawing.Imaging;
-using System.Drawing;
-using System.IO;
-using System.Linq;
-using System.Numerics;
-using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
-using System.IO.Compression;
-using System.Net.Http;
-using Vector2 = System.Numerics.Vector2;
-using Vector3 = System.Numerics.Vector3;
-using FFXIVLooseTextureCompiler;
-using FFXIVLooseTextureCompiler.PathOrganization;
-using Dalamud.Game.ClientState.Objects.Enums;
-using Dalamud.Interface.Utility;
-using FFXIVLooseTextureCompiler.Racial;
-using PenumbraAndGlamourerHelpers;
-using Ktisis.Structs;
-using Ktisis.Structs.Actor;
-using Bone = Ktisis.Structs.Bones.Bone;
-using FFXIVLooseTextureCompiler.ImageProcessing;
-using FFXIVLooseTextureCompiler.Export;
-using ICharacter = Dalamud.Game.ClientState.Objects.Types.ICharacter;
-using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Plugin.Services;
-using static FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation;
 using DragAndDropTexturing;
 using DragAndDropTexturing.Equipment;
 using DragAndDropTexturing.LanguageHelpers;
+using FFXIVLooseTextureCompiler;
+using FFXIVLooseTextureCompiler.Export;
+using FFXIVLooseTextureCompiler.ImageProcessing;
+using FFXIVLooseTextureCompiler.PathOrganization;
+using FFXIVLooseTextureCompiler.Racial;
+using Ktisis.Structs;
+using Ktisis.Structs.Actor;
 using LooseTextureCompilerCore.ProjectCreation;
+using PenumbraAndGlamourerHelpers;
 using PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Net.Http;
+using System.Numerics;
+using System.Threading;
+using System.Threading.Tasks;
+using static FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation;
+using Bone = Ktisis.Structs.Bones.Bone;
+using ICharacter = Dalamud.Game.ClientState.Objects.Types.ICharacter;
+using Vector2 = System.Numerics.Vector2;
+using Vector3 = System.Numerics.Vector3;
 namespace RoleplayingVoice
 {
     internal class DragAndDropTextureWindow : Window, IDisposable
@@ -91,10 +88,9 @@ namespace RoleplayingVoice
 
         List<string> _alreadyAddedBoneList = new List<string>();
         List<Tuple<string, float>> boneSorting = new List<Tuple<string, float>>();
-        private Dictionary<string, List<string>> _textureHistory = new Dictionary<string, List<string>>();
-        private Dictionary<string, List<System.Numerics.Vector4>> _textureHistoryTints = new Dictionary<string, List<System.Numerics.Vector4>>();
-        public Dictionary<string, List<string>> TextureHistory { get => _textureHistory; set => _textureHistory = value; }
-        public Dictionary<string, List<System.Numerics.Vector4>> TextureHistoryTints { get => _textureHistoryTints; set => _textureHistoryTints = value; }
+        private Dictionary<string, Dictionary<string, List<string>>> _textureCollectionHistory;
+        private Dictionary<string, Dictionary<string, List<Vector4>>> _textureCollectionHistoryTints;
+
         private readonly Dictionary<string, WornEquipmentPiece> _gearCategoryMeta = new();
         public Dictionary<string, WornEquipmentPiece> GearCategoryMeta { get => _gearCategoryMeta; }
         public List<WornEquipmentPiece> CachedWornGear { get; private set; } = new();
@@ -282,26 +278,28 @@ namespace RoleplayingVoice
                     watcher.Dispose();
                 }
                 _fileWatchers.Clear();
-
-                foreach (var kvp in _textureHistory)
+                foreach (var textureHistoryCollection in _textureCollectionHistory)
                 {
-                    string category = kvp.Key;
-                    foreach (var file in kvp.Value)
+                    foreach (var textureHistoryItem in textureHistoryCollection.Value)
                     {
-                        if (System.IO.File.Exists(file))
+                        string category = textureHistoryItem.Key;
+                        foreach (var file in textureHistoryItem.Value)
                         {
-                            string dir = System.IO.Path.GetDirectoryName(file);
-                            if (string.IsNullOrEmpty(dir)) continue;
-
-                            string watcherKey = dir.ToLowerInvariant();
-                            if (!_fileWatchers.TryGetValue(watcherKey, out var watcher))
+                            if (File.Exists(file))
                             {
-                                watcher = new System.IO.FileSystemWatcher();
-                                watcher.Path = dir;
-                                watcher.NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.Size;
-                                watcher.Changed += FileWatcher_Changed;
-                                watcher.EnableRaisingEvents = true;
-                                _fileWatchers[watcherKey] = watcher;
+                                string dir = Path.GetDirectoryName(file);
+                                if (string.IsNullOrEmpty(dir)) continue;
+
+                                string watcherKey = dir.ToLowerInvariant();
+                                if (!_fileWatchers.TryGetValue(watcherKey, out var watcher))
+                                {
+                                    watcher = new System.IO.FileSystemWatcher();
+                                    watcher.Path = dir;
+                                    watcher.NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.Size;
+                                    watcher.Changed += FileWatcher_Changed;
+                                    watcher.EnableRaisingEvents = true;
+                                    _fileWatchers[watcherKey] = watcher;
+                                }
                             }
                         }
                     }
@@ -318,14 +316,17 @@ namespace RoleplayingVoice
 
             lock (_watcherLock)
             {
-                foreach (var kvp in _textureHistory)
+                foreach (var textureCollectionHistory in _textureCollectionHistory)
                 {
-                    foreach (var file in kvp.Value)
+                    foreach (var textureHistoryItem in textureCollectionHistory.Value)
                     {
-                        if (file.Equals(e.FullPath, StringComparison.OrdinalIgnoreCase))
+                        foreach (var file in textureHistoryItem.Value)
                         {
-                            categoriesToRebuild.Add(kvp.Key);
-                            triggered = true;
+                            if (file.Equals(e.FullPath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                categoriesToRebuild.Add(textureHistoryItem.Key);
+                                triggered = true;
+                            }
                         }
                     }
                 }
@@ -353,50 +354,24 @@ namespace RoleplayingVoice
                 plugin = value;
                 if (plugin != null)
                 {
-                    _textureHistory = plugin.Configuration.TextureHistory;
-                    _textureHistoryTints = plugin.Configuration.TextureHistoryTints;
-                    if (_textureHistoryTints == null)
+                    _textureCollectionHistory = plugin.Configuration.CollectionSortedTextureHistory;
+                    _textureCollectionHistoryTints = plugin.Configuration.CollectionSortedTextureHistoryTints;
+                    foreach (var textureCollectionHistoryKey in _textureCollectionHistory.Keys)
                     {
-                        _textureHistoryTints = new Dictionary<string, List<System.Numerics.Vector4>>();
-                        plugin.Configuration.TextureHistoryTints = _textureHistoryTints;
-                    }
-                    foreach (var key in _textureHistory.Keys)
-                    {
-                        if (!_textureHistoryTints.ContainsKey(key))
+                        foreach (var textureHistoryKey in _textureCollectionHistory[textureCollectionHistoryKey].Keys)
                         {
-                            _textureHistoryTints[key] = new List<System.Numerics.Vector4>();
-                            for (int i = 0; i < _textureHistory[key].Count; i++)
+                            var textureHistoryTints = _textureCollectionHistoryTints[textureCollectionHistoryKey];
+                            var textureHistory = _textureCollectionHistory[textureCollectionHistoryKey];
+                            if (!textureHistoryTints.ContainsKey(textureHistoryKey))
                             {
-                                _textureHistoryTints[key].Add(System.Numerics.Vector4.One);
+                                textureHistoryTints[textureHistoryKey] = new List<Vector4>();
+                                for (int i = 0; i < textureHistory[textureHistoryKey].Count; i++)
+                                {
+                                    textureHistoryTints[textureHistoryKey].Add(Vector4.One);
+                                }
                             }
                         }
                     }
-                    var oldKeys = _textureHistory.Keys.Where(k => k.EndsWith("_gen2") || k.EndsWith("_bibo") || k.EndsWith("_gen3") || k.EndsWith("_tbse") || k.EndsWith("_otopop") || k.EndsWith("fallback_Body")).ToList();
-                    bool migrated = false;
-                    foreach (var key in oldKeys)
-                    {
-                        string newKey = key.Substring(0, key.LastIndexOf('_')) + "_body";
-                        if (key.EndsWith("fallback_Body")) newKey = key.Replace("fallback_Body", "body");
-
-                        if (!_textureHistory.ContainsKey(newKey))
-                        {
-                            _textureHistory[newKey] = new List<string>();
-                            _textureHistoryTints[newKey] = new List<System.Numerics.Vector4>();
-                        }
-                        _textureHistory[newKey].AddRange(_textureHistory[key]);
-                        if (_textureHistoryTints.ContainsKey(key))
-                        {
-                            _textureHistoryTints[newKey].AddRange(_textureHistoryTints[key]);
-                            _textureHistoryTints.Remove(key);
-                        }
-                        else
-                        {
-                            for (int i = 0; i < _textureHistory[key].Count; i++) _textureHistoryTints[newKey].Add(System.Numerics.Vector4.One);
-                        }
-                        _textureHistory.Remove(key);
-                        migrated = true;
-                    }
-                    if (migrated) plugin.Configuration.Save();
 
                     Task.Run(async () =>
                     {
@@ -408,10 +383,35 @@ namespace RoleplayingVoice
 
                         // Trigger initial rebuild if player is already logged in with existing texture history
                         TryInitialRebuild();
+
+                        while (Plugin.SafeGameObjectManager.LocalPlayer == null)
+                        {
+                            Thread.Sleep(100);
+                        }
+                        if (plugin.Configuration.TextureHistory != null)
+                        {
+                            var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+                            var collectionId = collection.EffectiveCollection.Id.ToString();
+                            if (!_textureCollectionHistory.ContainsKey(collectionId))
+                            {
+                                _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                            }
+                            _textureCollectionHistory[collectionId] = plugin.Configuration.TextureHistory;
+                            _textureCollectionHistoryTints[collectionId] = plugin.Configuration.TextureHistoryTints;
+                            if (_textureCollectionHistoryTints[collectionId] == null)
+                            {
+                                _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+                            }
+                            plugin.Configuration.TextureHistory = null;
+                            plugin.Configuration.TextureHistoryTints = null;
+                        }
                     });
                 }
             }
         }
+
+        public Dictionary<string, Dictionary<string, List<string>>> TextureCollectionHistory { get => _textureCollectionHistory; set => _textureCollectionHistory = value; }
+        public Dictionary<string, Dictionary<string, List<Vector4>>> TextureCollectionHistoryTints { get => _textureCollectionHistoryTints; set => _textureCollectionHistoryTints = value; }
 
         private async Task CheckAndDownloadDLC()
         {
@@ -608,7 +608,10 @@ namespace RoleplayingVoice
                 try
                 {
                     string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
-                    var charKeys = _textureHistory.Keys.Where(k => k.StartsWith(charName + "_") && _textureHistory[k].Count > 0).ToList();
+                    var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+                    var collectionId = collection.EffectiveCollection.Id.ToString();
+                    var textureHistory = _textureCollectionHistory[collectionId];
+                    var charKeys = textureHistory.Keys.Where(k => k.StartsWith(charName + "_") && textureHistory[k].Count > 0).ToList();
 
                     if (charKeys.Count > 0)
                     {
@@ -659,7 +662,7 @@ namespace RoleplayingVoice
             if (preset != null)
             {
                 plugin.PluginLog.Information($"[Drag And Drop Texturing] Auto-loading preset '{preset.Name}' for job {newJobId}.");
-                plugin.MainWindow.ApplyPreset(preset);
+                plugin.MainWindow.ApplyPreset(preset, Plugin.SafeGameObjectManager.LocalPlayer);
             }
         }
 
@@ -1098,9 +1101,10 @@ namespace RoleplayingVoice
                                 try
                                 {
                                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(selectedPlayer.Value.ObjectIndex).Item3.Id;
+                                    string collectionId = collection.ToString();
                                     PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, _currentCustomization.Customize.Gender.Value, _currentCustomization.Customize.Clan.Value - 1, plugin);
 
-                                    HashSet<string> droppedCategories = new HashSet<string>();
+                                    HashSet<string> dragAndDroppedCategories = new HashSet<string>();
                                     var psdFiles = files.Where(f => Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
                                     var clmpFiles = files.Where(f => Path.GetExtension(f).Equals(".clmp", StringComparison.OrdinalIgnoreCase)).ToList();
                                     files = files.Where(f => !Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -1256,14 +1260,14 @@ namespace RoleplayingVoice
                                             }
                                         }
 
-                                        droppedCategories.Add(categoryKey);
+                                        dragAndDroppedCategories.Add(categoryKey);
                                     }
 
                                     if (!plugin.Configuration.EnableTextureStacking)
                                     {
-                                        foreach (var cat in droppedCategories)
+                                        foreach (var dragAndDroppedCategory in dragAndDroppedCategories)
                                         {
-                                            _textureHistory[cat] = new List<string>();
+                                            _textureCollectionHistory[collectionId][dragAndDroppedCategory] = new List<string>();
                                         }
                                     }
 
@@ -1379,24 +1383,32 @@ namespace RoleplayingVoice
                                                 continue; // They cancelled the popup
                                             }
                                         }
-
-                                        if (!_textureHistory.ContainsKey(categoryKey))
+                                        if (!_textureCollectionHistory.ContainsKey(collectionId))
                                         {
-                                            _textureHistory[categoryKey] = new List<string>();
-                                            _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
+                                            _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
                                         }
-                                        _textureHistory[categoryKey].Add(f);
-                                        _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
-                                        droppedCategories.Add(categoryKey);
+                                        if (!_textureCollectionHistory[collectionId].ContainsKey(categoryKey))
+                                        {
+                                            _textureCollectionHistory[collectionId][categoryKey] = new List<string>();
+                                            _textureCollectionHistoryTints[collectionId][categoryKey] = new List<System.Numerics.Vector4>();
+                                        }
+                                        _textureCollectionHistory[collectionId][categoryKey].Add(f);
+                                        _textureCollectionHistoryTints[collectionId][categoryKey].Add(System.Numerics.Vector4.One);
+                                        dragAndDroppedCategories.Add(categoryKey);
                                         Plugin.Configuration.Save();
                                         UpdateWatchers();
                                     }
 
                                     int effectiveRace = RaceInfo.SubRaceToMainRace(_currentCustomization.Customize.Clan.Value - 1);
 
-                                    foreach (var categoryKey in droppedCategories)
+                                    if (!_textureCollectionHistory.ContainsKey(collectionId))
                                     {
-                                        if (!_textureHistory.ContainsKey(categoryKey) || _textureHistory[categoryKey].Count == 0) continue;
+                                        _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                                    }
+                                    foreach (var categoryKey in dragAndDroppedCategories)
+                                    {
+                                        if (!_textureCollectionHistory[collectionId].ContainsKey(categoryKey)
+                                        || _textureCollectionHistory[collectionId][categoryKey].Count == 0) continue;
 
                                         // Minion categories go through the dedicated minion rebuild pipeline
                                         if (categoryKey.Contains("_minion_"))
@@ -1417,8 +1429,11 @@ namespace RoleplayingVoice
                                             ScheduleRegeneration(charName, new[] { suffix }, true, false);
                                             continue;
                                         }
-
-                                        string lastFile = _textureHistory[categoryKey].First();
+                                        if (!_textureCollectionHistory.ContainsKey(collectionId))
+                                        {
+                                            _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                                        }
+                                        string lastFile = _textureCollectionHistory[collectionId][categoryKey].First();
                                         TextureSet item = null;
                                         string categoryModName = "";
                                         string overrideType = "";
@@ -1542,10 +1557,20 @@ namespace RoleplayingVoice
                                         if (item != null)
                                         {
                                             ApplyDefaultSkinType(item);
-                                            for (int _i = 0; _i < _textureHistory[categoryKey].Count; _i++)
+                                            if (!_textureCollectionHistory.ContainsKey(collectionId))
                                             {
-                                                string f = _textureHistory[categoryKey][_i];
-                                                System.Numerics.Vector4? t = _textureHistoryTints.ContainsKey(categoryKey) && _i < _textureHistoryTints[categoryKey].Count ? _textureHistoryTints[categoryKey][_i] : null;
+                                                _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                                            }
+                                            if (!_textureCollectionHistoryTints.ContainsKey(collectionId))
+                                            {
+                                                _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+                                            }
+                                            var textureHistory = _textureCollectionHistory[collectionId];
+                                            var textureTintHistory = _textureCollectionHistoryTints[collectionId];
+                                            for (int _i = 0; _i < _textureCollectionHistory[collectionId].Count; _i++)
+                                            {
+                                                string f = textureHistory[categoryKey][_i];
+                                                System.Numerics.Vector4? t = textureTintHistory.ContainsKey(categoryKey) && _i < textureTintHistory[categoryKey].Count ? textureTintHistory[categoryKey][_i] : null;
                                                 AddToTextureSet(item, f, overrideType, t);
                                             }
                                             // Composite active contextual layers on top of drag-and-drop textures
@@ -1579,7 +1604,7 @@ namespace RoleplayingVoice
                                         }
                                     }
 
-                                    if (textureSets.Count == 0 && !droppedCategories.Any(c => c.Contains("_minion_")))
+                                    if (textureSets.Count == 0 && !dragAndDroppedCategories.Any(c => c.Contains("_minion_")))
                                     {
                                         Plugin.Framework.RunOnFrameworkThread(() =>
                                         {
@@ -2090,12 +2115,17 @@ namespace RoleplayingVoice
                         plugin?.PluginLog?.Information($"[Drag And Drop Debug] Penumbra IPC not available yet (attempt {attempt + 1}/5)");
                     }
                 }
-
-                if (!penumbraReady) return;
-                if (_textureHistory.Count == 0) return;
-
                 string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
-                var charKeys = _textureHistory.Keys.Where(k => k.StartsWith(charName + "_") && _textureHistory[k].Count > 0).ToList();
+                var playerCollectionResult = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+                var collectionId = playerCollectionResult.EffectiveCollection.Id.ToString();
+                if (!penumbraReady) return;
+                if (!_textureCollectionHistory.ContainsKey(collectionId))
+                {
+                    _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                }
+                if (_textureCollectionHistory[collectionId].Count == 0) return;
+
+                var charKeys = _textureCollectionHistory[collectionId].Keys.Where(k => k.StartsWith(charName + "_") && _textureCollectionHistory[collectionId].Count > 0).ToList();
                 if (charKeys.Count == 0) return;
 
                 // Snapshot the current customization
@@ -2325,14 +2355,20 @@ namespace RoleplayingVoice
                 foreach (var suffix in categorySuffixes)
                 {
                     string key = charName + suffix;
-                    if (_textureHistory.ContainsKey(key))
+                    var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+                    var collectionId = collection.EffectiveCollection.Id.ToString();
+                    if (!_textureCollectionHistory.ContainsKey(collectionId))
+                    {
+                        _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                    }
+                    if (_textureCollectionHistory[collectionId].ContainsKey(key))
                     {
                         _pendingRegenerationCategories.Add(key);
                         plugin.PluginLog.Info($"[ScheduleRegeneration] Added pending key: {key}");
                     }
                     else
                     {
-                        plugin.PluginLog.Warning($"[ScheduleRegeneration] Key NOT found in history: {key} (history has {_textureHistory.Count} keys: [{string.Join(", ", _textureHistory.Keys)}])");
+                        plugin.PluginLog.Warning($"[ScheduleRegeneration] Key NOT found in history: {key} (history has {_textureCollectionHistory[collectionId].Count} keys: [{string.Join(", ", _textureCollectionHistory[collectionId].Keys)}])");
                     }
                 }
 
@@ -2528,29 +2564,41 @@ namespace RoleplayingVoice
                         }
                     }
 
-                    if (!_textureHistory.ContainsKey(categoryKey))
+                    var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+                    var collectionId = collection.EffectiveCollection.Id.ToString();
+                    if (!_textureCollectionHistory.ContainsKey(collectionId))
                     {
-                        _textureHistory[categoryKey] = new List<string>();
+                        _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
                     }
-                    if (!_textureHistoryTints.ContainsKey(categoryKey))
+                    if (!_textureCollectionHistoryTints.ContainsKey(collectionId))
                     {
-                        _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
-                        for (int h = 0; h < _textureHistory[categoryKey].Count; h++)
+                        _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+                    }
+                    var textureHistory = _textureCollectionHistory[collectionId];
+                    var textureHistoryTints = _textureCollectionHistoryTints[collectionId];
+                    if (!textureHistory.ContainsKey(categoryKey))
+                    {
+                        textureHistory[categoryKey] = new List<string>();
+                    }
+                    if (!textureHistoryTints.ContainsKey(categoryKey))
+                    {
+                        textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
+                        for (int h = 0; h < textureHistory[categoryKey].Count; h++)
                         {
-                            _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
+                            textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
                         }
                     }
 
                     if (!plugin.Configuration.EnableTextureStacking && !droppedCategories.Contains(categoryKey))
                     {
-                        _textureHistory[categoryKey].Clear();
-                        _textureHistoryTints[categoryKey].Clear();
+                        textureHistory[categoryKey].Clear();
+                        textureHistoryTints[categoryKey].Clear();
                     }
 
-                    if (!_textureHistory[categoryKey].Contains(file))
+                    if (!textureHistory[categoryKey].Contains(file))
                     {
-                        _textureHistory[categoryKey].Add(file);
-                        _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
+                        textureHistory[categoryKey].Add(file);
+                        textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
                     }
 
                     if (plugin.Configuration.RecentLayers.Contains(file))
@@ -2589,21 +2637,30 @@ namespace RoleplayingVoice
         };
         public void RebuildAllCategories()
         {
-            if (_textureHistory == null || _textureHistory.Count == 0) return;
-            var keys = _textureHistory.Keys.ToList();
+            var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+            var collectionId = collection.EffectiveCollection.Id.ToString();
+            if (!_textureCollectionHistory.ContainsKey(collectionId))
+            {
+                _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+            }
+            var textureHistory = _textureCollectionHistory[collectionId];
+            if (textureHistory == null || textureHistory.Count == 0) return;
 
             Task.Run(() =>
             {
-                foreach (var key in keys)
+                foreach (var textureCollectionHistoryItem in _textureCollectionHistory)
                 {
-                    int waitAttempts = 0;
-                    while (_lockDuplicateGeneration && waitAttempts < 60)
+                    foreach (var item in textureCollectionHistoryItem.Value)
                     {
-                        Thread.Sleep(1000);
-                        waitAttempts++;
+                        int waitAttempts = 0;
+                        while (_lockDuplicateGeneration && waitAttempts < 60)
+                        {
+                            Thread.Sleep(1000);
+                            waitAttempts++;
+                        }
+                        RebuildCategory(item.Key, false);
+                        Thread.Sleep(500);
                     }
-                    RebuildCategory(key, false);
-                    Thread.Sleep(500);
                 }
             });
         }
@@ -2613,7 +2670,14 @@ namespace RoleplayingVoice
         /// </summary>
         private void RebuildMinionCategory(string categoryKey, bool hideProgressUI)
         {
-            if (!_textureHistory.ContainsKey(categoryKey)) return;
+            var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+            var collectionId = collection.EffectiveCollection.Id.ToString();
+            if (!_textureCollectionHistory.ContainsKey(collectionId))
+            {
+                _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+            }
+            var textureHistory = _textureCollectionHistory[collectionId];
+            if (!textureHistory.ContainsKey(categoryKey)) return;
 
             string charName = categoryKey.Substring(0, categoryKey.IndexOf("_minion_"));
             ICharacter character = null;
@@ -2745,12 +2809,24 @@ namespace RoleplayingVoice
                     // which has stride issues at small (256x256) resolutions
                     {
                         var overlayPaths = new List<string>();
-                        var overlayTints = new List<System.Numerics.Vector4>();
-                        for (int i = 0; i < _textureHistory[categoryKey].Count; i++)
+                        var overlayTints = new List<Vector4>();
+                        var playerCollection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+                        var playerCollectionId = playerCollection.EffectiveCollection.Id.ToString();
+                        if (!_textureCollectionHistory.ContainsKey(playerCollectionId))
                         {
-                            string f = _textureHistory[categoryKey][i];
-                            System.Numerics.Vector4 t = (_textureHistoryTints.ContainsKey(categoryKey) && i < _textureHistoryTints[categoryKey].Count)
-                                ? _textureHistoryTints[categoryKey][i] : System.Numerics.Vector4.One;
+                            _textureCollectionHistory[playerCollectionId] = new Dictionary<string, List<string>>();
+                        }
+                        if (!_textureCollectionHistoryTints.ContainsKey(playerCollectionId))
+                        {
+                            _textureCollectionHistoryTints[playerCollectionId] = new Dictionary<string, List<Vector4>>();
+                        }
+                        var textureHistory = _textureCollectionHistory[playerCollectionId];
+                        var textureHistoryTints = _textureCollectionHistoryTints[playerCollectionId];
+                        for (int i = 0; i < textureHistory[categoryKey].Count; i++)
+                        {
+                            string f = textureHistory[categoryKey][i];
+                            Vector4 t = (textureHistoryTints.ContainsKey(categoryKey) && i < textureHistoryTints[categoryKey].Count)
+                                ? textureHistoryTints[categoryKey][i] : System.Numerics.Vector4.One;
                             if (File.Exists(f))
                             {
                                 overlayPaths.Add(f);
@@ -2773,6 +2849,7 @@ namespace RoleplayingVoice
                                 if (localPlayer != null)
                                 {
                                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                                    var collectionId = collection.ToString();
                                     PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, modPath, false, modName);
                                     plugin.PluginLog.Info($"[MINION REBUILD] Disabled mod '{modName}' in collection {collection}");
                                     // Redraw the companion
@@ -2865,7 +2942,7 @@ namespace RoleplayingVoice
                     var textureSets = new List<TextureSet> { item };
                     string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
 
-                    plugin.PluginLog.Info($"[MINION REBUILD] Exporting. ModName={localModName}, Path={fullModPath}, Layers={_textureHistory[categoryKey].Count}");
+                    plugin.PluginLog.Info($"[MINION REBUILD] Exporting. ModName={localModName}, Path={fullModPath}, Layers={_textureCollectionHistory[collectionId][categoryKey].Count}");
 
                     // Clean stale tex files from previous exports to avoid dimension mismatches
                     string texDir = Path.Combine(fullModPath, "do_not_edit", "textures");
@@ -2900,12 +2977,19 @@ namespace RoleplayingVoice
 
         private void RebuildMountCategory(string categoryKey, bool hideProgressUI)
         {
-            if (!_textureHistory.ContainsKey(categoryKey)) return;
 
             string charName = categoryKey.Substring(0, categoryKey.IndexOf("_mount_"));
             ICharacter character = null;
+            var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+            var collectionId = collection.EffectiveCollection.Id.ToString();
+            if (!_textureCollectionHistory.ContainsKey(collectionId))
+            {
+                _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+            }
+            var textureHistory = _textureCollectionHistory[collectionId];
             if (plugin.SafeGameObjectManager.LocalPlayer != null && plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue == charName)
                 character = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+            if (!textureHistory.ContainsKey(categoryKey)) return;
 
             if (character == null)
             {
@@ -2930,13 +3014,14 @@ namespace RoleplayingVoice
 
                 try
                 {
+
+                    var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
                     // Get cached mount gear metadata, or auto-resolve if missing
                     if (!_gearCategoryMeta.TryGetValue(categoryKey, out var gearMeta))
                     {
                         plugin.PluginLog.Info($"[MOUNT REBUILD] No cached gearMeta for '{categoryKey}'. Attempting auto-resolve...");
                         try
                         {
-                            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
                             if (localPlayer != null)
                             {
                                 // Mounts are embedded in the character, use CurrentMount property
@@ -2984,8 +3069,13 @@ namespace RoleplayingVoice
                         gearMeta.InternalMaskPath,
                         gearMeta.InternalMaterialPath);
 
+                    if (!_textureCollectionHistory.ContainsKey(collectionId))
+                    {
+                        _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                    }
+                    var textureHistory = _textureCollectionHistory[collectionId];
                     // If mount has no overlay layers, disable mod and revert to vanilla
-                    if (_textureHistory[categoryKey].Count == 0 || _textureHistory[categoryKey].All(f => !File.Exists(f)))
+                    if (textureHistory[categoryKey].Count == 0 || textureHistory[categoryKey].All(f => !File.Exists(f)))
                     {
                         plugin.PluginLog.Info($"[MOUNT REBUILD] No overlay layers for '{categoryKey}'. Disabling mod and reverting to vanilla.");
                         try
@@ -2994,19 +3084,14 @@ namespace RoleplayingVoice
                             cleanName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanName.ToLower());
                             string modName = charName + " Texture " + cleanName;
                             string modPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
-                            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
-                            if (localPlayer != null)
+                            PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection.EffectiveCollection.Id, modPath, false, modName);
+                            plugin.PluginLog.Info($"[MOUNT REBUILD] Disabled mod '{modName}' in collection {collection}");
+                            // Redraw the player (mount is part of the player object)
+                            Plugin.Framework.RunOnFrameworkThread(() =>
                             {
-                                Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
-                                PenumbraAndGlamourerIpcWrapper.Instance.TrySetMod.Invoke(collection, modPath, false, modName);
-                                plugin.PluginLog.Info($"[MOUNT REBUILD] Disabled mod '{modName}' in collection {collection}");
-                                // Redraw the player (mount is part of the player object)
-                                Plugin.Framework.RunOnFrameworkThread(() =>
-                                {
-                                    plugin.PluginLog.Info($"[MOUNT REBUILD] Redrawing player after mount layer removal: {localPlayer.Name} (ObjectIndex={localPlayer.ObjectIndex})");
-                                    PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(localPlayer.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
-                                });
-                            }
+                                plugin.PluginLog.Info($"[MOUNT REBUILD] Redrawing player after mount layer removal: {localPlayer.Name} (ObjectIndex={localPlayer.ObjectIndex})");
+                                PenumbraAndGlamourerIpcWrapper.Instance.RedrawObject.Invoke(localPlayer.ObjectIndex, Penumbra.Api.Enums.RedrawType.Redraw);
+                            });
                         }
                         catch (Exception ex)
                         {
@@ -3050,11 +3135,16 @@ namespace RoleplayingVoice
                     {
                         var overlayPaths = new List<string>();
                         var overlayTints = new List<System.Numerics.Vector4>();
-                        for (int i = 0; i < _textureHistory[categoryKey].Count; i++)
+                        if (!_textureCollectionHistory.ContainsKey(collectionId))
                         {
-                            string f = _textureHistory[categoryKey][i];
-                            System.Numerics.Vector4 t = (_textureHistoryTints.ContainsKey(categoryKey) && i < _textureHistoryTints[categoryKey].Count)
-                                ? _textureHistoryTints[categoryKey][i] : System.Numerics.Vector4.One;
+                            _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+                        }
+                        var textureHistoryTints = _textureCollectionHistoryTints[collectionId];
+                        for (int i = 0; i < textureHistory[categoryKey].Count; i++)
+                        {
+                            string f = textureHistory[categoryKey][i];
+                            System.Numerics.Vector4 t = (textureHistoryTints.ContainsKey(categoryKey) && i < textureHistoryTints[categoryKey].Count)
+                                ? textureHistoryTints[categoryKey][i] : System.Numerics.Vector4.One;
                             if (File.Exists(f))
                             {
                                 overlayPaths.Add(f);
@@ -3072,7 +3162,6 @@ namespace RoleplayingVoice
                                 cleanName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanName.ToLower());
                                 string modName = charName + " Texture " + cleanName;
                                 string modPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), modName);
-                                var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
                                 if (localPlayer != null)
                                 {
                                     Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
@@ -3155,7 +3244,7 @@ namespace RoleplayingVoice
                     var textureSets = new List<TextureSet> { item };
                     string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
 
-                    plugin.PluginLog.Info($"[MOUNT REBUILD] Exporting. ModName={localModName}, Path={fullModPath}, Layers={_textureHistory[categoryKey].Count}");
+                    plugin.PluginLog.Info($"[MOUNT REBUILD] Exporting. ModName={localModName}, Path={fullModPath}, Layers={textureHistory[categoryKey].Count}");
 
                     // Clean stale tex files from previous exports to avoid dimension mismatches
                     string texDir = Path.Combine(fullModPath, "do_not_edit", "textures");
@@ -3214,8 +3303,6 @@ namespace RoleplayingVoice
                 return;
             }
 
-            if (!_textureHistory.ContainsKey(categoryKey)) return;
-
             string charName = categoryKey.Split('_')[0];
             ICharacter character = null;
             if (plugin.SafeGameObjectManager.LocalPlayer != null && plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue == charName)
@@ -3247,6 +3334,15 @@ namespace RoleplayingVoice
             string subRaceName = PenumbraAndGlamourerHelperFunctions.SubRaceToSubRaceName(localCustomization.Customize.Race.Value - 1, localCustomization.Customize.Clan.Value - 1);
             bool holdingModifier = Plugin.Configuration.AutoUniversalConvert;
 
+            var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex);
+            var collectionId = collection.EffectiveCollection.Id.ToString();
+            if (!_textureCollectionHistory.ContainsKey(collectionId))
+            {
+                _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+            }
+            var textureHistory = _textureCollectionHistory[collectionId];
+            if (!textureHistory.ContainsKey(categoryKey)) return;
+
             Task.Run(async () =>
             {
                 int waitAttempts = 0;
@@ -3263,7 +3359,7 @@ namespace RoleplayingVoice
 
                 try
                 {
-                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+                    Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).EffectiveCollection.Id;
                     PenumbraAndGlamourerHelperFunctions.PopulateOmniOverrides(collection, localCustomization.Customize.Gender.Value, localCustomization.Customize.Clan.Value - 1, plugin);
                     List<TextureSet> textureSets = new List<TextureSet>();
                     string localModName = charName + " Texture Mod";
@@ -3271,8 +3367,13 @@ namespace RoleplayingVoice
                     TextureSet item = null;
                     string categoryModName = "";
                     string overrideType = "";
-
-                    string lastFile = _textureHistory[categoryKey].FirstOrDefault();
+                    var collectionId = collection.ToString();
+                    if (!_textureCollectionHistory.ContainsKey(collectionId))
+                    {
+                        _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                    }
+                    var textureHistory = _textureCollectionHistory[collectionId];
+                    string lastFile = textureHistory[categoryKey].FirstOrDefault();
                     if (string.IsNullOrEmpty(lastFile))
                     {
                         lastFile = "empty.png";
@@ -3462,10 +3563,15 @@ namespace RoleplayingVoice
                     {
                         if (!categoryKey.Contains("_minion_"))
                             ApplyDefaultSkinType(item);
-                        for (int _i = 0; _i < _textureHistory[categoryKey].Count; _i++)
+                        if (!_textureCollectionHistoryTints.ContainsKey(collectionId))
                         {
-                            string f = _textureHistory[categoryKey][_i];
-                            System.Numerics.Vector4? t = _textureHistoryTints.ContainsKey(categoryKey) && _i < _textureHistoryTints[categoryKey].Count ? _textureHistoryTints[categoryKey][_i] : null;
+                            _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+                        }
+                        var textureHistoryTints = _textureCollectionHistoryTints[collectionId];
+                        for (int _i = 0; _i < textureHistory[categoryKey].Count; _i++)
+                        {
+                            string f = textureHistory[categoryKey][_i];
+                            System.Numerics.Vector4? t = textureHistoryTints.ContainsKey(categoryKey) && _i < textureHistoryTints[categoryKey].Count ? textureHistoryTints[categoryKey][_i] : null;
                             AddToTextureSet(item, f, overrideType, t);
                         }
 
@@ -3494,7 +3600,7 @@ namespace RoleplayingVoice
                                 hasContextualLayers = true;
                             }
                         }
-                        if (_textureHistory[categoryKey].Count == 0 && !hasContextualLayers)
+                        if (textureHistory[categoryKey].Count == 0 && !hasContextualLayers)
                         {
                             if (categoryKey.Contains("_gear_"))
                             {
@@ -3576,7 +3682,7 @@ namespace RoleplayingVoice
                         localModName = localModName.Replace("Mod", categoryModName);
 
                         string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
-                        plugin.PluginLog.Info($"[MINION EXPORT] About to Export. localModName={localModName}, fullModPath={fullModPath}, textureSets.Count={textureSets.Count}, historyCount={_textureHistory[categoryKey].Count}");
+                        plugin.PluginLog.Info($"[MINION EXPORT] About to Export. localModName={localModName}, fullModPath={fullModPath}, textureSets.Count={textureSets.Count}, historyCount={textureHistory[categoryKey].Count}");
                         await Export(true, textureSets, fullModPath, localModName, new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
                             localCustomization.Customize.Race.Value - 1, localCustomization.Customize.Clan.Value - 1, localCustomization.Customize.Gender.Value, localCustomization.Customize.Face.Value - 1, hideProgressUI);
                         plugin.PluginLog.Info($"[MINION EXPORT] Export completed for {localModName}");
@@ -3614,7 +3720,7 @@ namespace RoleplayingVoice
                 return;
             }
 
-            Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+            Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).EffectiveCollection.Id;
             string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
             string source = !string.IsNullOrEmpty(piece.ResolvedBaseDiskPath) ? piece.ResolvedBaseDiskPath : piece.InternalBasePath;
             string pngPath = WornEquipmentResolver.ExportResolvedTextureToPng(source, collection, exportDir, plugin, piece.SlotKey, piece.MaterialName);
@@ -3629,23 +3735,33 @@ namespace RoleplayingVoice
                 (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName) +
                 (string.IsNullOrEmpty(piece.ModName) ? "" : "_[" + piece.ModName + "]");
             _gearCategoryMeta[categoryKey] = piece;
-
-            if (!_textureHistory.ContainsKey(categoryKey))
+            var collectionId = collection.ToString();
+            if (!_textureCollectionHistory.ContainsKey(collectionId))
             {
-                _textureHistory[categoryKey] = new List<string>();
-                _textureHistoryTints[categoryKey] = new List<System.Numerics.Vector4>();
+                _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+            }
+            if (!_textureCollectionHistoryTints.ContainsKey(collectionId))
+            {
+                _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+            }
+            var textureHistory = _textureCollectionHistory[collectionId];
+            var textureHistoryTints = _textureCollectionHistoryTints[collectionId];
+            if (!textureHistory.ContainsKey(categoryKey))
+            {
+                textureHistory[categoryKey] = new List<string>();
+                textureHistoryTints[categoryKey] = new List<Vector4>();
             }
 
             if (!plugin.Configuration.EnableTextureStacking)
             {
-                _textureHistory[categoryKey].Clear();
-                _textureHistoryTints[categoryKey].Clear();
+                textureHistory[categoryKey].Clear();
+                textureHistoryTints[categoryKey].Clear();
             }
 
-            if (!_textureHistory[categoryKey].Contains(pngPath))
+            if (!textureHistory[categoryKey].Contains(pngPath))
             {
-                _textureHistory[categoryKey].Add(pngPath);
-                _textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
+                textureHistory[categoryKey].Add(pngPath);
+                textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
             }
 
             plugin.Configuration.Save();

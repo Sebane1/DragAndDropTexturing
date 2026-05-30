@@ -34,16 +34,22 @@ public class Configuration : IPluginConfiguration
     public int LastKnownClan { get; set; } = -1;
     public int LastKnownGender { get; set; } = -1;
     public int LastKnownFace { get; set; } = -1;
-    public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>> TextureHistory { get; set; } = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<string>>();
-    public System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<System.Numerics.Vector4>> TextureHistoryTints { get; set; } = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<System.Numerics.Vector4>>();
-    public System.Collections.Generic.Dictionary<string, int> PersistedContextualStacks { get; set; } = new System.Collections.Generic.Dictionary<string, int>();
+    public Dictionary<string, List<string>> TextureHistory { get; set; } = new Dictionary<string, List<string>>();
+    public Dictionary<string, List<Vector4>> TextureHistoryTints { get; set; } = new Dictionary<string, List<Vector4>>();
+    public Dictionary<string, Dictionary<string, List<string>>> CollectionSortedTextureHistory { get; set; } = new();
+    public Dictionary<string, Dictionary<string, List<Vector4>>> CollectionSortedTextureHistoryTints { get; set; } = new();
+    public Dictionary<string, int> PersistedContextualStacks { get; set; } = new Dictionary<string, int>();
     public string PersistedProceduralCanvasPath { get; set; } = null;
-    public System.Collections.Generic.List<string> RecentLayers { get; set; } = new System.Collections.Generic.List<string>();
-    public System.Collections.Generic.List<DragAndDropTexturing.VideoPlayback.AnimatedLayerDefinition> AnimatedLayers { get; set; } = new System.Collections.Generic.List<DragAndDropTexturing.VideoPlayback.AnimatedLayerDefinition>();
-    public System.Collections.Generic.List<ActiveLayerPreset> ActiveLayerPresets { get; set; } = new();
+    public List<string> RecentLayers { get; set; } = new List<string>();
+    public List<DragAndDropTexturing.VideoPlayback.AnimatedLayerDefinition> AnimatedLayers { get; set; } = new List<DragAndDropTexturing.VideoPlayback.AnimatedLayerDefinition>();
+    public List<ActiveLayerPreset> ActiveLayerPresets { get; set; } = new();
     public int LanguageOverride { get; set; } = -1; // -1 = Auto
-    public System.Collections.Generic.Dictionary<string, System.Numerics.Vector4> PenumbraOverlayTints { get; set; } = new System.Collections.Generic.Dictionary<string, System.Numerics.Vector4>();
-    public System.Collections.Generic.Dictionary<string, System.Numerics.Vector4> PenumbraOverlayGlowTints { get; set; } = new System.Collections.Generic.Dictionary<string, System.Numerics.Vector4>();
+    public Dictionary<string, Vector4> PenumbraOverlayTints { get; set; } = new Dictionary<string, Vector4>();
+    public Dictionary<string, Vector4> PenumbraOverlayGlowTints { get; set; } = new Dictionary<string, Vector4>();
+
+    public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayTints { get; set; } = new Dictionary<string, Dictionary<string, Vector4>>();
+    public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedOverlayGlowTints { get; set; } = new Dictionary<string, Dictionary<string, Vector4>>();
+
     // the below exist just to make saving less cumbersome
     public void Save()
     {

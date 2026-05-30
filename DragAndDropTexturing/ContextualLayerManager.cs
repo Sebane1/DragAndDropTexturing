@@ -26,13 +26,13 @@ namespace DragAndDropTexturing
         private System.Collections.Concurrent.ConcurrentQueue<Action> _mainThreadActions = new System.Collections.Concurrent.ConcurrentQueue<Action>();
         private System.Threading.CancellationTokenSource _rebuildDebounce = null;
         private readonly object _debounceLock = new object();
-        
+
         // Track which layers are currently active
         private List<ActiveContextualLayer> _activeLayers = new List<ActiveContextualLayer>();
         private HashSet<ulong> _knownDeadEnemies = new HashSet<ulong>();
         private HashSet<ulong> _seenAliveEnemies = new HashSet<ulong>();
         private HashSet<string> _contextuallyTouchedParts = new HashSet<string>();
-        
+
         public List<ActiveContextualLayer> GetActiveLayers() => _activeLayers;
 
         public List<ContextualLayer> ContextualLayers { get; private set; } = new List<ContextualLayer>();
@@ -44,7 +44,7 @@ namespace DragAndDropTexturing
             _emoteReader = emoteReader;
             _actionReader = actionReader;
             _audioReader = audioReader;
-            
+
             RootDirectory = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "ContextualLayers");
             if (!System.IO.Directory.Exists(RootDirectory))
             {
@@ -64,7 +64,7 @@ namespace DragAndDropTexturing
             {
                 _audioReader.OnSoundPlayed += OnSoundPlayed;
             }
-            
+
             Plugin.Framework.Update += Framework_Update;
             Plugin.ClientState.TerritoryChanged += OnTerritoryChanged;
             _plugin.Chat.ChatMessage += OnChatMessage;
@@ -88,7 +88,7 @@ namespace DragAndDropTexturing
                         if (stackCount > 0 && layer.Trigger != TriggerType.HP_Threshold && layer.Trigger != TriggerType.Combat_State)
                         {
                             var active = new ActiveContextualLayer { LayerDef = layer, CurrentStackCount = stackCount };
-                            
+
                             if (layer.ProceduralDecalMode && !string.IsNullOrEmpty(_plugin.Configuration.PersistedProceduralCanvasPath) && System.IO.File.Exists(_plugin.Configuration.PersistedProceduralCanvasPath))
                             {
                                 active.CachedTexturePaths = new List<string> { _plugin.Configuration.PersistedProceduralCanvasPath };
@@ -96,14 +96,14 @@ namespace DragAndDropTexturing
                             else if (System.IO.Directory.Exists(layer.DirectoryPath))
                             {
                                 var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png")
-                                    .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) && 
-                                                !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) && 
+                                    .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) &&
+                                                !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) &&
                                                 !f.Contains("_from_gen3_to_bibo", StringComparison.OrdinalIgnoreCase))
                                     .ToList();
                                 files.Sort();
                                 active.CachedTexturePaths = files;
                             }
-                            
+
                             active.Timer.Start();
                             _activeLayers.Add(active);
                         }
@@ -142,10 +142,10 @@ namespace DragAndDropTexturing
         {
             string newDir = System.IO.Path.Combine(RootDirectory, Guid.NewGuid().ToString());
             System.IO.Directory.CreateDirectory(newDir);
-            
+
             // Create a helpful placeholder file so users know what to do when they open the folder
             System.IO.File.WriteAllText(
-                System.IO.Path.Combine(newDir, "place_layering_images_here.txt"), 
+                System.IO.Path.Combine(newDir, "place_layering_images_here.txt"),
                 "Drop your .png texture files into this directory!\n\n" +
                 "For stacking triggers (like HP Thresholds or Actions Used), the plugin will sort the files alphabetically and apply them in sequence.\n" +
                 "For non-stacking triggers, it will apply all .png files found in this folder simultaneously."
@@ -174,14 +174,14 @@ namespace DragAndDropTexturing
             {
                 string exportFolder = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "Exports");
                 if (!System.IO.Directory.Exists(exportFolder)) System.IO.Directory.CreateDirectory(exportFolder);
-                
+
                 string safeName = string.Join("_", layer.Name.Split(System.IO.Path.GetInvalidFileNameChars()));
                 string zipPath = System.IO.Path.Combine(exportFolder, $"{safeName}.clmp");
-                
+
                 if (System.IO.File.Exists(zipPath)) System.IO.File.Delete(zipPath);
-                
+
                 System.IO.Compression.ZipFile.CreateFromDirectory(layer.DirectoryPath, zipPath);
-                
+
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
                 {
                     FileName = exportFolder,
@@ -199,7 +199,7 @@ namespace DragAndDropTexturing
         {
             string importFolder = System.IO.Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
             if (!System.IO.Directory.Exists(importFolder)) System.IO.Directory.CreateDirectory(importFolder);
-            
+
             var files = System.IO.Directory.GetFiles(importFolder, "*.clmp");
             foreach (var file in files)
             {
@@ -213,14 +213,14 @@ namespace DragAndDropTexturing
             {
                 string newDir = System.IO.Path.Combine(RootDirectory, Guid.NewGuid().ToString());
                 System.IO.Directory.CreateDirectory(newDir);
-                
+
                 System.IO.Compression.ZipFile.ExtractToDirectory(filePath, newDir);
-                
+
                 if (deleteOriginal)
                 {
                     System.IO.File.Delete(filePath);
                 }
-                
+
                 var layer = ContextualLayer.Load(newDir);
                 layer.DirectoryPath = newDir;
                 layer.Save();
@@ -276,10 +276,10 @@ namespace DragAndDropTexturing
                     // If filter is enabled, only accept Custom Emotes or Standard Emotes
                     if (layer.ChatFilterCustomEmotesOnly)
                     {
-                        var t = msg.GetType().GetProperty("Type")?.GetValue(msg) 
+                        var t = msg.GetType().GetProperty("Type")?.GetValue(msg)
                              ?? msg.GetType().GetProperty("LogKind")?.GetValue(msg)
                              ?? msg.GetType().GetProperty("ChatType")?.GetValue(msg);
-                             
+
                         if (t != null && t is Enum e)
                         {
                             string typeName = e.ToString();
@@ -338,7 +338,7 @@ namespace DragAndDropTexturing
             if (player == null) return;
 
             // Prevent native access violation crashes during zone transitions where pointers are temporarily invalid
-            if (Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas] || 
+            if (Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas] ||
                 Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas51])
             {
                 return;
@@ -350,7 +350,7 @@ namespace DragAndDropTexturing
             {
                 hpPercentage = ((float)player.CurrentHp / (float)player.MaxHp) * 100f;
             }
-            
+
             bool inCombat = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat];
             bool weaponDrawn = false;
             bool isSwimming = Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Swimming] || Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Diving];
@@ -372,7 +372,7 @@ namespace DragAndDropTexturing
                         clearedProcedural = true;
                     }
                 }
-                
+
                 if (_headlessPaintWindow != null && _headlessPaintWindow.IsOpen)
                 {
                     _headlessPaintWindow.ClearCanvas();
@@ -400,7 +400,7 @@ namespace DragAndDropTexturing
                 if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
                 {
                     bool isDead = obj.IsDead || (obj is GameObjectHelper.ThreadSafeDalamudObjectTable.ThreadSafeCharacter chara && chara.CurrentHp <= 0);
-                    
+
                     if (!isDead)
                     {
                         _seenAliveEnemies.Add(obj.GameObjectId);
@@ -408,7 +408,7 @@ namespace DragAndDropTexturing
                     else if (_seenAliveEnemies.Contains(obj.GameObjectId) && !_knownDeadEnemies.Contains(obj.GameObjectId))
                     {
                         _knownDeadEnemies.Add(obj.GameObjectId);
-                        
+
                         // Only count the kill if the enemy died within 30 yalms of the player
                         if (System.Numerics.Vector3.Distance(player.Position, obj.Position) < 30f)
                         {
@@ -438,7 +438,7 @@ namespace DragAndDropTexturing
                         var activeTemp = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
                         int numIntervals = activeTemp != null ? activeTemp.CachedTexturePaths.Count : 1;
                         if (numIntervals == 0) numIntervals = 1;
-                        
+
                         float intervalSize = layer.HPThresholdPercentage / (float)numIntervals;
                         float hpBelowThreshold = layer.HPThresholdPercentage - hpPercentage;
                         desiredStackForHp = 1 + (int)(hpBelowThreshold / intervalSize);
@@ -490,7 +490,7 @@ namespace DragAndDropTexturing
                 {
                     foreach (var obj in _plugin.SafeGameObjectManager)
                     {
-                        if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc && 
+                        if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc &&
                             obj.Name.TextValue.Contains(layer.TargetEnemyName, StringComparison.OrdinalIgnoreCase))
                         {
                             if (System.Numerics.Vector3.Distance(player.Position, obj.Position) < 30f)
@@ -512,13 +512,13 @@ namespace DragAndDropTexturing
                         existing = _activeLayers.FirstOrDefault(x => x.LayerDef == layer);
                         if (existing != null && layer.Trigger == TriggerType.HP_Threshold)
                         {
-                             int numIntervals = existing.CachedTexturePaths.Count;
-                             if (numIntervals == 0) numIntervals = 1;
-                             float intervalSize = layer.HPThresholdPercentage / (float)numIntervals;
-                             float hpBelowThreshold = layer.HPThresholdPercentage - hpPercentage;
-                             desiredStackForHp = 1 + (int)(hpBelowThreshold / intervalSize);
-                             desiredStackForHp = Math.Clamp(desiredStackForHp, 1, numIntervals);
-                             existing.CurrentStackCount = desiredStackForHp;
+                            int numIntervals = existing.CachedTexturePaths.Count;
+                            if (numIntervals == 0) numIntervals = 1;
+                            float intervalSize = layer.HPThresholdPercentage / (float)numIntervals;
+                            float hpBelowThreshold = layer.HPThresholdPercentage - hpPercentage;
+                            desiredStackForHp = 1 + (int)(hpBelowThreshold / intervalSize);
+                            desiredStackForHp = Math.Clamp(desiredStackForHp, 1, numIntervals);
+                            existing.CurrentStackCount = desiredStackForHp;
                         }
                     }
                     else
@@ -591,7 +591,7 @@ namespace DragAndDropTexturing
                 {
                     foreach (var obj in _plugin.SafeGameObjectManager)
                     {
-                        if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc && 
+                        if (obj.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc &&
                             obj.Name.TextValue.Contains(active.LayerDef.TargetEnemyName, StringComparison.OrdinalIgnoreCase))
                         {
                             if (System.Numerics.Vector3.Distance(player.Position, obj.Position) < 30f)
@@ -602,7 +602,7 @@ namespace DragAndDropTexturing
                         }
                     }
                 }
-                
+
                 if (active.LayerDef.Trigger == TriggerType.Kill_Count || active.LayerDef.Trigger == TriggerType.Action_Used)
                 {
                     if (active.LayerDef.ClearTrigger == ClearCondition.Time && active.LayerDef.DecayIntervalSeconds > 0 && active.Timer.Elapsed.TotalSeconds >= active.LayerDef.DecayIntervalSeconds)
@@ -645,8 +645,8 @@ namespace DragAndDropTexturing
             if (!active.LayerDef.ProceduralDecalMode) return;
 
             var files = System.IO.Directory.GetFiles(active.LayerDef.DirectoryPath, "*.png")
-                .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) && 
-                            !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) && 
+                .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) &&
+                            !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) &&
                             !f.Contains("_from_gen3_to_bibo", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
@@ -677,7 +677,8 @@ namespace DragAndDropTexturing
             {
                 if (tempFile != null)
                 {
-                    _mainThreadActions.Enqueue(() => {
+                    _mainThreadActions.Enqueue(() =>
+                    {
                         if (active.CachedTexturePaths.Count == 1 && active.CachedTexturePaths[0].Contains("temp_decal_"))
                         {
                             try { System.IO.File.Delete(active.CachedTexturePaths[0]); } catch { }
@@ -721,7 +722,7 @@ namespace DragAndDropTexturing
                     {
                         existing.CurrentStackCount = existing.CachedTexturePaths.Count;
                     }
-                    if (layer.ProceduralDecalMode) 
+                    if (layer.ProceduralDecalMode)
                     {
                         UpdateProceduralDecal(existing);
                     }
@@ -740,7 +741,7 @@ namespace DragAndDropTexturing
                         {
                             existing.CurrentStackCount++;
                             existing.Timer.Restart();
-                            if (layer.ProceduralDecalMode) 
+                            if (layer.ProceduralDecalMode)
                             {
                                 UpdateProceduralDecal(existing);
                             }
@@ -760,23 +761,23 @@ namespace DragAndDropTexturing
             {
                 _plugin.PluginLog.Information($"[Contextual Layers] Activating Contextual Layer '{layer.Name}' for the first time!");
                 var active = new ActiveContextualLayer { LayerDef = layer };
-                
+
                 if (System.IO.Directory.Exists(layer.DirectoryPath))
                 {
                     var files = System.IO.Directory.GetFiles(layer.DirectoryPath, "*.png")
-                        .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) && 
-                                    !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) && 
+                        .Where(f => !f.Contains("_temp", StringComparison.OrdinalIgnoreCase) &&
+                                    !f.Contains("_from_bibo_to_gen3", StringComparison.OrdinalIgnoreCase) &&
                                     !f.Contains("_from_gen3_to_bibo", StringComparison.OrdinalIgnoreCase))
                         .ToList();
                     files.Sort();
                     active.CachedTexturePaths = files;
                 }
-                
+
                 active.CurrentStackCount = 1;
                 active.Timer.Start();
                 _activeLayers.Add(active);
-                
-                if (layer.ProceduralDecalMode) 
+
+                if (layer.ProceduralDecalMode)
                 {
                     UpdateProceduralDecal(active);
                 }
@@ -814,10 +815,11 @@ namespace DragAndDropTexturing
         private void ExecuteHotswapRebuild()
         {
             _plugin.PluginLog.Information("Contextual Layer state changed. Hotswap Rebuild triggered.");
-            
+
             if (_plugin.DragAndDropTextures != null && _plugin.SafeGameObjectManager.LocalPlayer != null)
             {
                 var charName = _plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
+                var collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(_plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex).EffectiveCollection.Id.ToString();
                 // Only rebuild body parts targeted by active contextual layers
                 // plus any parts that WERE previously targeted (so they get cleaned up on removal)
                 var partsToUpdate = new HashSet<string>();
@@ -839,12 +841,16 @@ namespace DragAndDropTexturing
                 foreach (var part in partsToUpdate)
                 {
                     string categoryKey = charName + part;
-                    if (!_plugin.DragAndDropTextures.TextureHistory.ContainsKey(categoryKey))
+                    if (!_plugin.DragAndDropTextures.TextureCollectionHistory.ContainsKey(collectionId))
                     {
-                        _plugin.DragAndDropTextures.TextureHistory[categoryKey] = new List<string>();
+                        _plugin.DragAndDropTextures.TextureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+                    }
+                    if (!_plugin.DragAndDropTextures.TextureCollectionHistory[collectionId].ContainsKey(categoryKey))
+                    {
+                        _plugin.DragAndDropTextures.TextureCollectionHistory[collectionId][categoryKey] = new List<string>();
                     }
                 }
-                
+
                 _plugin.DragAndDropTextures.ScheduleRegeneration(charName, partsToUpdate.ToArray(), skipDelays: true);
             }
         }

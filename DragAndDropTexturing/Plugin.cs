@@ -13,6 +13,7 @@ using System.Numerics;
 using Dalamud.Game.ClientState.Objects.Enums;
 using GameObjectHelper.ThreadSafeDalamudObjectTable;
 using FFXIVLooseTextureCompiler.Export;
+using Dalamud.Game.ClientState.Objects.Types;
 
 namespace DragAndDropTexturing;
 
@@ -52,7 +53,7 @@ public sealed class Plugin : IDalamudPlugin
     public MdlPreviewWindow MdlPreviewWindow { get; init; }
     public List<TexturePaintingWindow> TexturePaintingWindows { get; init; } = new();
 
-    public void OpenPaintWindow(string editPath = null, string categoryKey = null)
+    public void OpenPaintWindow(ICharacter targetCharater, string editPath = null, string categoryKey = null)
     {
         if (editPath != null)
         {
@@ -68,6 +69,7 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         var window = new TexturePaintingWindow(this);
+        window.TargetCharacter = targetCharater;
         window.ContextCategoryKey = categoryKey;
         if (editPath != null)
         {
@@ -96,7 +98,7 @@ public sealed class Plugin : IDalamudPlugin
         _penumbraAndGlamourerIpcWrapper = new PenumbraAndGlamourerIpcWrapper(PluginInterface);
         _chat = chatGui;
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        RunMigrations();
+        // RunMigrations();
         DragAndDropTextures = PluginInterface.Create<DragAndDropTextureWindow>();
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -169,7 +171,7 @@ public sealed class Plugin : IDalamudPlugin
             string configDir = PluginInterface.ConfigDirectory.FullName;
             string oldExports = Path.Combine(configDir, "ContextualLayers", "Exports");
             string oldSavedOverlays = Path.Combine(configDir, "ContextualLayers", "SavedOverlays");
-            
+
             string newExports = Path.Combine(configDir, "Exports");
             string newSavedOverlays = Path.Combine(configDir, "SavedOverlays");
 
@@ -215,9 +217,9 @@ public sealed class Plugin : IDalamudPlugin
                         {
                             if (!string.IsNullOrEmpty(list[i]))
                             {
-                                if (list[i].Contains(target1A, StringComparison.OrdinalIgnoreCase) || 
-                                    list[i].Contains(target1B, StringComparison.OrdinalIgnoreCase) || 
-                                    list[i].Contains(target2A, StringComparison.OrdinalIgnoreCase) || 
+                                if (list[i].Contains(target1A, StringComparison.OrdinalIgnoreCase) ||
+                                    list[i].Contains(target1B, StringComparison.OrdinalIgnoreCase) ||
+                                    list[i].Contains(target2A, StringComparison.OrdinalIgnoreCase) ||
                                     list[i].Contains(target2B, StringComparison.OrdinalIgnoreCase))
                                 {
                                     list[i] = list[i].Replace(target1A, rep1, StringComparison.OrdinalIgnoreCase)
@@ -237,9 +239,9 @@ public sealed class Plugin : IDalamudPlugin
                     {
                         if (!string.IsNullOrEmpty(Configuration.RecentLayers[i]))
                         {
-                            if (Configuration.RecentLayers[i].Contains(target1A, StringComparison.OrdinalIgnoreCase) || 
-                                Configuration.RecentLayers[i].Contains(target1B, StringComparison.OrdinalIgnoreCase) || 
-                                Configuration.RecentLayers[i].Contains(target2A, StringComparison.OrdinalIgnoreCase) || 
+                            if (Configuration.RecentLayers[i].Contains(target1A, StringComparison.OrdinalIgnoreCase) ||
+                                Configuration.RecentLayers[i].Contains(target1B, StringComparison.OrdinalIgnoreCase) ||
+                                Configuration.RecentLayers[i].Contains(target2A, StringComparison.OrdinalIgnoreCase) ||
                                 Configuration.RecentLayers[i].Contains(target2B, StringComparison.OrdinalIgnoreCase))
                             {
                                 Configuration.RecentLayers[i] = Configuration.RecentLayers[i].Replace(target1A, rep1, StringComparison.OrdinalIgnoreCase)
@@ -272,7 +274,7 @@ public sealed class Plugin : IDalamudPlugin
             if (Vector3.Distance(SafeGameObjectManager.LocalPlayer.Position, item.Position) < 3f
                 && item.GameObjectId != SafeGameObjectManager.LocalPlayer.GameObjectId)
             {
-                    gameObjects.Add((item as Dalamud.Game.ClientState.Objects.Types.IGameObject));
+                gameObjects.Add((item as Dalamud.Game.ClientState.Objects.Types.IGameObject));
             }
             if (item.ObjectKind == ObjectKind.Pc)
             {
@@ -333,7 +335,7 @@ public sealed class Plugin : IDalamudPlugin
             string trueRaceCode = targetKeyword == "tbse" ? "c0101" : "c0201";
             string relativeTop = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
             string foundPath = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindMeshDiskPathInModDirectory(targetKeyword, relativeTop);
-            
+
             bool isAvailable = !string.IsNullOrEmpty(foundPath);
             _bodyAvailabilityCache[targetKeyword] = isAvailable;
             return isAvailable;
@@ -351,9 +353,9 @@ public sealed class Plugin : IDalamudPlugin
                 FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.Clear();
                 FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.ClearCache();
                 FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpUVTransfer.ClearCache();
-                
+
                 DragAndDropTextures?.RefreshActiveOverrides();
-                
+
                 _chat.Print("DragAndDropTexturing: Virtual memory cache cleared and re-export triggered.");
             }
             catch (Exception ex)

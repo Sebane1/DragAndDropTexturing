@@ -13,6 +13,7 @@ using System.Linq;
 using System.Numerics;
 using static Penumbra.GameData.Files.ShpkFile;
 using RoleplayingVoice;
+using Dalamud.Game.ClientState.Objects.Types;
 
 namespace DragAndDropTexturing.Windows;
 
@@ -43,7 +44,20 @@ public class MainWindow : Window, IDisposable
     }
 
     public void Dispose() { }
-
+    public override void OnOpen()
+    {
+        base.OnOpen();
+        var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(Plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+        _collectionId = collection.EffectiveCollection.Id.ToString();
+        if (!Plugin.DragAndDropTextures.TextureCollectionHistory.ContainsKey(_collectionId))
+        {
+            Plugin.DragAndDropTextures.TextureCollectionHistory[_collectionId] = new Dictionary<string, List<string>>();
+        }
+        if (!Plugin.DragAndDropTextures.TextureCollectionHistoryTints.ContainsKey(_collectionId))
+        {
+            Plugin.DragAndDropTextures.TextureCollectionHistoryTints[_collectionId] = new Dictionary<string, List<Vector4>>();
+        }
+    }
     public override void Draw()
     {
         _fileDialogManager.Draw();
@@ -241,7 +255,7 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
 
             var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            if (ddtForRebuild != null)
             {
                 ddtForRebuild.RebuildAllCategories();
             }
@@ -256,7 +270,7 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
 
             var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            if (ddtForRebuild != null)
             {
                 ddtForRebuild.RebuildAllCategories();
             }
@@ -272,7 +286,7 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
 
             var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            if (ddtForRebuild != null)
             {
                 ddtForRebuild.RebuildAllCategories();
             }
@@ -289,7 +303,7 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
 
             var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            if (ddtForRebuild != null)
             {
                 ddtForRebuild.RebuildAllCategories();
             }
@@ -325,7 +339,7 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
 
             var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null && ddtForRebuild.TextureHistory != null)
+            if (ddtForRebuild != null)
             {
                 ddtForRebuild.RebuildAllCategories();
             }
@@ -443,7 +457,8 @@ public class MainWindow : Window, IDisposable
                 string btnIdSuffix = piece.SlotKey + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
                 string charName = localPlayer.Name.TextValue;
                 string layerKey = charName + "_gear_" + piece.SlotKey + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
-                bool hasLayer = ddt.TextureHistory != null && ddt.TextureHistory.ContainsKey(layerKey) && ddt.TextureHistory[layerKey].Count > 0;
+                var textureHistory = ddt.TextureCollectionHistory[_collectionId];
+                bool hasLayer = textureHistory != null && textureHistory.ContainsKey(layerKey) && textureHistory[layerKey].Count > 0;
                 if (!hasLayer)
                 {
                     if (ImGui.Button(Translator.LocalizeUI("Import") + "##wg_" + btnIdSuffix))
@@ -452,7 +467,7 @@ public class MainWindow : Window, IDisposable
                 if (hasLayer)
                 {
                     ImGui.SameLine();
-                    ImGui.LabelText("##importedLabel","  Imported already!");
+                    ImGui.LabelText("##importedLabel", "  Imported already!");
                     //string editPath = ddt.TextureHistory[layerKey].LastOrDefault(f => !string.IsNullOrEmpty(f) && File.Exists(f));
                     //if (!string.IsNullOrEmpty(editPath) && ImGui.Button(Translator.LocalizeUI("Edit") + "##wge_" + btnIdSuffix))
                     //    Plugin.OpenPaintWindow(editPath);
@@ -469,7 +484,8 @@ public class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         var ddt = Plugin.DragAndDropTextures;
-        if (ddt != null && ddt.TextureHistory != null)
+        var textureHistory = ddt.TextureCollectionHistory[_collectionId];
+        if (ddt != null && textureHistory != null)
         {
             if (ImGui.BeginTabBar("ActiveLayersSubTabs"))
             {
@@ -535,7 +551,7 @@ public class MainWindow : Window, IDisposable
                 ImGui.TableNextColumn();
                 // Show preview and filename
                 string fileName = string.IsNullOrEmpty(overlay.DiffusePath) ? "" : Path.GetFileName(overlay.DiffusePath);
-                
+
                 var tex = GetPreviewTexture(overlay.DiffusePath);
                 var wrap = tex?.GetWrapOrDefault();
                 if (wrap != null)
@@ -544,7 +560,7 @@ public class MainWindow : Window, IDisposable
                     ImGui.SameLine();
                     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 5);
                 }
-                
+
                 ImGui.Text(fileName);
                 if (!string.IsNullOrEmpty(overlay.DiffusePath) && ImGui.IsItemHovered())
                 {
@@ -645,9 +661,10 @@ public class MainWindow : Window, IDisposable
                 _jobNames[job.RowId] = name;
             }
         }
-        
+
         var list = _jobNames.ToList();
-        list.Sort((a, b) => {
+        list.Sort((a, b) =>
+        {
             if (a.Key == 0) return -1;
             if (b.Key == 0) return 1;
             return a.Value.CompareTo(b.Value);
@@ -658,6 +675,8 @@ public class MainWindow : Window, IDisposable
 
     private void DrawCombinedLayersTab(DragAndDropTextureWindow ddt)
     {
+        var textureHistory = ddt.TextureCollectionHistory[_collectionId];
+        var textureHistoryTints = ddt.TextureCollectionHistoryTints[_collectionId];
         InitJobNames();
         var presets = Plugin.Configuration.ActiveLayerPresets;
         if (presets == null)
@@ -691,12 +710,12 @@ public class MainWindow : Window, IDisposable
             {
                 Name = "New Preset " + (presets.Count + 1)
             };
-            foreach (var kvp in ddt.TextureHistory)
-                preset.TextureHistory[kvp.Key] = new System.Collections.Generic.List<string>(kvp.Value);
-            if (ddt.TextureHistoryTints != null)
+            foreach (var kvp in textureHistory)
+                preset.TextureHistory[kvp.Key] = new List<string>(kvp.Value);
+            if (textureHistoryTints != null)
             {
-                foreach (var kvp in ddt.TextureHistoryTints)
-                    preset.TextureHistoryTints[kvp.Key] = new System.Collections.Generic.List<System.Numerics.Vector4>(kvp.Value);
+                foreach (var kvp in textureHistoryTints)
+                    preset.TextureHistoryTints[kvp.Key] = new List<System.Numerics.Vector4>(kvp.Value);
             }
             presets.Add(preset);
             Plugin.Configuration.Save();
@@ -707,14 +726,13 @@ public class MainWindow : Window, IDisposable
         ImGui.SameLine();
 
         ImGui.BeginChild("PresetDetailsColumn", new Vector2(0, 0), false);
-
-        var targetHistory = _selectedPresetIndex == -1 ? ddt.TextureHistory : presets[_selectedPresetIndex].TextureHistory;
-        var targetTints = _selectedPresetIndex == -1 ? ddt.TextureHistoryTints : presets[_selectedPresetIndex].TextureHistoryTints;
+        var targetHistory = _selectedPresetIndex == -1 ? textureHistory : presets[_selectedPresetIndex].TextureHistory;
+        var targetTints = _selectedPresetIndex == -1 ? textureHistoryTints : presets[_selectedPresetIndex].TextureHistoryTints;
 
         if (_selectedPresetIndex != -1)
         {
             var preset = presets[_selectedPresetIndex];
-            
+
             string pName = preset.Name;
             if (ImGui.InputText("Preset Name##PresetName", ref pName, 128))
             {
@@ -724,7 +742,7 @@ public class MainWindow : Window, IDisposable
 
             int currentJobIndex = Array.IndexOf(_jobIdsArray, preset.LinkedJobId);
             if (currentJobIndex < 0) currentJobIndex = 0;
-            
+
             ImGui.SetNextItemWidth(150);
             if (ImGui.Combo("Linked Job", ref currentJobIndex, _jobNamesArray, _jobNamesArray.Length))
             {
@@ -740,7 +758,7 @@ public class MainWindow : Window, IDisposable
 
             if (ImGui.Button(Translator.LocalizeUI("Load Preset to Character")))
             {
-                ApplyPreset(preset);
+                ApplyPreset(preset, Plugin.SafeGameObjectManager.LocalPlayer);
                 _selectedPresetIndex = -1; // Switch back to active view
             }
 
@@ -789,27 +807,27 @@ public class MainWindow : Window, IDisposable
                     ImGui.Separator();
                     if (ImGui.Selectable(Translator.LocalizeUI("Body")))
                     {
-                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_body");
+                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_body");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Face")))
                     {
-                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_face");
+                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_face");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Hair")))
                     {
-                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_hair");
+                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_hair");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Tail")))
                     {
-                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_tail");
+                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_tail");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Minion")))
                     {
-                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_minion_body");
+                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_minion_body");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Mount")))
                     {
-                        Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_mount_body");
+                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_mount_body");
                     }
                     ImGui.EndPopup();
                 }
@@ -973,7 +991,8 @@ public class MainWindow : Window, IDisposable
                     if (ImGui.Button(Translator.LocalizeUI("Up") + "##" + key + i) && i > 0)
                     {
                         var temp = list[i - 1]; list[i - 1] = list[i]; list[i] = temp;
-                        if (tintList != null && i < tintList.Count && i - 1 < tintList.Count) {
+                        if (tintList != null && i < tintList.Count && i - 1 < tintList.Count)
+                        {
                             var tempTint = tintList[i - 1]; tintList[i - 1] = tintList[i]; tintList[i] = tempTint;
                         }
                         changed = true;
@@ -983,7 +1002,8 @@ public class MainWindow : Window, IDisposable
                     if (ImGui.Button(Translator.LocalizeUI("Down") + "##" + key + i) && i < list.Count - 1)
                     {
                         var temp = list[i + 1]; list[i + 1] = list[i]; list[i] = temp;
-                        if (tintList != null && i < tintList.Count && i + 1 < tintList.Count) {
+                        if (tintList != null && i < tintList.Count && i + 1 < tintList.Count)
+                        {
                             var tempTint = tintList[i + 1]; tintList[i + 1] = tintList[i]; tintList[i] = tempTint;
                         }
                         changed = true;
@@ -1008,11 +1028,13 @@ public class MainWindow : Window, IDisposable
 
                     if (removed) { i--; continue; }
 
-                    if (tintList != null && i < tintList.Count) {
+                    if (tintList != null && i < tintList.Count)
+                    {
                         System.Numerics.Vector4 col = tintList[i];
                         ImGui.SameLine();
                         ImGui.SetNextItemWidth(40);
-                        if (ImGui.ColorEdit4("##tint_" + key + i, ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaBar | ImGuiColorEditFlags.AlphaPreview)) {
+                        if (ImGui.ColorEdit4("##tint_" + key + i, ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaBar | ImGuiColorEditFlags.AlphaPreview))
+                        {
                             tintList[i] = col;
                         }
                         if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
@@ -1033,7 +1055,7 @@ public class MainWindow : Window, IDisposable
                         if (!canEdit) ImGui.BeginDisabled();
                         if (ImGui.Button(Translator.LocalizeUI("Edit") + "##" + key + i))
                         {
-                            Plugin.OpenPaintWindow(path, key);
+                            Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, path, key);
                         }
                         if (!canEdit)
                         {
@@ -1055,31 +1077,42 @@ public class MainWindow : Window, IDisposable
         ImGui.EndChild(); // PresetDetailsColumn
     }
 
-    public void ApplyPreset(ActiveLayerPreset preset)
+    public void ApplyPreset(ActiveLayerPreset preset, IGameObject gameObject)
     {
         if (Plugin.DragAndDropTextures == null) return;
-
-        Plugin.DragAndDropTextures.TextureHistory.Clear();
-        if (Plugin.DragAndDropTextures.TextureHistoryTints != null)
-            Plugin.DragAndDropTextures.TextureHistoryTints.Clear();
+        var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(gameObject.ObjectIndex);
+        var collectionId = collection.EffectiveCollection.Id.ToString();
+        if (!Plugin.DragAndDropTextures.TextureCollectionHistory.ContainsKey(collectionId))
+        {
+            Plugin.DragAndDropTextures.TextureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+        }
+        if (!Plugin.DragAndDropTextures.TextureCollectionHistoryTints.ContainsKey(collectionId))
+        {
+            Plugin.DragAndDropTextures.TextureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+        }
+        var textureHistory = Plugin.DragAndDropTextures.TextureCollectionHistory[collectionId];
+        var textureHistoryTints = Plugin.DragAndDropTextures.TextureCollectionHistoryTints[collectionId];
+        textureHistory.Clear();
+        if (textureHistoryTints != null)
+            textureHistoryTints.Clear();
 
         foreach (var kvp in preset.TextureHistory)
         {
-            Plugin.DragAndDropTextures.TextureHistory[kvp.Key] = new System.Collections.Generic.List<string>(kvp.Value);
+            textureHistory[kvp.Key] = new List<string>(kvp.Value);
         }
-        if (preset.TextureHistoryTints != null && Plugin.DragAndDropTextures.TextureHistoryTints != null)
+        if (preset.TextureHistoryTints != null && textureHistoryTints != null)
         {
             foreach (var kvp in preset.TextureHistoryTints)
             {
-                Plugin.DragAndDropTextures.TextureHistoryTints[kvp.Key] = new System.Collections.Generic.List<System.Numerics.Vector4>(kvp.Value);
+                textureHistoryTints[kvp.Key] = new List<Vector4>(kvp.Value);
             }
         }
 
-        Plugin.Configuration.TextureHistory = Plugin.DragAndDropTextures.TextureHistory;
-        Plugin.Configuration.TextureHistoryTints = Plugin.DragAndDropTextures.TextureHistoryTints;
+        Plugin.Configuration.CollectionSortedTextureHistory = Plugin.DragAndDropTextures.TextureCollectionHistory;
+        Plugin.Configuration.CollectionSortedTextureHistoryTints = Plugin.DragAndDropTextures.TextureCollectionHistoryTints;
         Plugin.Configuration.Save();
 
-        foreach (var category in Plugin.DragAndDropTextures.TextureHistory.Keys)
+        foreach (var category in textureHistory.Keys)
         {
             Plugin.DragAndDropTextures.RebuildCategory(category, false);
         }
@@ -1089,7 +1122,7 @@ public class MainWindow : Window, IDisposable
     {
         if (Plugin.Chat != null)
             Plugin.Chat.Print("[DragAndDrop] Exporting to PSD... Please wait.");
-            
+
         System.Threading.Tasks.Task.Run(() =>
         {
             try
@@ -1106,14 +1139,14 @@ public class MainWindow : Window, IDisposable
                     var character = Plugin.SafeGameObjectManager.LocalPlayer;
                     if (character != null && global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64 != null)
                     {
-                        try 
+                        try
                         {
                             var stateBase64Result = global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
                             var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(stateBase64Result.Item2);
                             int ffxivGender = customization.Customize.Gender.Value;
                             Guid collectionId = global::PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
                             targetBody = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, ffxivGender, out string _, Plugin);
-                            
+
                             // Initialize the path so FastUVTransfer maps can be found
                             if (global::PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory != null)
                             {
@@ -1195,7 +1228,7 @@ public class MainWindow : Window, IDisposable
                     collection.Write(psdPath, ImageMagick.MagickFormat.Psd);
                     if (Plugin.Chat != null)
                         Plugin.Chat.Print($"[DragAndDrop] Successfully exported PSD to: {psdPath}");
-                        
+
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
                     {
                         FileName = exportFolder,
@@ -1760,7 +1793,7 @@ public class MainWindow : Window, IDisposable
             ImGui.EndDisabled();
             ImGui.PopStyleColor(3);
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Remove Layer"));
-            
+
             if (removeClicked)
             {
                 Plugin.ContextualLayerManager.DeleteLayer(layer);
@@ -1770,22 +1803,22 @@ public class MainWindow : Window, IDisposable
             {
                 layer.Save();
             }
-            
+
             ImGui.Separator();
             ImGui.Spacing();
-            
+
             ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), Translator.LocalizeUI("Folder Contents"));
             ImGui.BeginChild("ContextualLayerTexturesList", new Vector2(0, 0), true);
-            
+
             if (Directory.Exists(layer.DirectoryPath))
             {
                 var files = Directory.GetFiles(layer.DirectoryPath, "*.png").OrderBy(f => f).ToList();
-                
+
                 if (files.Count == 0)
                 {
                     ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No textures found in this layer's folder."));
                 }
-                
+
                 for (int i = 0; i < files.Count; i++)
                 {
                     string path = files[i];
@@ -1806,7 +1839,7 @@ public class MainWindow : Window, IDisposable
 
                     string displayPath = System.IO.Path.GetFileName(path);
                     ImGui.InputText("##ctxpath_" + i, ref displayPath, 1024, ImGuiInputTextFlags.ReadOnly);
-                    
+
                     ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
                     ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1f));
                     ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
@@ -1819,7 +1852,7 @@ public class MainWindow : Window, IDisposable
                     ImGui.PopStyleColor(3);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip(Translator.LocalizeUI("Hold SHIFT to Delete file from disk"));
                 }
-                
+
                 ImGui.Spacing();
                 ImGui.Button(Translator.LocalizeUI("Drop new .png files here to add them to the layer") + "##dropzone", new Vector2(-1, 40));
                 if (ImGui.IsItemHovered())
@@ -1854,6 +1887,7 @@ public class MainWindow : Window, IDisposable
     private int _uvPreviewCachedTarget = -1;
     private Dalamud.Interface.Textures.ISharedImmediateTexture _uvPreviewTexture = null;
     private DateTime _uvPreviewLastResolve = DateTime.MinValue;
+    private string _collectionId;
 
     /// <summary>
     /// Resolves and caches the current body/face underlay texture for UV preview display.
@@ -2168,7 +2202,7 @@ public class MainWindow : Window, IDisposable
                     ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
                     bool stopClicked = ImGui.Button("Stop##" + kvp.Key);
                     ImGui.PopStyleColor(3);
-                    
+
                     if (stopClicked)
                     {
                         manager.DeactivateLayer(kvp.Key);
@@ -2220,7 +2254,7 @@ public class MainWindow : Window, IDisposable
                 ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1f, 0.4f, 0.4f, 1f));
                 bool removeSavedClicked = ImGui.Button("X##removeSaved_" + i);
                 ImGui.PopStyleColor(3);
-                
+
                 if (removeSavedClicked)
                 {
                     savedDefs.RemoveAt(i);
