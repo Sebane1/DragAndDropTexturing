@@ -1931,11 +1931,11 @@ namespace DragAndDropTexturing.Windows
                     bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
                     _plugin.PluginLog.Info($"[Texture Painter] Paint layer saved to: {outPath}");
                     
-                    var targetChar = _plugin.SafeGameObjectManager.LocalPlayer;
-                    _plugin.PluginLog.Info($"[Texture Painter] LocalPlayer={targetChar?.Name?.TextValue ?? "NULL"}, DragAndDropTextures={(_plugin.DragAndDropTextures != null ? "OK" : "NULL")}");
+                    var targetChar = ResolvePaintingTargetCharacter();
+                    _plugin.PluginLog.Info($"[Texture Painter] PaintingTarget={targetChar?.Name?.TextValue ?? "NULL"}, DragAndDropTextures={(_plugin.DragAndDropTextures != null ? "OK" : "NULL")}");
                     if (targetChar != null && _plugin.DragAndDropTextures != null)
                     {
-                        var characterGameObject = targetChar as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                        var characterGameObject = targetChar;
                         if (characterGameObject != null)
                         {
                             if (isEditMode)
@@ -1960,7 +1960,7 @@ namespace DragAndDropTexturing.Windows
                                 _plugin.PluginLog.Info($"[Texture Painter COMMIT] New layer path. ContextCategoryKey={contextKey}, targetName={targetChar.Name.TextValue}, startsWith={contextKey?.StartsWith(targetChar.Name.TextValue)}, IsMinion={cachedIsMinion}");
                                 if (!string.IsNullOrEmpty(contextKey) && contextKey.StartsWith(targetChar.Name.TextValue))
                                 {
-                                    var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(targetCharacter.ObjectIndex);
+                                    var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(targetChar.ObjectIndex);
                                     var collectionId = collection.EffectiveCollection.Id.ToString();
                                     if (!_plugin.DragAndDropTextures.TextureCollectionHistory.ContainsKey(collectionId))
                                     {
@@ -2018,7 +2018,7 @@ namespace DragAndDropTexturing.Windows
                         }
                         else
                         {
-                            _plugin.PluginLog.Error("[Texture Painter] LocalPlayer could not be cast to ICharacter!");
+                            _plugin.PluginLog.Error("[Texture Painter] Painting target could not be resolved to ICharacter!");
                         }
                     }
                 }
@@ -2055,6 +2055,45 @@ namespace DragAndDropTexturing.Windows
                 oldLayer?.Dispose();
                 oldTablet?.Dispose();
             });
+        }
+
+        private Dalamud.Game.ClientState.Objects.Types.ICharacter ResolveCharacterByName(string charName)
+        {
+            if (string.IsNullOrEmpty(charName)) return null;
+
+            var localPlayer = _plugin.SafeGameObjectManager.LocalPlayer;
+            if (localPlayer != null && localPlayer.Name.TextValue == charName)
+                return localPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+
+            foreach (var obj in _plugin.GetNearestObjects())
+            {
+                if (obj is Dalamud.Game.ClientState.Objects.Types.ICharacter c && c.Name.TextValue == charName)
+                    return c;
+            }
+
+            foreach (var item in _plugin.SafeGameObjectManager)
+            {
+                if (item is Dalamud.Game.ClientState.Objects.Types.ICharacter c && c.Name.TextValue == charName)
+                    return c;
+            }
+
+            return null;
+        }
+
+        private Dalamud.Game.ClientState.Objects.Types.ICharacter ResolvePaintingTargetCharacter()
+        {
+            if (TargetCharacter != null && TargetCharacter.IsValid())
+                return TargetCharacter;
+
+            if (!string.IsNullOrEmpty(ContextCategoryKey))
+            {
+                string charName = ContextCategoryKey.Split('_')[0];
+                var resolved = ResolveCharacterByName(charName);
+                if (resolved != null)
+                    return resolved;
+            }
+
+            return _plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
         }
 
         private void StartLoadPlayerModels()
@@ -2185,16 +2224,18 @@ namespace DragAndDropTexturing.Windows
 
             if (character == null)
             {
-                character = _plugin.SafeGameObjectManager.LocalPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                character = ResolvePaintingTargetCharacter();
                 _cachedIsMinion = false;
                 _cachedMinionDataId = 0;
             }
 
             if (character == null)
             {
-                _plugin.PluginLog.Warning("[PSD Preview] LocalPlayer is null or not a character when starting load!");
+                _plugin.PluginLog.Warning("[PSD Preview] No painting target character found when starting load!");
                 return;
             }
+
+            _plugin.PluginLog.Info($"[PSD Preview] Loading models for '{character.Name.TextValue}' (TargetCharacter={(TargetCharacter != null ? TargetCharacter.Name.TextValue : "null")}, ContextKey={ContextCategoryKey ?? "null"})");
 
             try
             {

@@ -1575,9 +1575,16 @@ namespace RoleplayingVoice
                                             var textureTintHistory = _textureCollectionHistoryTints[collectionId];
                                             for (int _i = 0; _i < _textureCollectionHistory[collectionId].Count; _i++)
                                             {
-                                                string f = textureHistory[categoryKey][_i];
-                                                System.Numerics.Vector4? t = textureTintHistory.ContainsKey(categoryKey) && _i < textureTintHistory[categoryKey].Count ? textureTintHistory[categoryKey][_i] : null;
-                                                AddToTextureSet(item, f, overrideType, t);
+                                                try
+                                                {
+                                                    string f = textureHistory[categoryKey][_i];
+                                                    System.Numerics.Vector4? t = textureTintHistory.ContainsKey(categoryKey) && _i < textureTintHistory[categoryKey].Count ? textureTintHistory[categoryKey][_i] : null;
+                                                    AddToTextureSet(item, f, overrideType, t);
+                                                }
+                                                catch (Exception e)
+                                                {
+                                                    plugin.PluginLog.Warning(e.Message, e.StackTrace);
+                                                }
                                             }
                                             // Composite active contextual layers on top of drag-and-drop textures
                                             if (plugin.ContextualLayerManager != null && selectedPlayer.Key == plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue)

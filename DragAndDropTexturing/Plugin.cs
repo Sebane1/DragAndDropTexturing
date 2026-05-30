@@ -272,7 +272,7 @@ public sealed class Plugin : IDalamudPlugin
         foreach (var item in _safeGameObjectManager)
         {
             if (Vector3.Distance(SafeGameObjectManager.LocalPlayer.Position, item.Position) < 3f
-                && item.GameObjectId != SafeGameObjectManager.LocalPlayer.GameObjectId)
+                && item.GameObjectId != SafeGameObjectManager.LocalPlayer.GameObjectId && !(item.Name.TextValue.Contains("Cnpc") || item.Name.TextValue.Contains("Reborn")))
             {
                 gameObjects.Add((item as Dalamud.Game.ClientState.Objects.Types.IGameObject));
             }

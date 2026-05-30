@@ -168,7 +168,6 @@ public class MainWindow : Window, IDisposable
                     if (_layerTargetObjectIndex != obj.ObjectIndex)
                     {
                         RefreshLayerCollection(obj);
-                        _selectedActiveLayerIndex = 0;
                     }
                     ImGui.CloseCurrentPopup();
                 }
@@ -968,6 +967,23 @@ public class MainWindow : Window, IDisposable
                     if (ImGui.Selectable(Translator.LocalizeUI("Mount")))
                     {
                         Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_mount_body");
+                    }
+                    ImGui.Separator();
+                    if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Top)")))
+                    {
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_body");
+                    }
+                    if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Bottom)")))
+                    {
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_legs");
+                    }
+                    if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Hands)")))
+                    {
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_hands");
+                    }
+                    if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Feet)")))
+                    {
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_feet");
                     }
                     ImGui.EndPopup();
                 }
