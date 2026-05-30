@@ -13,6 +13,7 @@ using System.Linq;
 using System.Numerics;
 using static Penumbra.GameData.Files.ShpkFile;
 using RoleplayingVoice;
+using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 
 namespace DragAndDropTexturing.Windows;
@@ -43,11 +44,11 @@ public class MainWindow : Window, IDisposable
         }
     }
 
-    public void Dispose() { }
-    public override void OnOpen()
+    public void RefreshLayerCollection(IGameObject targetGameObject)
     {
-        base.OnOpen();
-        var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(Plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+        if (targetGameObject == null) return;
+        _layerTargetObjectIndex = targetGameObject.ObjectIndex;
+        var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(targetGameObject.ObjectIndex);
         _collectionId = collection.EffectiveCollection.Id.ToString();
         if (!Plugin.DragAndDropTextures.TextureCollectionHistory.ContainsKey(_collectionId))
         {
@@ -58,6 +59,143 @@ public class MainWindow : Window, IDisposable
             Plugin.DragAndDropTextures.TextureCollectionHistoryTints[_collectionId] = new Dictionary<string, List<Vector4>>();
         }
     }
+
+    public void TrySetLayerTargetFromDrop(IGameObject gameObject)
+    {
+        if (gameObject == null || !gameObject.IsValid()) return;
+        if (_layerTargetObjectIndex == gameObject.ObjectIndex) return;
+
+        var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+        if (localPlayer == null) return;
+
+        bool isLocalPlayer = gameObject.ObjectIndex == localPlayer.ObjectIndex;
+        bool isNearbyTarget = gameObject.ObjectKind == ObjectKind.Pc || gameObject.ObjectKind == ObjectKind.Companion;
+        if (!isLocalPlayer && !isNearbyTarget) return;
+
+        if (!isLocalPlayer)
+        {
+            bool isNear = Plugin.GetNearestObjects().Any(o => o != null && o.ObjectIndex == gameObject.ObjectIndex);
+            if (!isNear) return;
+        }
+
+        RefreshLayerCollection(gameObject);
+        _selectedActiveLayerIndex = 0;
+    }
+
+    private ushort _layerTargetObjectIndex = ushort.MaxValue;
+    private string _layerTargetSearchFilter = "";
+
+    private IGameObject GetLayerTargetGameObject()
+    {
+        var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+        if (localPlayer == null) return null;
+
+        if (_layerTargetObjectIndex == ushort.MaxValue)
+            _layerTargetObjectIndex = localPlayer.ObjectIndex;
+
+        foreach (var candidate in EnumerateLayerTargetCandidates())
+        {
+            if (candidate.ObjectIndex == _layerTargetObjectIndex)
+                return candidate;
+        }
+
+        _layerTargetObjectIndex = localPlayer.ObjectIndex;
+        return localPlayer;
+    }
+
+    private ICharacter GetLayerTargetCharacter() => GetLayerTargetGameObject() as ICharacter;
+
+    private string GetLayerTargetCharacterName() => GetLayerTargetGameObject()?.Name?.TextValue ?? "";
+
+    private IEnumerable<IGameObject> EnumerateLayerTargetCandidates()
+    {
+        var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+        if (localPlayer == null) yield break;
+
+        yield return localPlayer;
+
+        foreach (var obj in Plugin.GetNearestObjects())
+        {
+            if (obj == null || !obj.IsValid()) continue;
+            if (obj.ObjectIndex == localPlayer.ObjectIndex) continue;
+            if (obj.ObjectKind == ObjectKind.Pc || obj.ObjectKind == ObjectKind.Companion)
+                yield return obj;
+        }
+    }
+
+    private string FormatLayerTargetLabel(IGameObject obj)
+    {
+        var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+        string name = obj.Name?.TextValue;
+        if (string.IsNullOrEmpty(name))
+            name = $"#{obj.ObjectIndex}";
+
+        string role = obj.ObjectIndex == localPlayer?.ObjectIndex
+            ? Translator.LocalizeUI("You")
+            : obj.ObjectKind == ObjectKind.Companion
+                ? Translator.LocalizeUI("Companion")
+                : Translator.LocalizeUI("Player");
+
+        float dist = localPlayer != null ? Vector3.Distance(localPlayer.Position, obj.Position) : 0f;
+        return $"{role}: {name} ({dist:F1}y)";
+    }
+
+    private void DrawLayerTargetSelector()
+    {
+        if (GetLayerTargetGameObject() == null)
+        {
+            ImGui.TextColored(new Vector4(0.8f, 0.4f, 0.4f, 1f), Translator.LocalizeUI("No character available."));
+            ImGui.Spacing();
+            return;
+        }
+
+        ImGui.Text(Translator.LocalizeUI("Layer Target:"));
+        ImGui.SetNextItemWidth(-1);
+        if (ImGui.BeginCombo("##LayerTargetCombo", FormatLayerTargetLabel(GetLayerTargetGameObject())))
+        {
+            ImGui.InputText(Translator.LocalizeUI("Search") + "##LayerTargetSearch", ref _layerTargetSearchFilter, 128);
+            string filter = _layerTargetSearchFilter.ToLower();
+
+            foreach (var obj in EnumerateLayerTargetCandidates())
+            {
+                string label = FormatLayerTargetLabel(obj);
+                if (!string.IsNullOrEmpty(filter) && !label.ToLower().Contains(filter))
+                    continue;
+
+                bool isSelected = obj.ObjectIndex == _layerTargetObjectIndex;
+                if (ImGui.Selectable($"{label}##LT_{obj.ObjectIndex}", isSelected))
+                {
+                    if (_layerTargetObjectIndex != obj.ObjectIndex)
+                    {
+                        RefreshLayerCollection(obj);
+                        _selectedActiveLayerIndex = 0;
+                    }
+                    ImGui.CloseCurrentPopup();
+                }
+                if (isSelected) ImGui.SetItemDefaultFocus();
+            }
+            ImGui.EndCombo();
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(Translator.LocalizeUI("Switch Penumbra collection target. Shows you and nearby players or companions within 3 yalms."));
+        }
+        ImGui.Spacing();
+    }
+
+    private static bool LayerKeyMatchesTarget(string key, string charName)
+    {
+        if (string.IsNullOrEmpty(charName)) return true;
+        return key.StartsWith(charName + "_", StringComparison.Ordinal);
+    }
+
+    public void Dispose() { }
+    public override void OnOpen()
+    {
+        base.OnOpen();
+        RefreshLayerCollection(Plugin.SafeGameObjectManager.LocalPlayer);
+    }
+
     public override void Draw()
     {
         _fileDialogManager.Draw();
@@ -393,12 +531,12 @@ public class MainWindow : Window, IDisposable
             {
                 if (b && files != null && files.Count > 0)
                 {
-                    var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
-                    if (localPlayer != null && localPlayer is Dalamud.Game.ClientState.Objects.Types.ICharacter chara)
+                    var targetChar = GetLayerTargetCharacter();
+                    if (targetChar != null)
                     {
                         Plugin.DragAndDropTextures?.InjectFilesAndRebuild(
                             files,
-                            new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(localPlayer.Name.TextValue, chara),
+                            new KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter>(targetChar.Name.TextValue, targetChar),
                             PenumbraAndGlamourerHelpers.BodyDragPart.Body);
                     }
                 }
@@ -409,28 +547,28 @@ public class MainWindow : Window, IDisposable
     private void DrawWornGearQuickEdit()
     {
         var ddt = Plugin.DragAndDropTextures;
-        var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
-        if (ddt == null || localPlayer == null) return;
+        var targetChar = GetLayerTargetCharacter();
+        if (ddt == null || targetChar == null) return;
 
-        ImGui.TextWrapped(Translator.LocalizeUI("Pull texture paths from gear your character is wearing. Each slot becomes an editable layer like body/face."));
+        ImGui.TextWrapped(Translator.LocalizeUI("Pull texture paths from gear the layer target is wearing. Each slot becomes an editable layer like body/face."));
         ImGui.Spacing();
 
         if (ImGui.Button(Translator.LocalizeUI("Scan Worn Gear")))
         {
-            ddt.RefreshWornGearCache();
+            ddt.RefreshWornGearCache(targetChar);
         }
 
         ImGui.SameLine();
         if (ImGui.Button(Translator.LocalizeUI("Import All Slots")))
         {
-            ddt.RefreshWornGearCache();
+            ddt.RefreshWornGearCache(targetChar);
             foreach (var piece in ddt.CachedWornGear)
-                ddt.ImportWornGearSlot(piece);
+                ddt.ImportWornGearSlot(piece, targetChar);
         }
 
         if (ddt.CachedWornGear == null || ddt.CachedWornGear.Count == 0)
         {
-            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No gear textures resolved yet. Click Scan while wearing items (not Emperor's New)."));
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No gear textures resolved yet. Click Scan while the target is wearing items (not Emperor's New)."));
             ImGui.Spacing();
             return;
         }
@@ -455,14 +593,14 @@ public class MainWindow : Window, IDisposable
 
                 ImGui.TableNextColumn();
                 string btnIdSuffix = piece.SlotKey + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
-                string charName = localPlayer.Name.TextValue;
+                string charName = targetChar.Name.TextValue;
                 string layerKey = charName + "_gear_" + piece.SlotKey + (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName);
                 var textureHistory = ddt.TextureCollectionHistory[_collectionId];
                 bool hasLayer = textureHistory != null && textureHistory.ContainsKey(layerKey) && textureHistory[layerKey].Count > 0;
                 if (!hasLayer)
                 {
                     if (ImGui.Button(Translator.LocalizeUI("Import") + "##wg_" + btnIdSuffix))
-                        ddt.ImportWornGearSlot(piece);
+                        ddt.ImportWornGearSlot(piece, targetChar);
                 }
                 if (hasLayer)
                 {
@@ -484,27 +622,28 @@ public class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         var ddt = Plugin.DragAndDropTextures;
-        var textureHistory = ddt.TextureCollectionHistory[_collectionId];
-        if (ddt != null && textureHistory != null)
+        if (ddt == null || string.IsNullOrEmpty(_collectionId)) return;
+        if (!ddt.TextureCollectionHistory.TryGetValue(_collectionId, out var textureHistory) || textureHistory == null) return;
+
+        DrawLayerTargetSelector();
+
+        if (ImGui.BeginTabBar("ActiveLayersSubTabs"))
         {
-            if (ImGui.BeginTabBar("ActiveLayersSubTabs"))
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Presets & Layers")))
             {
-                if (ImGui.BeginTabItem(Translator.LocalizeUI("Presets & Layers")))
-                {
-                    ImGui.Spacing();
-                    DrawCombinedLayersTab(ddt);
-                    ImGui.EndTabItem();
-                }
-
-                if (ImGui.BeginTabItem(Translator.LocalizeUI("Worn Gear")))
-                {
-                    ImGui.Spacing();
-                    DrawWornGearQuickEdit();
-                    ImGui.EndTabItem();
-                }
-
-                ImGui.EndTabBar();
+                ImGui.Spacing();
+                DrawCombinedLayersTab(ddt);
+                ImGui.EndTabItem();
             }
+
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Worn Gear")))
+            {
+                ImGui.Spacing();
+                DrawWornGearQuickEdit();
+                ImGui.EndTabItem();
+            }
+
+            ImGui.EndTabBar();
         }
     }
 
@@ -790,7 +929,8 @@ public class MainWindow : Window, IDisposable
             ImGui.Spacing();
         }
 
-        var keys = targetHistory.Keys.Where(k => targetHistory[k].Count > 0).ToList();
+        string layerFilterName = _selectedPresetIndex == -1 ? GetLayerTargetCharacterName() : null;
+        var keys = targetHistory.Keys.Where(k => targetHistory[k].Count > 0 && LayerKeyMatchesTarget(k, layerFilterName)).ToList();
         if (keys.Count == 0)
         {
             ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No textures in this configuration."));
@@ -807,27 +947,27 @@ public class MainWindow : Window, IDisposable
                     ImGui.Separator();
                     if (ImGui.Selectable(Translator.LocalizeUI("Body")))
                     {
-                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_body");
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_body");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Face")))
                     {
-                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_face");
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_face");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Hair")))
                     {
-                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_hair");
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_hair");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Tail")))
                     {
-                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_tail");
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_tail");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Minion")))
                     {
-                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_minion_body");
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_minion_body");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Mount")))
                     {
-                        Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_mount_body");
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_mount_body");
                     }
                     ImGui.EndPopup();
                 }
@@ -849,44 +989,44 @@ public class MainWindow : Window, IDisposable
                 ImGui.Separator();
                 if (ImGui.Selectable(Translator.LocalizeUI("Body")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_body");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_body");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Face")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_face");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_face");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Hair")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_hair");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_hair");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Tail")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_tail");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_tail");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Minion")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_minion_body");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_minion_body");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Mount")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_mount_body");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_mount_body");
                 }
                 ImGui.Separator();
                 if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Top)")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_gear_body");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_body");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Bottom)")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_gear_legs");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_legs");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Hands)")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_gear_hands");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_hands");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Feet)")))
                 {
-                    Plugin.OpenPaintWindow(null, Plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue + "_gear_feet");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_feet");
                 }
                 ImGui.EndPopup();
             }
@@ -1055,7 +1195,7 @@ public class MainWindow : Window, IDisposable
                         if (!canEdit) ImGui.BeginDisabled();
                         if (ImGui.Button(Translator.LocalizeUI("Edit") + "##" + key + i))
                         {
-                            Plugin.OpenPaintWindow(Plugin.SafeGameObjectManager.LocalPlayer, path, key);
+                            Plugin.OpenPaintWindow(GetLayerTargetCharacter(), path, key);
                         }
                         if (!canEdit)
                         {

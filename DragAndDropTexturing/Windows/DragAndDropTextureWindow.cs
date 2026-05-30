@@ -1028,6 +1028,12 @@ namespace RoleplayingVoice
                         List<TextureSet> textureSets = new List<TextureSet>();
                         plugin.PluginLog.Information("[Drag And Drop Debug] Drop event triggered, selectedPlayer: " + (selectedPlayer.Value != null));
 
+                        if (selectedPlayer.Value != null)
+                        {
+                            var dropTarget = selectedPlayer.Value;
+                            Plugin.Framework.RunOnFrameworkThread(() => Plugin.MainWindow?.TrySetLayerTargetFromDrop(dropTarget));
+                        }
+
                         // If an export is already in progress, queue the drop via InjectFilesAndRebuild
                         // which has built-in wait logic for _lockDuplicateGeneration.
                         if (_lockDuplicateGeneration && selectedPlayer.Value != null)
@@ -2482,6 +2488,11 @@ namespace RoleplayingVoice
         public Task InjectFilesAndRebuild(List<string> extractedFiles, KeyValuePair<string, Dalamud.Game.ClientState.Objects.Types.ICharacter> selectedPlayer, BodyDragPart bodyDragPart)
         {
             _currentTarget = selectedPlayer.Value;
+            if (selectedPlayer.Value != null)
+            {
+                var dropTarget = selectedPlayer.Value;
+                Plugin.Framework.RunOnFrameworkThread(() => Plugin.MainWindow?.TrySetLayerTargetFromDrop(dropTarget));
+            }
             return Task.Run(() =>
             {
                 HashSet<string> droppedCategories = new HashSet<string>();
@@ -3697,30 +3708,30 @@ namespace RoleplayingVoice
             });
         }
 
-        public void RefreshWornGearCache()
+        public void RefreshWornGearCache(ICharacter targetCharacter = null)
         {
-            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
-            if (localPlayer == null)
+            targetCharacter ??= plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+            if (targetCharacter == null)
             {
                 CachedWornGear = new List<WornEquipmentPiece>();
                 return;
             }
 
-            CachedWornGear = WornEquipmentResolver.ResolveWornGear(localPlayer, plugin);
+            CachedWornGear = WornEquipmentResolver.ResolveWornGear(targetCharacter, plugin);
         }
 
-        public void ImportWornGearSlot(WornEquipmentPiece piece)
+        public void ImportWornGearSlot(WornEquipmentPiece piece, ICharacter targetCharacter = null)
         {
             if (piece == null || plugin == null) return;
 
-            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
-            if (localPlayer == null)
+            targetCharacter ??= plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
+            if (targetCharacter == null)
             {
-                plugin.Chat.PrintError("[Drag And Drop Texturing] No local player — cannot import worn gear.");
+                plugin.Chat.PrintError("[Drag And Drop Texturing] No target character — cannot import worn gear.");
                 return;
             }
 
-            Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).EffectiveCollection.Id;
+            Guid collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(targetCharacter.ObjectIndex).EffectiveCollection.Id;
             string exportDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "WornGear");
             string source = !string.IsNullOrEmpty(piece.ResolvedBaseDiskPath) ? piece.ResolvedBaseDiskPath : piece.InternalBasePath;
             string pngPath = WornEquipmentResolver.ExportResolvedTextureToPng(source, collection, exportDir, plugin, piece.SlotKey, piece.MaterialName);
@@ -3731,7 +3742,7 @@ namespace RoleplayingVoice
                 return;
             }
 
-            string categoryKey = $"{localPlayer.Name.TextValue}_gear_{piece.SlotKey}" +
+            string categoryKey = $"{targetCharacter.Name.TextValue}_gear_{piece.SlotKey}" +
                 (string.IsNullOrEmpty(piece.MaterialName) ? "" : "_" + piece.MaterialName) +
                 (string.IsNullOrEmpty(piece.ModName) ? "" : "_[" + piece.ModName + "]");
             _gearCategoryMeta[categoryKey] = piece;
