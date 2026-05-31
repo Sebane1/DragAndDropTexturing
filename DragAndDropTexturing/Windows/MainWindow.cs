@@ -669,10 +669,10 @@ public class MainWindow : Window, IDisposable
 
         if (ImGui.BeginTable("PenumbraFoundModsTable", 6, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Mod Name"), ImGuiTableColumnFlags.WidthFixed, 300);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Mod Name"), ImGuiTableColumnFlags.WidthFixed, 250);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Part"), ImGuiTableColumnFlags.WidthFixed, 100);
             ImGui.TableSetupColumn(Translator.LocalizeUI("UV Type"), ImGuiTableColumnFlags.WidthFixed, 80);
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthFixed, 300);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthFixed, 200);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Tint"), ImGuiTableColumnFlags.WidthFixed, 80);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Emissive"), ImGuiTableColumnFlags.WidthFixed, 80);
             ImGui.TableHeadersRow();
