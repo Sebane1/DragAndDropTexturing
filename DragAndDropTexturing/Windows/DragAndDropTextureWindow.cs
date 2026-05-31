@@ -99,6 +99,7 @@ namespace RoleplayingVoice
         private System.Threading.Timer _regenerationDebounce;
         private HashSet<string> _pendingRegenerationCategories = new HashSet<string>();
         private readonly object _regenerationLock = new object();
+        private volatile bool _bulkRebuildInProgress;
 
         private void AddToTextureSet(TextureSet item, string file, string overrideType = "", System.Numerics.Vector4? tint = null)
         {
@@ -309,6 +310,7 @@ namespace RoleplayingVoice
 
         private void FileWatcher_Changed(object sender, System.IO.FileSystemEventArgs e)
         {
+            if (_bulkRebuildInProgress) return;
             if ((DateTime.Now - _lastRebuildTime).TotalMilliseconds < 500) return; // Debounce
 
             bool triggered = false;
@@ -1573,7 +1575,7 @@ namespace RoleplayingVoice
                                             }
                                             var textureHistory = _textureCollectionHistory[collectionId];
                                             var textureTintHistory = _textureCollectionHistoryTints[collectionId];
-                                            for (int _i = 0; _i < _textureCollectionHistory[collectionId].Count; _i++)
+                                            for (int _i = 0; _i < textureHistory[categoryKey].Count; _i++)
                                             {
                                                 try
                                                 {
@@ -2209,7 +2211,7 @@ namespace RoleplayingVoice
         {
             try
             {
-                if (_lockDuplicateGeneration) return;
+                if (_bulkRebuildInProgress || _lockDuplicateGeneration) return;
                 if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
                 if (e.GameObjectPtr != plugin.SafeGameObjectManager.LocalPlayer.Address) return;
 
@@ -2287,7 +2289,7 @@ namespace RoleplayingVoice
         {
             try
             {
-                if (_lockDuplicateGeneration) return;
+                if (_bulkRebuildInProgress || _lockDuplicateGeneration) return;
                 if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
 
                 string modDir = e.ModDirectory?.ToLower() ?? "";
@@ -2655,32 +2657,106 @@ namespace RoleplayingVoice
         };
         public void RebuildAllCategories()
         {
-            var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+            if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
+
+            var localPlayer = plugin.SafeGameObjectManager.LocalPlayer;
+            string charName = localPlayer.Name.TextValue;
+            var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex);
             var collectionId = collection.EffectiveCollection.Id.ToString();
             if (!_textureCollectionHistory.ContainsKey(collectionId))
             {
                 _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
             }
+            EnsureActiveContextualLayerCategories(collectionId);
             var textureHistory = _textureCollectionHistory[collectionId];
             if (textureHistory == null || textureHistory.Count == 0) return;
 
+            var activeContextualKeys = new HashSet<string>(StringComparer.Ordinal);
+            if (plugin.ContextualLayerManager != null)
+            {
+                foreach (var active in plugin.ContextualLayerManager.GetActiveLayers())
+                {
+                    string part = active?.LayerDef?.TargetBodyPart;
+                    if (!string.IsNullOrWhiteSpace(part))
+                        activeContextualKeys.Add(charName + "_" + part.ToLowerInvariant());
+                }
+            }
+
+            var categoriesToRebuild = textureHistory.Keys
+                .Where(k => k.StartsWith(charName + "_", StringComparison.Ordinal)
+                    && (textureHistory[k].Count > 0 || activeContextualKeys.Contains(k)))
+                .OrderBy(k => k, StringComparer.Ordinal)
+                .ToList();
+            if (categoriesToRebuild.Count == 0) return;
+
+            plugin.PluginLog.Information($"[Drag And Drop Texturing] Bulk re-export started for {categoriesToRebuild.Count} categories in collection {collectionId}.");
+
             Task.Run(() =>
             {
-                foreach (var textureCollectionHistoryItem in _textureCollectionHistory)
+                _bulkRebuildInProgress = true;
+                lock (_regenerationLock)
                 {
-                    foreach (var item in textureCollectionHistoryItem.Value)
+                    _pendingRegenerationCategories.Clear();
+                    _regenerationDebounce?.Dispose();
+                    _regenerationDebounce = null;
+                }
+                try
+                {
+                    foreach (var categoryKey in categoriesToRebuild)
                     {
                         int waitAttempts = 0;
-                        while (_lockDuplicateGeneration && waitAttempts < 60)
+                        while (_lockDuplicateGeneration && waitAttempts < 120)
                         {
                             Thread.Sleep(1000);
                             waitAttempts++;
                         }
-                        RebuildCategory(item.Key, false);
+                        RebuildCategory(categoryKey, false);
                         Thread.Sleep(500);
                     }
+
+                    int finalWait = 0;
+                    while (_lockDuplicateGeneration && finalWait < 120)
+                    {
+                        Thread.Sleep(1000);
+                        finalWait++;
+                    }
+                }
+                finally
+                {
+                    _bulkRebuildInProgress = false;
                 }
             });
+        }
+
+        private void EnsureActiveContextualLayerCategories(string collectionId)
+        {
+            if (plugin?.ContextualLayerManager == null || plugin.SafeGameObjectManager?.LocalPlayer == null)
+                return;
+
+            var activeLayers = plugin.ContextualLayerManager.GetActiveLayers();
+            if (activeLayers == null || activeLayers.Count == 0)
+                return;
+
+            string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
+            if (!_textureCollectionHistory.ContainsKey(collectionId))
+                _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
+
+            if (!_textureCollectionHistoryTints.ContainsKey(collectionId))
+                _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+
+            foreach (var activeLayer in activeLayers)
+            {
+                string targetPart = activeLayer?.LayerDef?.TargetBodyPart;
+                if (string.IsNullOrWhiteSpace(targetPart))
+                    continue;
+
+                string categoryKey = charName + "_" + targetPart.ToLowerInvariant();
+                if (!_textureCollectionHistory[collectionId].ContainsKey(categoryKey))
+                    _textureCollectionHistory[collectionId][categoryKey] = new List<string>();
+
+                if (!_textureCollectionHistoryTints[collectionId].ContainsKey(categoryKey))
+                    _textureCollectionHistoryTints[collectionId][categoryKey] = new List<Vector4>();
+            }
         }
         /// <summary>
         /// Fully separate minion texture rebuild pipeline.
