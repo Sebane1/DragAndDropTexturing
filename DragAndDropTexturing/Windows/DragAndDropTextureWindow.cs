@@ -434,6 +434,8 @@ namespace RoleplayingVoice
 
         public Dictionary<string, Dictionary<string, List<string>>> TextureCollectionHistory { get => _textureCollectionHistory; set => _textureCollectionHistory = value; }
         public Dictionary<string, Dictionary<string, List<Vector4>>> TextureCollectionHistoryTints { get => _textureCollectionHistoryTints; set => _textureCollectionHistoryTints = value; }
+        public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayTints { get => _collectionSortedPenumbraOverlayTints; set => _collectionSortedPenumbraOverlayTints = value; }
+        public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayGlowTints { get => _collectionSortedPenumbraOverlayGlowTints; set => _collectionSortedPenumbraOverlayGlowTints = value; }
 
         private async Task CheckAndDownloadDLC()
         {

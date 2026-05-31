@@ -58,6 +58,14 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.DragAndDropTextures.TextureCollectionHistoryTints[_collectionId] = new Dictionary<string, List<Vector4>>();
         }
+        if (!Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayTints.ContainsKey(_collectionId))
+        {
+            Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayTints[_collectionId] = new Dictionary<string, Vector4>();
+        }
+        if (!Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayGlowTints.ContainsKey(_collectionId))
+        {
+            Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayGlowTints[_collectionId] = new Dictionary<string, Vector4>();
+        }
     }
 
     public void TrySetLayerTargetFromDrop(IGameObject gameObject)
@@ -656,7 +664,10 @@ public class MainWindow : Window, IDisposable
 
         var ddt = Plugin.DragAndDropTextures;
         if (ddt == null) return;
-
+        if (!DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays.ContainsKey(_collectionId))
+        {
+            DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays[_collectionId] = new List<Overlays.ResolvedAdvancedOverlay>();
+        }
         var overlays = DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays[_collectionId];
         if (overlays == null || overlays.Count == 0)
         {
