@@ -667,11 +667,12 @@ public class MainWindow : Window, IDisposable
         bool changed = false;
         string rebuildCategory = null;
 
-        if (ImGui.BeginTable("PenumbraFoundModsTable", 5, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        if (ImGui.BeginTable("PenumbraFoundModsTable", 6, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Mod Name"), ImGuiTableColumnFlags.WidthFixed, 300);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Part"), ImGuiTableColumnFlags.WidthFixed, 100);
             ImGui.TableSetupColumn(Translator.LocalizeUI("UV Type"), ImGuiTableColumnFlags.WidthFixed, 80);
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthFixed, 300);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Tint"), ImGuiTableColumnFlags.WidthFixed, 80);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Emissive"), ImGuiTableColumnFlags.WidthFixed, 80);
             ImGui.TableHeadersRow();
@@ -681,6 +682,9 @@ public class MainWindow : Window, IDisposable
                 var overlay = overlays[i];
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn();
+                ImGui.Text(overlay.ModName);
+
+                ImGui.TableNextColumn();
                 ImGui.Text(char.ToUpper(overlay.TargetBodyPart[0]) + overlay.TargetBodyPart.Substring(1));
 
                 ImGui.TableNextColumn();
@@ -688,6 +692,7 @@ public class MainWindow : Window, IDisposable
 
                 ImGui.TableNextColumn();
                 // Show preview and filename
+
                 string fileName = string.IsNullOrEmpty(overlay.DiffusePath) ? "" : Path.GetFileName(overlay.DiffusePath);
 
                 var tex = GetPreviewTexture(overlay.DiffusePath);

@@ -49,6 +49,7 @@ namespace DragAndDropTexturing.Overlays
 
     public class ResolvedAdvancedOverlay
     {
+        public string ModName { get; set; }
         public string TargetBodyPart { get; set; } // "body", "face", "eyes", "eyebrows"
         public string UVType { get; set; } // "bibo", "gen3", "tbse", etc.
         public string DiffusePath { get; set; }
