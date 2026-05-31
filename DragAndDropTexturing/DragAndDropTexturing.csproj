@@ -6,8 +6,9 @@
     <PackageProjectUrl>https://github.com/goatcorp/SamplePlugin</PackageProjectUrl>
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
-    <DalamudLibPath>$(AppData)\XIVLauncher\addon\Hooks\15.0.1.1-19-g7c9d34e7e\</DalamudLibPath>
-    <AssemblySearchPaths>$(AssemblySearchPaths);$(DalamudLibPath)</AssemblySearchPaths>
+    <LocalDalamudLibPath>$(AppData)\XIVLauncher\addon\Hooks\15.0.1.1-19-g7c9d34e7e\</LocalDalamudLibPath>
+    <DalamudLibPath Condition="Exists('$(LocalDalamudLibPath)Dalamud.dll')">$(LocalDalamudLibPath)</DalamudLibPath>
+    <AssemblySearchPaths Condition="Exists('$(DalamudLibPath)Dalamud.dll')">$(AssemblySearchPaths);$(DalamudLibPath)</AssemblySearchPaths>
     <TargetFramework>net10.0-windows7.0</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
