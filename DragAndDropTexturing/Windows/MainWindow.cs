@@ -657,7 +657,7 @@ public class MainWindow : Window, IDisposable
         var ddt = Plugin.DragAndDropTextures;
         if (ddt == null) return;
 
-        var overlays = DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays;
+        var overlays = DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays[_collectionId];
         if (overlays == null || overlays.Count == 0)
         {
             ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No Penumbra mod overlays currently active/detected."));
@@ -716,7 +716,7 @@ public class MainWindow : Window, IDisposable
                 if (!string.IsNullOrEmpty(overlayKey))
                 {
                     Vector4 col = Vector4.One;
-                    if (Plugin.Configuration.PenumbraOverlayTints.TryGetValue(overlayKey, out var savedCol))
+                    if (Plugin.Configuration.CollectionSortedPenumbraOverlayTints[_collectionId].TryGetValue(overlayKey, out var savedCol))
                     {
                         col = savedCol;
                     }
@@ -724,7 +724,7 @@ public class MainWindow : Window, IDisposable
                     ImGui.SetNextItemWidth(60);
                     if (ImGui.ColorEdit4($"##overlaytint_{i}", ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaBar | ImGuiColorEditFlags.AlphaPreview))
                     {
-                        Plugin.Configuration.PenumbraOverlayTints[overlayKey] = col;
+                        Plugin.Configuration.CollectionSortedPenumbraOverlayTints[_collectionId][overlayKey] = col;
                         Plugin.Configuration.Save();
                     }
                     if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Base Color Tint"));
@@ -735,7 +735,7 @@ public class MainWindow : Window, IDisposable
 
                     ImGui.TableNextColumn();
                     Vector4 glowCol = new Vector4(0, 0, 0, 1f);
-                    if (Plugin.Configuration.PenumbraOverlayGlowTints.TryGetValue(overlayKey, out var savedGlowCol))
+                    if (Plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints[_collectionId].TryGetValue(overlayKey, out var savedGlowCol))
                     {
                         glowCol = savedGlowCol;
                     }
@@ -744,7 +744,7 @@ public class MainWindow : Window, IDisposable
                     if (ImGui.ColorEdit4($"##overlayglowtint_{i}", ref glowCol, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoAlpha))
                     {
                         glowCol.W = 1.0f;
-                        Plugin.Configuration.PenumbraOverlayGlowTints[overlayKey] = glowCol;
+                        Plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints[_collectionId][overlayKey] = glowCol;
                         Plugin.Configuration.Save();
                     }
                     if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Glow Mask Tint"));

@@ -59,7 +59,7 @@ namespace DragAndDropTexturing.Overlays
 
     public static class AdvancedOverlayParser
     {
-        public static List<ResolvedAdvancedOverlay> ActiveOverlays { get; set; } = new List<ResolvedAdvancedOverlay>();
+        public static Dictionary<string, List<ResolvedAdvancedOverlay>> ActiveOverlays { get; set; } = new Dictionary<string, List<ResolvedAdvancedOverlay>>();
 
         public static AdvancedOverlayMod Parse(string jsonPath)
         {

@@ -48,7 +48,7 @@ public class Configuration : IPluginConfiguration
     public Dictionary<string, Vector4> PenumbraOverlayGlowTints { get; set; } = new Dictionary<string, Vector4>();
 
     public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayTints { get; set; } = new Dictionary<string, Dictionary<string, Vector4>>();
-    public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedOverlayGlowTints { get; set; } = new Dictionary<string, Dictionary<string, Vector4>>();
+    public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayGlowTints { get; set; } = new Dictionary<string, Dictionary<string, Vector4>>();
 
     // the below exist just to make saving less cumbersome
     public void Save()

@@ -90,7 +90,8 @@ namespace RoleplayingVoice
         List<Tuple<string, float>> boneSorting = new List<Tuple<string, float>>();
         private Dictionary<string, Dictionary<string, List<string>>> _textureCollectionHistory;
         private Dictionary<string, Dictionary<string, List<Vector4>>> _textureCollectionHistoryTints;
-
+        private Dictionary<string, Dictionary<string, Vector4>> _collectionSortedPenumbraOverlayTints;
+        private Dictionary<string, Dictionary<string, Vector4>> _collectionSortedPenumbraOverlayGlowTints;
         private readonly Dictionary<string, WornEquipmentPiece> _gearCategoryMeta = new();
         public Dictionary<string, WornEquipmentPiece> GearCategoryMeta { get => _gearCategoryMeta; }
         public List<WornEquipmentPiece> CachedWornGear { get; private set; } = new();
@@ -176,10 +177,10 @@ namespace RoleplayingVoice
             }
         }
 
-        private bool ApplyAdvancedOverlays(TextureSet item, string categoryKey)
+        private bool ApplyAdvancedOverlays(TextureSet item, string categoryKey, string collectionId)
         {
             bool applied = false;
-            var overlaysList = new List<DragAndDropTexturing.Overlays.ResolvedAdvancedOverlay>(DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays);
+            var overlaysList = new List<DragAndDropTexturing.Overlays.ResolvedAdvancedOverlay>(DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays[collectionId]);
             overlaysList.Reverse();
             foreach (var activeOverlay in overlaysList)
             {
@@ -232,13 +233,13 @@ namespace RoleplayingVoice
 
                     string overlayKey = !string.IsNullOrEmpty(diffusePath) ? diffusePath : (!string.IsNullOrEmpty(normalPath) ? normalPath : maskPath);
                     System.Numerics.Vector4 tintColor = System.Numerics.Vector4.One;
-                    if (overlayKey != null && plugin.Configuration.PenumbraOverlayTints.TryGetValue(overlayKey, out var savedTint))
+                    if (overlayKey != null && plugin.Configuration.CollectionSortedPenumbraOverlayTints[collectionId].TryGetValue(overlayKey, out var savedTint))
                     {
                         tintColor = savedTint;
                     }
 
                     System.Numerics.Vector4 glowTintColor = new System.Numerics.Vector4(0, 0, 0, 1f);
-                    if (overlayKey != null && plugin.Configuration.PenumbraOverlayGlowTints.TryGetValue(overlayKey, out var savedGlowTint))
+                    if (overlayKey != null && _collectionSortedPenumbraOverlayGlowTints[collectionId].TryGetValue(overlayKey, out var savedGlowTint))
                     {
                         glowTintColor = savedGlowTint;
                     }
@@ -358,6 +359,9 @@ namespace RoleplayingVoice
                 {
                     _textureCollectionHistory = plugin.Configuration.CollectionSortedTextureHistory;
                     _textureCollectionHistoryTints = plugin.Configuration.CollectionSortedTextureHistoryTints;
+                    _collectionSortedPenumbraOverlayTints = plugin.Configuration.CollectionSortedPenumbraOverlayTints;
+                    _collectionSortedPenumbraOverlayGlowTints = plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints;
+
                     foreach (var textureCollectionHistoryKey in _textureCollectionHistory.Keys)
                     {
                         foreach (var textureHistoryKey in _textureCollectionHistory[textureCollectionHistoryKey].Keys)
@@ -390,22 +394,38 @@ namespace RoleplayingVoice
                         {
                             Thread.Sleep(100);
                         }
+                        var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
+                        var collectionId = collection.EffectiveCollection.Id.ToString();
                         if (plugin.Configuration.TextureHistory != null)
                         {
-                            var collection = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
-                            var collectionId = collection.EffectiveCollection.Id.ToString();
                             if (!_textureCollectionHistory.ContainsKey(collectionId))
                             {
                                 _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
                             }
-                            _textureCollectionHistory[collectionId] = plugin.Configuration.TextureHistory;
-                            _textureCollectionHistoryTints[collectionId] = plugin.Configuration.TextureHistoryTints;
                             if (_textureCollectionHistoryTints[collectionId] == null)
                             {
                                 _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
                             }
+                            _textureCollectionHistory[collectionId] = plugin.Configuration.TextureHistory;
+                            _textureCollectionHistoryTints[collectionId] = plugin.Configuration.TextureHistoryTints;
                             plugin.Configuration.TextureHistory = null;
                             plugin.Configuration.TextureHistoryTints = null;
+                        }
+
+                        if (plugin.Configuration.PenumbraOverlayTints != null)
+                        {
+                            if (_collectionSortedPenumbraOverlayTints.ContainsKey(collectionId))
+                            {
+                                _collectionSortedPenumbraOverlayTints[collectionId] = new Dictionary<string, Vector4>();
+                            }
+                            if (_collectionSortedPenumbraOverlayGlowTints.ContainsKey(collectionId))
+                            {
+                                _collectionSortedPenumbraOverlayGlowTints[collectionId] = new Dictionary<string, Vector4>();
+                            }
+                            _collectionSortedPenumbraOverlayTints[collectionId] = plugin.Configuration.PenumbraOverlayTints;
+                            _collectionSortedPenumbraOverlayGlowTints[collectionId] = plugin.Configuration.PenumbraOverlayGlowTints;
+                            plugin.Configuration.PenumbraOverlayTints = null;
+                            plugin.Configuration.PenumbraOverlayGlowTints = null;
                         }
                     });
                 }
@@ -1606,7 +1626,7 @@ namespace RoleplayingVoice
                                                 }
                                             }
 
-                                            ApplyAdvancedOverlays(item, categoryKey);
+                                            ApplyAdvancedOverlays(item, categoryKey, collectionId);
                                             plugin.PluginLog.Information($"[Glow Debug] TextureSet '{item.TextureSetName}': Base='{item.Base}', Normal='{item.Normal}', Mask='{item.Mask}', Glow='{item.Glow}', Material='{item.Material}', InternalMtrl='{item.InternalMaterialPath}'");
                                             textureSets.Add(item);
 
@@ -3689,7 +3709,7 @@ namespace RoleplayingVoice
                             }
 
                             // Advanced Overlays (Proteus/Metadata from Penumbra mods)
-                            if (ApplyAdvancedOverlays(item, categoryKey))
+                            if (ApplyAdvancedOverlays(item, categoryKey, collectionId))
                             {
                                 hasContextualLayers = true;
                             }
