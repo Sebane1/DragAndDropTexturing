@@ -193,7 +193,7 @@ namespace RoleplayingVoice
                     {
                         if (!string.IsNullOrEmpty(normalPath))
                         {
-                            string memoryPath = "memory://" + normalPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked";
+                            string memoryPath = "memory:\\" + normalPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked";
                             if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
                             {
                                 var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(normalPath);
@@ -210,7 +210,7 @@ namespace RoleplayingVoice
 
                         if (!string.IsNullOrEmpty(maskPath))
                         {
-                            string memoryPath = "memory://" + maskPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked_grayscale";
+                            string memoryPath = "memory:\\" + maskPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked_grayscale";
                             if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
                             {
                                 var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(maskPath);
@@ -2823,7 +2823,7 @@ namespace RoleplayingVoice
                     }
 
                     // Pre-composite base + paint overlays into a single PNG
-                    // This bypasses the compiler's GPU merge pipeline (memory:// .raw)
+                    // This bypasses the compiler's GPU merge pipeline (memory:\\ .raw)
                     // which has stride issues at small (256x256) resolutions
                     {
                         var overlayPaths = new List<string>();

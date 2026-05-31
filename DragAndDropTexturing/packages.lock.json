@@ -112,11 +112,6 @@
         "resolved": "8.0.7",
         "contentHash": "2yLweyqmpuuFSRo+I3sLHMxmnAgNcI537kBJiyv49U2ZEqo00jZcG8lrnD8uCiOJp9IklYyTZULtbsXoFVzsjQ=="
       },
-      "Microsoft.Win32.SystemEvents": {
-        "type": "Transitive",
-        "resolved": "9.0.5",
-        "contentHash": "D4OYNpmvAsF9MkaY2W8Jue2XuNHDhygvwzo019hs+lP85KaVnOlXmqsjDKr1dHb1DPxDnOKpe6mAgJN7S6ttwg=="
-      },
       "SharpGen.Runtime": {
         "type": "Transitive",
         "resolved": "2.1.2-beta",
@@ -149,14 +144,6 @@
           "SixLabors.ImageSharp": "3.1.8"
         }
       },
-      "System.Drawing.Common": {
-        "type": "Transitive",
-        "resolved": "9.0.5",
-        "contentHash": "T/6nqx0B7/uTe5JjBwrKZilLuwfhHLOVmNKlT/wr4A9Dna94mgTdz3lTfrdJ72QRx7IHCv/LzoJPmFSfK/N6WA==",
-        "dependencies": {
-          "Microsoft.Win32.SystemEvents": "9.0.5"
-        }
-      },
       "Vortice.DirectX": {
         "type": "Transitive",
         "resolved": "3.5.0",
@@ -184,8 +171,7 @@
           "Lumina": "[6.2.0, )",
           "Newtonsoft.Json": "[13.0.3, )",
           "SixLabors.ImageSharp": "[3.1.8, )",
-          "SixLabors.ImageSharp.Drawing": "[2.1.6, )",
-          "System.Drawing.Common": "[9.0.5, )"
+          "SixLabors.ImageSharp.Drawing": "[2.1.6, )"
         }
       }
     }
