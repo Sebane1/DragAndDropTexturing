@@ -233,7 +233,15 @@ namespace RoleplayingVoice
 
                     string overlayKey = !string.IsNullOrEmpty(diffusePath) ? diffusePath : (!string.IsNullOrEmpty(normalPath) ? normalPath : maskPath);
                     System.Numerics.Vector4 tintColor = System.Numerics.Vector4.One;
-                    if (overlayKey != null && plugin.Configuration.CollectionSortedPenumbraOverlayTints[collectionId].TryGetValue(overlayKey, out var savedTint))
+                    if(!_collectionSortedPenumbraOverlayTints.ContainsKey(collectionId))
+                    {
+                        _collectionSortedPenumbraOverlayTints[collectionId] = new Dictionary<string, Vector4>();
+                    }
+                    if (!_collectionSortedPenumbraOverlayGlowTints.ContainsKey(collectionId))
+                    {
+                        _collectionSortedPenumbraOverlayGlowTints[collectionId] = new Dictionary<string, Vector4>();
+                    }
+                    if (overlayKey != null && _collectionSortedPenumbraOverlayTints[collectionId].TryGetValue(overlayKey, out var savedTint))
                     {
                         tintColor = savedTint;
                     }
