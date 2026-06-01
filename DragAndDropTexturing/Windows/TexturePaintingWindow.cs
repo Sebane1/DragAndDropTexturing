@@ -2699,7 +2699,7 @@ namespace DragAndDropTexturing.Windows
                     }
                 }
 
-                if (!string.IsNullOrEmpty(EditSourcePath) && !isGear)
+                if (!string.IsNullOrEmpty(EditSourcePath) && !isGear && !isFaceEditLocal)
                 {
                     if (_overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
                     {
