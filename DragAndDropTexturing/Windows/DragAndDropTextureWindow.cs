@@ -240,11 +240,18 @@ namespace RoleplayingVoice
                     if (!_collectionSortedPenumbraOverlayTints.ContainsKey(collectionId))
                     {
                         _collectionSortedPenumbraOverlayTints.Add(collectionId, new Dictionary<string, Vector4>());
-                    }
-                    
+                    }      
                     if (!_collectionSortedPenumbraOverlayGlowTints.ContainsKey(collectionId))
                     {
                         _collectionSortedPenumbraOverlayGlowTints.Add(collectionId, new Dictionary<string, Vector4>());
+                    }
+                    if (!_collectionSortedPenumbraOverlayTints[collectionId].ContainsKey(overlayKey))
+                    {
+                        _collectionSortedPenumbraOverlayTints[collectionId].Add(overlayKey, new Vector4());
+                    }
+                    if (!_collectionSortedPenumbraOverlayGlowTints[collectionId].ContainsKey(overlayKey))
+                    {
+                        _collectionSortedPenumbraOverlayGlowTints[collectionId].Add(overlayKey, new Vector4());
                     }
                     if (overlayKey != null && _collectionSortedPenumbraOverlayTints[collectionId].TryGetValue(overlayKey, out var savedTint))
                     {
