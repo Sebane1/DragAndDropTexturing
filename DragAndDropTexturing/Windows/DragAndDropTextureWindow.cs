@@ -240,7 +240,7 @@ namespace RoleplayingVoice
                     if (!_collectionSortedPenumbraOverlayTints.ContainsKey(collectionId))
                     {
                         _collectionSortedPenumbraOverlayTints.Add(collectionId, new Dictionary<string, Vector4>());
-                    }      
+                    }
                     if (!_collectionSortedPenumbraOverlayGlowTints.ContainsKey(collectionId))
                     {
                         _collectionSortedPenumbraOverlayGlowTints.Add(collectionId, new Dictionary<string, Vector4>());
@@ -253,31 +253,38 @@ namespace RoleplayingVoice
                     {
                         _collectionSortedPenumbraOverlayGlowTints[collectionId].Add(overlayKey, new Vector4());
                     }
-                    if (overlayKey != null && _collectionSortedPenumbraOverlayTints[collectionId].TryGetValue(overlayKey, out var savedTint))
+                    try
                     {
-                        tintColor = savedTint;
-                    }
+                        if (overlayKey != null && _collectionSortedPenumbraOverlayTints[collectionId].TryGetValue(overlayKey, out var savedTint))
+                        {
+                            tintColor = savedTint;
+                        }
 
-                    System.Numerics.Vector4 glowTintColor = new System.Numerics.Vector4(0, 0, 0, 1f);
-                    if (overlayKey != null && _collectionSortedPenumbraOverlayGlowTints[collectionId].TryGetValue(overlayKey, out var savedGlowTint))
-                    {
-                        glowTintColor = savedGlowTint;
-                    }
+                        System.Numerics.Vector4 glowTintColor = new System.Numerics.Vector4(0, 0, 0, 1f);
+                        if (overlayKey != null && _collectionSortedPenumbraOverlayGlowTints[collectionId].TryGetValue(overlayKey, out var savedGlowTint))
+                        {
+                            glowTintColor = savedGlowTint;
+                        }
 
-                    if (!string.IsNullOrEmpty(diffusePath))
-                    {
-                        if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = tintColor; }
-                        else if (!item.BaseOverlays.Contains(diffusePath)) { item.BaseOverlays.Add(diffusePath); item.BaseOverlayUVs.Add(activeOverlay.UVType); item.BaseOverlayTints.Add(tintColor); }
+                        if (!string.IsNullOrEmpty(diffusePath))
+                        {
+                            if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = tintColor; }
+                            else if (!item.BaseOverlays.Contains(diffusePath)) { item.BaseOverlays.Add(diffusePath); item.BaseOverlayUVs.Add(activeOverlay.UVType); item.BaseOverlayTints.Add(tintColor); }
+                        }
+                        if (!string.IsNullOrEmpty(normalPath))
+                        {
+                            if (string.IsNullOrEmpty(item.Normal)) { item.Normal = normalPath; item.NormalUV = activeOverlay.UVType; }
+                            else if (!item.NormalOverlays.Contains(normalPath)) { item.NormalOverlays.Add(normalPath); item.NormalOverlayUVs.Add(activeOverlay.UVType); }
+                        }
+                        if (!string.IsNullOrEmpty(maskPath))
+                        {
+                            if (string.IsNullOrEmpty(item.Glow)) { item.Glow = maskPath; item.GlowUV = activeOverlay.UVType; item.GlowTint = glowTintColor; }
+                            else if (!item.GlowOverlays.Contains(maskPath)) { item.GlowOverlays.Add(maskPath); item.GlowOverlayUVs.Add(activeOverlay.UVType); item.GlowOverlayTints.Add(glowTintColor); }
+                        }
                     }
-                    if (!string.IsNullOrEmpty(normalPath))
+                    catch (Exception e)
                     {
-                        if (string.IsNullOrEmpty(item.Normal)) { item.Normal = normalPath; item.NormalUV = activeOverlay.UVType; }
-                        else if (!item.NormalOverlays.Contains(normalPath)) { item.NormalOverlays.Add(normalPath); item.NormalOverlayUVs.Add(activeOverlay.UVType); }
-                    }
-                    if (!string.IsNullOrEmpty(maskPath))
-                    {
-                        if (string.IsNullOrEmpty(item.Glow)) { item.Glow = maskPath; item.GlowUV = activeOverlay.UVType; item.GlowTint = glowTintColor; }
-                        else if (!item.GlowOverlays.Contains(maskPath)) { item.GlowOverlays.Add(maskPath); item.GlowOverlayUVs.Add(activeOverlay.UVType); item.GlowOverlayTints.Add(glowTintColor); }
+                        Plugin.PluginLog.Warning(e.Message, e.StackTrace);
                     }
                 }
             }
