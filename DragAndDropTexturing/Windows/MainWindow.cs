@@ -1523,6 +1523,11 @@ public class MainWindow : Window, IDisposable
         string benchPath = Path.Combine(Path.GetTempPath(), "GPU_Benchmark.txt");
         string exportBenchPath = Path.Combine(Path.GetTempPath(), "Export_Benchmark.txt");
 
+        if (ImGui.Button(Translator.LocalizeUI("Copy GPU Error Log Clipboard")))
+        {
+            if (_cachedErrorLog != null)
+                ImGui.SetClipboardText(_cachedErrorLog);
+        }
         if ((DateTime.Now - _lastErrorLogCheck).TotalSeconds > 2)
         {
             if (File.Exists(logPath))
