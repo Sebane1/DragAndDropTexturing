@@ -1660,8 +1660,14 @@ namespace RoleplayingVoice
                                                     }
                                                 }
                                             }
-
-                                            ApplyAdvancedOverlays(item, categoryKey, collectionId);
+                                            try
+                                            {
+                                                ApplyAdvancedOverlays(item, categoryKey, collectionId);
+                                            }
+                                            catch (Exception e)
+                                            {
+                                                plugin.PluginLog.Warning(e.Message, e.StackTrace);
+                                            }
                                             plugin.PluginLog.Information($"[Glow Debug] TextureSet '{item.TextureSetName}': Base='{item.Base}', Normal='{item.Normal}', Mask='{item.Mask}', Glow='{item.Glow}', Material='{item.Material}', InternalMtrl='{item.InternalMaterialPath}'");
                                             textureSets.Add(item);
 
@@ -3549,7 +3555,7 @@ namespace RoleplayingVoice
                             localCustomization.Customize.TailShape.Value - 1, false);
                         }
                         categoryModName = "Body";
-                        if (item != null) item.OmniExportMode = File.Exists(_xNormalPath) && Path.Exists(_textureProcessor.BasePath) && holdingModifier;
+                        if (item != null) item.OmniExportMode = Path.Exists(_textureProcessor.BasePath) && holdingModifier;
                     }
                     else if (categoryKey.EndsWith("_eyebrows"))
                     {
