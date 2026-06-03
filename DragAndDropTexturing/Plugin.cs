@@ -103,7 +103,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "A useful message to display in /xlhelp"
+            HelpMessage = "Opens the config window. Subcommands: /ddt export — re-export all textures, /ddt clear — clear virtual cache."
         });
 
         PluginInterface.UiBuilder.Draw += DrawUI;
@@ -303,6 +303,18 @@ public sealed class Plugin : IDalamudPlugin
         TexturePaintingWindows.Clear();
         CommandManager.RemoveHandler(CommandName);
 
+        // Release all GPU resources held in static caches to prevent VRAM leaks on plugin reload
+        try
+        {
+            FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.ClearCache();
+            FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpUVTransfer.ClearCache();
+            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.Clear();
+        }
+        catch (Exception ex)
+        {
+            _pluginLog.Error(ex, "Failed to release GPU resources during dispose.");
+        }
+
         try
         {
             string vfsPath = Path.Combine(PluginInterface.ConfigDirectory.FullName, "vfs.dat");
@@ -346,7 +358,8 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnCommand(string command, string args)
     {
-        if (args != null && args.Trim().ToLowerInvariant() == "clear")
+        var trimmedArgs = args?.Trim().ToLowerInvariant() ?? "";
+        if (trimmedArgs == "clear")
         {
             try
             {
@@ -362,6 +375,24 @@ public sealed class Plugin : IDalamudPlugin
             {
                 _pluginLog.Error(ex, "Failed to clear virtual cache.");
                 _chat.Print("DragAndDropTexturing: Failed to clear virtual cache.");
+            }
+        }
+        else if (trimmedArgs == "export")
+        {
+            try
+            {
+                if (DragAndDropTextures == null)
+                {
+                    _chat.PrintError("[Drag And Drop Texturing] Plugin not ready.");
+                    return;
+                }
+                _chat.Print("[Drag And Drop Texturing] Re-exporting all active texture categories...");
+                DragAndDropTextures.RebuildAllCategories();
+            }
+            catch (Exception ex)
+            {
+                _pluginLog.Error(ex, "Failed to trigger re-export.");
+                _chat.PrintError("[Drag And Drop Texturing] Re-export failed. Check the log for details.");
             }
         }
         else

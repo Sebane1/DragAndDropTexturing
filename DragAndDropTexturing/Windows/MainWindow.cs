@@ -281,6 +281,18 @@ public class MainWindow : Window, IDisposable
     private void DrawSettings()
     {
         ImGui.Spacing();
+
+        if (ImGui.Button(Translator.LocalizeUI("Re-Export All Textures")))
+        {
+            Plugin.DragAndDropTextures?.RebuildAllCategories();
+            Plugin.Chat?.Print("[Drag And Drop Texturing] Re-exporting all active texture categories...");
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(Translator.LocalizeUI("Manually re-exports all active texture layers. Also available via /ddt export"));
+        }
+
+        ImGui.Spacing();
         ImGui.Separator();
 
         ImGui.Text(Translator.LocalizeUI("Language Override:"));
@@ -1119,6 +1131,17 @@ public class MainWindow : Window, IDisposable
                 if (ImGui.Button(Translator.LocalizeUI("Export to PSD") + "##" + key))
                 {
                     ExportCategoryToPsd(key, list);
+                }
+
+                if (_selectedPresetIndex == -1)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.Button(Translator.LocalizeUI("Re-Export") + "##reexport_" + key))
+                    {
+                        ddt.RebuildCategory(key, false);
+                        Plugin.Chat?.Print($"[Drag And Drop Texturing] Re-exporting: {key}");
+                    }
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Re-exports this category's textures. Also available via /ddt export for all categories."));
                 }
 
                 bool changed = false;
