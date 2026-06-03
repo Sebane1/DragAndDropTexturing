@@ -50,6 +50,7 @@ namespace RoleplayingVoice
         private string _exportStatus;
         private ICharacter _currentTarget;
         private bool _lockDuplicateGeneration;
+        private DateTime _lastExportEndTime = DateTime.MinValue;
         private bool _hideProgressUI;
         private bool _isRegenerationPending;
         public Dictionary<string, string> ActiveBodyOverrides = new Dictionary<string, string>();
@@ -344,7 +345,8 @@ namespace RoleplayingVoice
 
         private void FileWatcher_Changed(object sender, System.IO.FileSystemEventArgs e)
         {
-            if (_bulkRebuildInProgress) return;
+            if (_bulkRebuildInProgress || _lockDuplicateGeneration) return;
+            if ((DateTime.UtcNow - _lastExportEndTime).TotalMilliseconds < 3000) return;
             if ((DateTime.Now - _lastRebuildTime).TotalMilliseconds < 500) return; // Debounce
 
             bool triggered = false;
@@ -2146,6 +2148,7 @@ namespace RoleplayingVoice
             finally
             {
                 _lockDuplicateGeneration = false;
+                _lastExportEndTime = DateTime.UtcNow;
                 _exportSemaphore.Release();
             }
             return true;
@@ -2273,6 +2276,10 @@ namespace RoleplayingVoice
             try
             {
                 if (_bulkRebuildInProgress || _lockDuplicateGeneration) return;
+                // Cooldown: ignore Glamourer state changes for 3s after an export finishes,
+                // because the SetItem redraw calls at the end of Export fire asynchronously
+                // and would otherwise trigger a spurious second export.
+                if ((DateTime.UtcNow - _lastExportEndTime).TotalMilliseconds < 3000) return;
                 if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
                 if (e.GameObjectPtr != plugin.SafeGameObjectManager.LocalPlayer.Address) return;
 
@@ -2351,6 +2358,7 @@ namespace RoleplayingVoice
             try
             {
                 if (_bulkRebuildInProgress || _lockDuplicateGeneration) return;
+                if ((DateTime.UtcNow - _lastExportEndTime).TotalMilliseconds < 3000) return;
                 if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
 
                 string modDir = e.ModDirectory?.ToLower() ?? "";

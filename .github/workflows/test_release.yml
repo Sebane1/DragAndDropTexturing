@@ -1,17 +1,13 @@
 on:
-  workflow_dispatch:
-    inputs: {}
   push:
     tags:
-      - '*'
-    tags-ignore:
       - 'testing_*'
 
-name: Release
+name: Testing Release
 
 jobs:
   release:
-    name: Release
+    name: Testing Release
     runs-on: windows-latest
     permissions:
       contents: write
@@ -36,12 +32,12 @@ jobs:
 
       - name: Build
         run: |
-          $ver = '${{ github.ref }}' -replace 'refs/tags/',''
+          $ver = '${{ github.ref }}' -replace 'refs/tags/testing_',''
           dotnet build --no-restore -c Release --nologo -p:Version=$ver
 
       - name: Write version into manifest
         run: |
-          $ver = '${{ github.ref }}' -replace 'refs/tags/',''
+          $ver = '${{ github.ref }}' -replace 'refs/tags/testing_',''
           $path = './DragAndDropTexturing/bin/x64/Release/DragAndDropTexturing.json'
           $content = get-content -path $path
           $content = $content -replace '0.0.0.0',$ver
@@ -57,10 +53,11 @@ jobs:
       - name: Create Release
         uses: ncipollo/release-action@v1.12.0
         with:
-          name: DragAndDropTexturing ${{ github.ref_name }}
+          name: DragAndDropTexturing ${{ github.ref_name }} (Testing)
           artifacts: "./DragAndDropTexturing/bin/x64/*.zip"
           tag: ${{ github.ref_name }}
-          body: "A build of the Drag And Drop Texturing plugin. Do not install this manually. Install via the dalamud repo link!"
+          prerelease: true
+          body: "⚠️ **Testing build** — opt-in via Dalamud settings (/xlsettings → Experimental → Get plugin testing builds). Do not install manually."
           omitBodyDuringUpdate: true
           allowUpdates: true
           replacesArtifacts: true
@@ -68,14 +65,12 @@ jobs:
 
       - name: Write out repo.json
         run: |
-          $ver = '${{ github.ref_name }}'
+          $ver = '${{ github.ref_name }}' -replace 'testing_',''
+          $tag = '${{ github.ref_name }}'
           $path = './repo.json'
           $json = Get-Content -Raw $path | ConvertFrom-Json
-          $json[0].AssemblyVersion = $ver
           $json[0].TestingAssemblyVersion = $ver
-          $json[0].DownloadLinkInstall = $json[0].DownloadLinkInstall -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
-          $json[0].DownloadLinkTesting = $json[0].DownloadLinkTesting -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
-          $json[0].DownloadLinkUpdate = $json[0].DownloadLinkUpdate -replace '[^/]+/DragAndDropTexturing.zip',"$ver/DragAndDropTexturing.zip"
+          $json[0].DownloadLinkTesting = "https://github.com/Sebane1/DragAndDropTexturing/releases/download/$tag/DragAndDropTexturing.zip"
           $content = ConvertTo-Json @($json) -Depth 10
           set-content -Path $path -Value $content
 
@@ -87,5 +82,5 @@ jobs:
           git branch -f master ${{ github.sha }}
           git checkout master
           git add repo.json
-          git commit -m "[CI] Updating repo.json for ${{ github.ref_name }}" || true
+          git commit -m "[CI] Updating repo.json for testing build ${{ github.ref_name }}" || true
           git push origin master
