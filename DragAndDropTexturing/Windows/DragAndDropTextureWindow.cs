@@ -2194,10 +2194,12 @@ namespace RoleplayingVoice
                         plugin?.PluginLog?.Information($"[Drag And Drop Debug] Penumbra IPC not available yet (attempt {attempt + 1}/5)");
                     }
                 }
-                string charName = plugin.SafeGameObjectManager.LocalPlayer.Name.TextValue;
-                var playerCollectionResult = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(plugin.SafeGameObjectManager.LocalPlayer.ObjectIndex);
-                var collectionId = playerCollectionResult.EffectiveCollection.Id.ToString();
                 if (!penumbraReady) return;
+                var localPlayer = plugin?.SafeGameObjectManager?.LocalPlayer;
+                if (localPlayer == null) return;
+                string charName = localPlayer.Name.TextValue;
+                var playerCollectionResult = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex);
+                var collectionId = playerCollectionResult.EffectiveCollection.Id.ToString();
                 if (!_textureCollectionHistory.ContainsKey(collectionId))
                 {
                     _textureCollectionHistory[collectionId] = new Dictionary<string, List<string>>();
@@ -3671,6 +3673,10 @@ namespace RoleplayingVoice
                             {
                                 _gearCategoryMeta[categoryKey] = gearMeta;
                             }
+                            else
+                            {
+                                plugin.PluginLog.Warning($"[Drag And Drop Texturing] Gear re-resolution failed for '{categoryKey}'. Slot='{slot}', MatName='{matName}', ModName='{modName}', WornPieces={wornPieces.Count}. Available slots: {string.Join(", ", wornPieces.Select(p => $"{p.SlotKey}({p.MaterialName})"))}");
+                            }
                         }
 
                         if (gearMeta != null)
@@ -3682,6 +3688,10 @@ namespace RoleplayingVoice
                                 gearMeta.InternalMaskPath,
                                 gearMeta.InternalMaterialPath);
                             categoryModName = "Gear " + gearMeta.SlotKey + (string.IsNullOrEmpty(gearMeta.MaterialName) ? "" : " " + gearMeta.MaterialName) + (string.IsNullOrEmpty(gearMeta.ModName) ? "" : " [" + gearMeta.ModName + "]");
+                        }
+                        else
+                        {
+                            plugin.PluginLog.Error($"[Drag And Drop Texturing] Cannot export gear category '{categoryKey}': no matching WornEquipmentPiece found. The exported texture will be skipped.");
                         }
                     }
                     else if (categoryKey.Contains("_minion_"))

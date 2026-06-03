@@ -1994,6 +1994,32 @@ namespace DragAndDropTexturing.Windows
                                         _plugin.DragAndDropTextures.GearCategoryMeta[contextKey] = cachedWornGear[0];
                                         _plugin.PluginLog.Info($"[Texture Painter] Cached mount WornEquipmentPiece for export: {contextKey}");
                                     }
+
+                                    // For gear, cache the matched WornEquipmentPiece so RebuildCategory
+                                    // doesn't have to re-resolve (which can fail for vanilla items)
+                                    if (!cachedIsMinion && !cachedIsMount && contextKey.Contains("_gear_") && cachedWornGear != null && cachedWornGear.Count > 0)
+                                    {
+                                        string gearSlot = null;
+                                        if (contextKey.Contains("_gear_body")) gearSlot = "body";
+                                        else if (contextKey.Contains("_gear_legs")) gearSlot = "legs";
+                                        else if (contextKey.Contains("_gear_hands")) gearSlot = "hands";
+                                        else if (contextKey.Contains("_gear_feet")) gearSlot = "feet";
+                                        else if (contextKey.Contains("_gear_head")) gearSlot = "head";
+
+                                        if (gearSlot != null)
+                                        {
+                                            var matchedGearPiece = cachedWornGear.FirstOrDefault(p => p.SlotKey == gearSlot);
+                                            if (matchedGearPiece != null)
+                                            {
+                                                _plugin.DragAndDropTextures.GearCategoryMeta[contextKey] = matchedGearPiece;
+                                                _plugin.PluginLog.Info($"[Texture Painter] Cached gear WornEquipmentPiece for export: {contextKey} -> {matchedGearPiece.DisplayName}");
+                                            }
+                                            else
+                                            {
+                                                _plugin.PluginLog.Warning($"[Texture Painter] No WornEquipmentPiece found for slot '{gearSlot}' in cached worn gear. Export may fail.");
+                                            }
+                                        }
+                                    }
                                     
                                     string sfx = contextKey.Substring(targetChar.Name.TextValue.Length);
                                     _plugin.DragAndDropTextures.ScheduleRegeneration(targetChar.Name.TextValue, new[] { sfx }, true, false);
