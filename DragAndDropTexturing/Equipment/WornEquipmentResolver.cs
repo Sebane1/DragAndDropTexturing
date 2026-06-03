@@ -132,9 +132,9 @@ public static class WornEquipmentResolver
     private static readonly (string SlotKey, string[] ModelSuffixes, Func<PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.Equipment, dynamic> GetItem)[] Slots =
     {
         ("head", new[] { "met", "hed", "head", "hel" }, e => e.Head),
-        ("body", new[] { "top", "body" }, e => e.Body),
+        ("top", new[] { "top", "body" }, e => e.Body),
         ("hands", new[] { "glv", "hand", "hnd", "hands" }, e => e.Hands),
-        ("legs", new[] { "dwn", "leg", "legs", "bot" }, e => e.Legs),
+        ("bottom", new[] { "dwn", "leg", "legs", "bot" }, e => e.Legs),
         ("feet", new[] { "sho", "feet", "foot" }, e => e.Feet),
     };
 

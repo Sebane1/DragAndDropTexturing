@@ -999,11 +999,11 @@ public class MainWindow : Window, IDisposable
                     ImGui.Separator();
                     if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Top)")))
                     {
-                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_body");
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_top");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Bottom)")))
                     {
-                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_legs");
+                        Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_bottom");
                     }
                     if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Hands)")))
                     {
@@ -1058,11 +1058,11 @@ public class MainWindow : Window, IDisposable
                 ImGui.Separator();
                 if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Top)")))
                 {
-                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_body");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_top");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Bottom)")))
                 {
-                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_legs");
+                    Plugin.OpenPaintWindow(GetLayerTargetCharacter(), null, GetLayerTargetCharacterName() + "_gear_bottom");
                 }
                 if (ImGui.Selectable(Translator.LocalizeUI("Outfit (Hands)")))
                 {

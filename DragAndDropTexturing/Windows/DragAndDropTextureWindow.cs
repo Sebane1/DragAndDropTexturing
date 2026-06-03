@@ -98,6 +98,102 @@ namespace RoleplayingVoice
         public Dictionary<string, WornEquipmentPiece> GearCategoryMeta { get => _gearCategoryMeta; }
         public List<WornEquipmentPiece> CachedWornGear { get; private set; } = new();
 
+        private void MigrateLegacyGearCategoryKeys()
+        {
+            var renames = new[] { ("_gear_body", "_gear_top"), ("_gear_legs", "_gear_bottom") };
+            bool migrated = false;
+
+            // Migrate collection-sorted texture history
+            foreach (var collectionKey in _textureCollectionHistory.Keys.ToList())
+            {
+                var history = _textureCollectionHistory[collectionKey];
+                var tints = _textureCollectionHistoryTints.ContainsKey(collectionKey) ? _textureCollectionHistoryTints[collectionKey] : null;
+                migrated |= MigrateKeysInDictionary(history, tints, renames);
+            }
+
+            // Migrate saved presets
+            var presets = plugin?.Configuration?.ActiveLayerPresets;
+            if (presets != null)
+            {
+                foreach (var preset in presets)
+                {
+                    migrated |= MigrateKeysInDictionary(preset.TextureHistory, preset.TextureHistoryTints, renames);
+                }
+            }
+
+            // Clean up old Penumbra mod folders with legacy names ("Gear body" → "Gear top", "Gear legs" → "Gear bottom")
+            if (migrated)
+            {
+                plugin?.Configuration.Save();
+                try
+                {
+                    string modDir = PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                    if (!string.IsNullOrEmpty(modDir) && Directory.Exists(modDir))
+                    {
+                        var legacyFolderRenames = new[] { ("Gear body", "Gear top"), ("Gear legs", "Gear bottom") };
+                        foreach (var dir in Directory.GetDirectories(modDir))
+                        {
+                            string folderName = Path.GetFileName(dir);
+                            foreach (var (oldName, newName) in legacyFolderRenames)
+                            {
+                                if (folderName.Contains(oldName))
+                                {
+                                    plugin?.PluginLog.Info($"[Migration] Removing legacy Penumbra mod folder: '{folderName}'");
+                                    try
+                                    {
+                                        // Disable the old mod in Penumbra before deleting
+                                        PenumbraAndGlamourerIpcWrapper.Instance.DeleteMod.Invoke(folderName);
+                                    }
+                                    catch { }
+                                    try
+                                    {
+                                        if (Directory.Exists(dir))
+                                            Directory.Delete(dir, true);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        plugin?.PluginLog.Warning($"[Migration] Failed to delete legacy folder '{folderName}': {ex.Message}");
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    plugin?.PluginLog.Warning($"[Migration] Failed to clean up legacy Penumbra mod folders: {ex.Message}");
+                }
+            }
+        }
+
+        private bool MigrateKeysInDictionary(
+            Dictionary<string, List<string>> history,
+            Dictionary<string, List<System.Numerics.Vector4>> tints,
+            (string oldSuffix, string newSuffix)[] renames)
+        {
+            bool migrated = false;
+            if (history == null) return false;
+            foreach (var (oldSuffix, newSuffix) in renames)
+            {
+                foreach (var oldKey in history.Keys.Where(k => k.Contains(oldSuffix)).ToList())
+                {
+                    string newKey = oldKey.Replace(oldSuffix, newSuffix);
+                    if (!history.ContainsKey(newKey))
+                    {
+                        history[newKey] = history[oldKey];
+                        if (tints != null && tints.ContainsKey(oldKey))
+                            tints[newKey] = tints[oldKey];
+                    }
+                    history.Remove(oldKey);
+                    tints?.Remove(oldKey);
+                    migrated = true;
+                    plugin?.PluginLog.Info($"[Migration] Renamed category key: '{oldKey}' → '{newKey}'");
+                }
+            }
+            return migrated;
+        }
+
         // Auto-regeneration tracking
         private System.Threading.Timer _regenerationDebounce;
         private HashSet<string> _pendingRegenerationCategories = new HashSet<string>();
@@ -414,6 +510,9 @@ namespace RoleplayingVoice
                         }
                     }
 
+                    // Migrate legacy gear category keys: _gear_body → _gear_top, _gear_legs → _gear_bottom
+                    MigrateLegacyGearCategoryKeys();
+
                     Task.Run(async () =>
                     {
                         await CheckAndDownloadDLC();
@@ -445,6 +544,9 @@ namespace RoleplayingVoice
                             _textureCollectionHistoryTints[collectionId] = plugin.Configuration.TextureHistoryTints;
                             plugin.Configuration.TextureHistory = null;
                             plugin.Configuration.TextureHistoryTints = null;
+
+                            // Re-run migration on the freshly imported legacy history
+                            MigrateLegacyGearCategoryKeys();
                         }
 
                         if (plugin.Configuration.PenumbraOverlayTints != null)
@@ -3544,7 +3646,7 @@ namespace RoleplayingVoice
                         lastFile = "empty.png";
                     }
 
-                    if (categoryKey.EndsWith("_body") && !categoryKey.Contains("_minion_"))
+                    if (categoryKey.EndsWith("_body") && !categoryKey.Contains("_minion_") && !categoryKey.Contains("_mount_"))
                     {
                         if (localCustomization.Customize.Race.Value - 1 == 2)
                         {

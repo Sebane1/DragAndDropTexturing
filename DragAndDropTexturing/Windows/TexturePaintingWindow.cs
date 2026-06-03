@@ -2000,8 +2000,8 @@ namespace DragAndDropTexturing.Windows
                                     if (!cachedIsMinion && !cachedIsMount && contextKey.Contains("_gear_") && cachedWornGear != null && cachedWornGear.Count > 0)
                                     {
                                         string gearSlot = null;
-                                        if (contextKey.Contains("_gear_body")) gearSlot = "body";
-                                        else if (contextKey.Contains("_gear_legs")) gearSlot = "legs";
+                                        if (contextKey.Contains("_gear_top")) gearSlot = "top";
+                                        else if (contextKey.Contains("_gear_bottom")) gearSlot = "bottom";
                                         else if (contextKey.Contains("_gear_hands")) gearSlot = "hands";
                                         else if (contextKey.Contains("_gear_feet")) gearSlot = "feet";
                                         else if (contextKey.Contains("_gear_head")) gearSlot = "head";
@@ -2517,8 +2517,8 @@ namespace DragAndDropTexturing.Windows
                 if (matchedPiece == null && string.IsNullOrEmpty(EditSourcePath) && !string.IsNullOrEmpty(ContextCategoryKey) && ContextCategoryKey.Contains("_gear_") && wornGear != null)
                 {
                     string gearSlot = null;
-                    if (ContextCategoryKey.Contains("_gear_body")) gearSlot = "body";
-                    else if (ContextCategoryKey.Contains("_gear_legs")) gearSlot = "legs";
+                    if (ContextCategoryKey.Contains("_gear_top")) gearSlot = "top";
+                    else if (ContextCategoryKey.Contains("_gear_bottom")) gearSlot = "bottom";
                     else if (ContextCategoryKey.Contains("_gear_hands")) gearSlot = "hands";
                     else if (ContextCategoryKey.Contains("_gear_feet")) gearSlot = "feet";
                     else if (ContextCategoryKey.Contains("_gear_head")) gearSlot = "head";
@@ -2536,8 +2536,8 @@ namespace DragAndDropTexturing.Windows
                 if (matchedPiece != null)
                 {
                     isGear = true;
-                    string suffix = matchedPiece.SlotKey == "body" ? "top" :
-                                    matchedPiece.SlotKey == "legs" ? "dwn" :
+                    string suffix = matchedPiece.SlotKey == "top" ? "top" :
+                                    matchedPiece.SlotKey == "bottom" ? "dwn" :
                                     matchedPiece.SlotKey == "feet" ? "sho" :
                                     matchedPiece.SlotKey == "hands" ? "glv" :
                                     matchedPiece.SlotKey == "hair" ? "hir" :
@@ -2601,7 +2601,7 @@ namespace DragAndDropTexturing.Windows
                     // Load contextual background slots (e.g. legs when editing top, body when editing bottom)
                     if (suffix == "top" && wornGear != null)
                     {
-                        var legsPiece = wornGear.FirstOrDefault(p => p.SlotKey == "legs");
+                        var legsPiece = wornGear.FirstOrDefault(p => p.SlotKey == "bottom");
                         if (legsPiece != null && !string.IsNullOrEmpty(legsPiece.InternalBasePath))
                         {
                             var match = System.Text.RegularExpressions.Regex.Match(legsPiece.InternalBasePath, @"equipment/(e\d+)");
@@ -2614,7 +2614,7 @@ namespace DragAndDropTexturing.Windows
                     }
                     else if (suffix == "dwn" && wornGear != null)
                     {
-                        var bodyPiece = wornGear.FirstOrDefault(p => p.SlotKey == "body");
+                        var bodyPiece = wornGear.FirstOrDefault(p => p.SlotKey == "top");
                         if (bodyPiece != null && !string.IsNullOrEmpty(bodyPiece.InternalBasePath))
                         {
                             var match = System.Text.RegularExpressions.Regex.Match(bodyPiece.InternalBasePath, @"equipment/(e\d+)");
@@ -2693,7 +2693,7 @@ namespace DragAndDropTexturing.Windows
                         {
                             if (suffix == "top")
                             {
-                                var legsPiece = wornGear?.FirstOrDefault(p => p.SlotKey == "legs");
+                                var legsPiece = wornGear?.FirstOrDefault(p => p.SlotKey == "bottom");
                                 if (legsPiece != null && !string.IsNullOrEmpty(legsPiece.InternalBasePath))
                                 {
                                     var match = System.Text.RegularExpressions.Regex.Match(legsPiece.InternalBasePath, @"equipment/(e\d+)");
@@ -2706,7 +2706,7 @@ namespace DragAndDropTexturing.Windows
                             }
                             else if (suffix == "dwn")
                             {
-                                var bodyPiece = wornGear?.FirstOrDefault(p => p.SlotKey == "body");
+                                var bodyPiece = wornGear?.FirstOrDefault(p => p.SlotKey == "top");
                                 if (bodyPiece != null && !string.IsNullOrEmpty(bodyPiece.InternalBasePath))
                                 {
                                     var match = System.Text.RegularExpressions.Regex.Match(bodyPiece.InternalBasePath, @"equipment/(e\d+)");
@@ -3283,8 +3283,8 @@ namespace DragAndDropTexturing.Windows
                             if (matchedPiece != null)
                             {
                                 string eCode = !string.IsNullOrEmpty(matchedPiece.EquipSetId) ? matchedPiece.EquipSetId : "e0279";
-                                string suffix = matchedPiece.SlotKey == "body" ? "top" :
-                                                matchedPiece.SlotKey == "legs" ? "dwn" :
+                                string suffix = matchedPiece.SlotKey == "top" ? "top" :
+                                                matchedPiece.SlotKey == "bottom" ? "dwn" :
                                                 matchedPiece.SlotKey == "feet" ? "sho" :
                                                 matchedPiece.SlotKey == "hands" ? "glv" :
                                                 matchedPiece.SlotKey == "hair" ? "hir" :
@@ -4309,8 +4309,8 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
             
             if (!string.IsNullOrEmpty(ContextCategoryKey))
             {
-                if (ContextCategoryKey.Contains("_gear_body")) detectedSlotKey = "body";
-                else if (ContextCategoryKey.Contains("_gear_legs")) detectedSlotKey = "legs";
+                if (ContextCategoryKey.Contains("_gear_top")) detectedSlotKey = "top";
+                else if (ContextCategoryKey.Contains("_gear_bottom")) detectedSlotKey = "bottom";
                 else if (ContextCategoryKey.Contains("_gear_feet")) detectedSlotKey = "feet";
                 else if (ContextCategoryKey.Contains("_gear_hands")) detectedSlotKey = "hands";
                 else if (ContextCategoryKey.Contains("_gear_head")) detectedSlotKey = "head";
@@ -4324,10 +4324,10 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
 
             if (detectedSlotKey == null && !string.IsNullOrEmpty(editFileName))
             {
-                if (editFileName.Contains("_worn_body"))
-                    detectedSlotKey = "body";
-                else if (editFileName.Contains("_worn_legs"))
-                    detectedSlotKey = "legs";
+                if (editFileName.Contains("_worn_top") || editFileName.Contains("_worn_body"))
+                    detectedSlotKey = "top";
+                else if (editFileName.Contains("_worn_bottom") || editFileName.Contains("_worn_legs"))
+                    detectedSlotKey = "bottom";
                 else if (editFileName.Contains("_worn_feet"))
                     detectedSlotKey = "feet";
                 else if (editFileName.Contains("_worn_hands"))
@@ -4443,9 +4443,9 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
             // 1b. Fallback: Search for slot keywords in the filename if no eCode matches
             detectedSlotKey = null;
             if (editFileName.Contains("top") || editFileName.Contains("body") || editFileName.Contains("shirt"))
-                detectedSlotKey = "body";
+                detectedSlotKey = "top";
             else if (editFileName.Contains("legs") || editFileName.Contains("down") || editFileName.Contains("dwn") || editFileName.Contains("pants"))
-                detectedSlotKey = "legs";
+                detectedSlotKey = "bottom";
             else if (editFileName.Contains("shoes") || editFileName.Contains("boots") || editFileName.Contains("sho") || editFileName.Contains("feet"))
                 detectedSlotKey = "feet";
             else if (editFileName.Contains("gloves") || editFileName.Contains("hands") || editFileName.Contains("glv"))
