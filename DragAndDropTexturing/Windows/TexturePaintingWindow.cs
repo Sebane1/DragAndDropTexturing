@@ -1,4 +1,5 @@
 using System;
+using Dalamud.Interface.ImGuiFileDialog;
 using DragAndDropTexturing.LanguageHelpers;
 using System.Collections.Generic;
 using System.IO;
@@ -197,13 +198,7 @@ namespace DragAndDropTexturing.Windows
         private string _importPath = "";
         private bool _vKeyPressedLastFrame = false;
 
-        // ImGui File Browser State
-        private bool _showFileBrowser = false;
-        private string _browserCurrentDir = "";
-        private string _browserSelectedFile = "";
-        private string[] _browserDirs = Array.Empty<string>();
-        private string[] _browserFiles = Array.Empty<string>();
-        private int _browserSelectedIndex = -1;
+
         private static readonly HashSet<string> _imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif" };
 
@@ -291,6 +286,20 @@ namespace DragAndDropTexturing.Windows
             _tempDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "Paint_Temp");
             Directory.CreateDirectory(_tempDir);
 
+            // Clear stale padded vanilla texture cache (fixes bug where body textures were incorrectly padded to square)
+            try
+            {
+                string vanillaCache = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", "vanilla_cache");
+                if (Directory.Exists(vanillaCache))
+                {
+                    foreach (var file in Directory.GetFiles(vanillaCache, "*_padded.png"))
+                    {
+                        try { File.Delete(file); } catch { }
+                    }
+                }
+            }
+            catch { }
+
             _rendererInitialized = false;
             _gpuPaintInitialized = false;
             _renderer?.Dispose();
@@ -377,6 +386,7 @@ namespace DragAndDropTexturing.Windows
 
             // In headless mode, skip all UI rendering - we only exist to process stamp requests
             if (IsHeadlessMode) return;
+
 
             // Top side controls
             // Preset Selector
@@ -783,119 +793,18 @@ namespace DragAndDropTexturing.Windows
                 ImGui.SameLine();
                 if (ImGui.Button(Translator.LocalizeUI("Browse...")))
                 {
-                    _showFileBrowser = true;
-                    if (string.IsNullOrEmpty(_browserCurrentDir))
-                    {
-                        _browserCurrentDir = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-                        if (string.IsNullOrEmpty(_browserCurrentDir))
-                            _browserCurrentDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                    }
-                    RefreshBrowserEntries();
-                    ImGui.OpenPopup("ImageFileBrowser");
-                }
-
-                // ImGui File Browser Popup
-                ImGui.SetNextWindowSize(new Vector2(600, 400), ImGuiCond.FirstUseEver);
-                if (ImGui.BeginPopupModal("ImageFileBrowser", ref _showFileBrowser, ImGuiWindowFlags.NoScrollbar))
-                {
-                    // Navigation bar
-                    if (ImGui.Button(Translator.LocalizeUI("^ Up")))
-                    {
-                        var parent = Directory.GetParent(_browserCurrentDir);
-                        if (parent != null)
+                    _fileDialogManager.OpenFileDialog(
+                        Translator.LocalizeUI("Select Stamp Image"),
+                        "Image Files{.png,.jpg,.jpeg,.bmp,.psd}",
+                        (b, files) =>
                         {
-                            _browserCurrentDir = parent.FullName;
-                            RefreshBrowserEntries();
-                        }
-                    }
-                    ImGui.SameLine();
-                    ImGui.Text(_browserCurrentDir);
-
-                    ImGui.Separator();
-
-                    // File list
-                    ImGui.BeginChild("BrowserFileList", new Vector2(0, ImGui.GetContentRegionAvail().Y - 35), true);
-
-                    // Show drives if at root
-                    if (_browserDirs.Length == 0 && _browserFiles.Length == 0)
-                    {
-                        foreach (var drive in DriveInfo.GetDrives())
-                        {
-                            if (!drive.IsReady) continue;
-                            string label = $"{drive.Name}  ({drive.DriveType})";
-                            if (ImGui.Selectable(label, false, ImGuiSelectableFlags.AllowDoubleClick))
+                            if (b && files != null && files.Count > 0)
                             {
-                                if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
-                                {
-                                    _browserCurrentDir = drive.RootDirectory.FullName;
-                                    RefreshBrowserEntries();
-                                }
+                                _importPath = files[0];
+                                LoadFloatingImage(files[0]);
                             }
-                        }
-                    }
-                    else
-                    {
-                        // Directories
-                        for (int i = 0; i < _browserDirs.Length; i++)
-                        {
-                            string dirName = Path.GetFileName(_browserDirs[i]);
-                            if (string.IsNullOrEmpty(dirName)) dirName = _browserDirs[i];
-                            if (ImGui.Selectable("[DIR] " + dirName, false, ImGuiSelectableFlags.AllowDoubleClick))
-                            {
-                                if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
-                                {
-                                    _browserCurrentDir = _browserDirs[i];
-                                    RefreshBrowserEntries();
-                                    _browserSelectedFile = "";
-                                    _browserSelectedIndex = -1;
-                                }
-                            }
-                        }
-
-                        // Image files
-                        for (int i = 0; i < _browserFiles.Length; i++)
-                        {
-                            string fileName = Path.GetFileName(_browserFiles[i]);
-                            bool isSelected = (i == _browserSelectedIndex);
-                            if (ImGui.Selectable(fileName, isSelected, ImGuiSelectableFlags.AllowDoubleClick))
-                            {
-                                _browserSelectedIndex = i;
-                                _browserSelectedFile = _browserFiles[i];
-
-                                if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
-                                {
-                                    _importPath = _browserSelectedFile;
-                                    LoadFloatingImage(_browserSelectedFile);
-                                    _showFileBrowser = false;
-                                    ImGui.CloseCurrentPopup();
-                                }
-                            }
-                        }
-                    }
-                    ImGui.EndChild();
-
-                    // Bottom bar
-                    ImGui.Text(Translator.LocalizeUI("Selected: ") + (string.IsNullOrEmpty(_browserSelectedFile) ? "(none)" : Path.GetFileName(_browserSelectedFile)));
-                    ImGui.SameLine();
-                    float buttonWidth = 80;
-                    ImGui.SetCursorPosX(ImGui.GetWindowWidth() - buttonWidth * 2 - 20);
-                    ImGui.BeginDisabled(string.IsNullOrEmpty(_browserSelectedFile));
-                    if (ImGui.Button(Translator.LocalizeUI("Open"), new Vector2(buttonWidth, 0)))
-                    {
-                        _importPath = _browserSelectedFile;
-                        LoadFloatingImage(_browserSelectedFile);
-                        _showFileBrowser = false;
-                        ImGui.CloseCurrentPopup();
-                    }
-                    ImGui.EndDisabled();
-                    ImGui.SameLine();
-                    if (ImGui.Button(Translator.LocalizeUI("Cancel"), new Vector2(buttonWidth, 0)))
-                    {
-                        _showFileBrowser = false;
-                        ImGui.CloseCurrentPopup();
-                    }
-
-                    ImGui.EndPopup();
+                        },
+                        0, null, false);
                 }
             }
 
@@ -1142,6 +1051,24 @@ namespace DragAndDropTexturing.Windows
             
             var canvasRegion = ImGui.GetContentRegionAvail();
             float canvasSize = Math.Min(canvasRegion.X, canvasRegion.Y);
+
+            // Compute display dimensions respecting the texture's aspect ratio
+            int texW = _renderer?.PaintTexWidth ?? 1;
+            int texH = _renderer?.PaintTexHeight ?? 1;
+            if (texW <= 0) texW = 1;
+            if (texH <= 0) texH = 1;
+            float texAspect = (float)texW / texH;
+            float canvasDisplayW, canvasDisplayH;
+            if (texAspect >= 1f)
+            {
+                canvasDisplayW = canvasSize;
+                canvasDisplayH = canvasSize / texAspect;
+            }
+            else
+            {
+                canvasDisplayH = canvasSize;
+                canvasDisplayW = canvasSize * texAspect;
+            }
             
             if (_renderer != null)
             {
@@ -1149,19 +1076,19 @@ namespace DragAndDropTexturing.Windows
                 if (srvHandle != IntPtr.Zero)
                 {
                     var cursorPos = ImGui.GetCursorScreenPos();
-                    ImGui.Image(new ImTextureID(srvHandle), new Vector2(canvasSize, canvasSize));
+                    ImGui.Image(new ImTextureID(srvHandle), new Vector2(canvasDisplayW, canvasDisplayH));
                     
                     if (_floatingLayer != null && _floatingLayer.SRV != null)
                     {
                         var drawList = ImGui.GetWindowDrawList();
-                        Vector2 min = cursorPos + _floatingLayer.Position * canvasSize;
-                        Vector2 max = min + _floatingLayer.Scale * canvasSize;
+                        Vector2 min = cursorPos + _floatingLayer.Position * new Vector2(canvasDisplayW, canvasDisplayH);
+                        Vector2 max = min + _floatingLayer.Scale * new Vector2(canvasDisplayW, canvasDisplayH);
                         drawList.AddRect(min, max, 0xFF00FF00); // Green box
                         drawList.AddCircleFilled(max, 5f, 0xFF00FF00); // Scale handle
                     }
 
                     ImGui.SetCursorScreenPos(cursorPos);
-                    ImGui.InvisibleButton("##viewport2d", new Vector2(canvasSize, canvasSize));
+                    ImGui.InvisibleButton("##viewport2d", new Vector2(canvasDisplayW, canvasDisplayH));
                     
                     if (Plugin.DragDropManager.CreateImGuiTarget("TextureDragDrop", out var files, out _))
                     {
@@ -1200,7 +1127,7 @@ namespace DragAndDropTexturing.Windows
                         }
                         var mousePos = _smoothedMousePos;
                         Vector2 localMousePos = mousePos - cursorPos;
-                        Vector2 uv = new Vector2(localMousePos.X / canvasSize, localMousePos.Y / canvasSize);
+                        Vector2 uv = new Vector2(localMousePos.X / canvasDisplayW, localMousePos.Y / canvasDisplayH);
 
                         if (isHovered2D && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                         {
@@ -1208,7 +1135,7 @@ namespace DragAndDropTexturing.Windows
                             {
                                 Vector2 min = _floatingLayer.Position;
                                 Vector2 max = min + _floatingLayer.Scale;
-                                if (Vector2.Distance(uv, max) < (10f / canvasSize))
+                                if (Vector2.Distance(uv, max) < (10f / Math.Min(canvasDisplayW, canvasDisplayH)))
                                 {
                                     _dragHandle = 1; // Scale
                                 }
@@ -1232,7 +1159,7 @@ namespace DragAndDropTexturing.Windows
                             {
                                 var delta = ImGui.GetIO().MouseDelta;
                                 if (ImGui.IsKeyDown(ImGuiKey.ModShift)) delta.X = 0f;
-                                _floatingLayer.Position += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
+                                _floatingLayer.Position += new Vector2(delta.X / canvasDisplayW, delta.Y / canvasDisplayH);
                                 _floatingLayer.ProjectionMode = 0; // Move in 2D disabled 3D projection
                                 _needsComposite = true;
                             }
@@ -1246,18 +1173,18 @@ namespace DragAndDropTexturing.Windows
 
                                     if (aspect >= 1.0f) 
                                     {
-                                        _floatingLayer.Scale.X += maxDelta / canvasSize;
+                                        _floatingLayer.Scale.X += maxDelta / canvasDisplayW;
                                         _floatingLayer.Scale.Y = _floatingLayer.Scale.X / aspect;
                                     }
                                     else 
                                     {
-                                        _floatingLayer.Scale.Y += maxDelta / canvasSize;
+                                        _floatingLayer.Scale.Y += maxDelta / canvasDisplayH;
                                         _floatingLayer.Scale.X = _floatingLayer.Scale.Y * aspect;
                                     }
                                 }
                                 else
                                 {
-                                    _floatingLayer.Scale += new Vector2(delta.X / canvasSize, delta.Y / canvasSize);
+                                    _floatingLayer.Scale += new Vector2(delta.X / canvasDisplayW, delta.Y / canvasDisplayH);
                                 }
                             }
                             else if (_dragHandle == -1)
@@ -1526,33 +1453,7 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
-        private void RefreshBrowserEntries()
-        {
-            _browserSelectedIndex = -1;
-            _browserSelectedFile = "";
-            try
-            {
-                if (!Directory.Exists(_browserCurrentDir))
-                {
-                    _browserDirs = Array.Empty<string>();
-                    _browserFiles = Array.Empty<string>();
-                    return;
-                }
-                _browserDirs = Directory.GetDirectories(_browserCurrentDir)
-                    .OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-                _browserFiles = Directory.GetFiles(_browserCurrentDir)
-                    .Where(f => _imageExtensions.Contains(Path.GetExtension(f)))
-                    .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-            }
-            catch
-            {
-                // Access denied or other IO error - just show empty
-                _browserDirs = Array.Empty<string>();
-                _browserFiles = Array.Empty<string>();
-            }
-        }
+
 
         private void ApplyPreset(BrushPreset p)
         {
@@ -3820,7 +3721,7 @@ private bool IsImageBlack(System.Drawing.Bitmap bitmap)
             return true;
         }
 
-private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSquare = true)
+private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSquare = false)
         {
             try
             {
