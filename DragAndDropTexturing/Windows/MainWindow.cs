@@ -27,7 +27,7 @@ public class MainWindow : Window, IDisposable
     private readonly FileDialogManager _fileDialogManager = new();
 
     public MainWindow(Plugin plugin)
-        : base("Drag And Drop Texturing Config", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
+        : base("Drag And Drop Texturing Config v" + System.Reflection.Assembly.GetExecutingAssembly().GetName().Version, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         SizeConstraints = new WindowSizeConstraints
         {
