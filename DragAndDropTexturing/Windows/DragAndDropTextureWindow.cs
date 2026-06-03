@@ -1615,7 +1615,7 @@ namespace RoleplayingVoice
                                             }
                                             else if (_currentCustomization.Customize.Gender.Value == 0)
                                             {
-                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
+                                                item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, selectedPlayerCollection, _currentCustomization.Customize.Gender.Value),
                                                 effectiveRace,
                                                 _currentCustomization.Customize.TailShape.Value - 1, false);
                                             }
@@ -1675,7 +1675,7 @@ namespace RoleplayingVoice
                                                     }
                                                     else if (_currentCustomization.Customize.Gender.Value == 0)
                                                     {
-                                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, 3,
+                                                        item = ProjectHelper.CreateBodyTextureSet(_currentCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, selectedPlayerCollection, _currentCustomization.Customize.Gender.Value),
                                                         effectiveRace,
                                                         _currentCustomization.Customize.TailShape.Value - 1, false);
                                                     }
@@ -3656,7 +3656,7 @@ namespace RoleplayingVoice
                         }
                         else if (localCustomization.Customize.Gender.Value == 0)
                         {
-                            item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, 3,
+                            item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, collection, localCustomization.Customize.Gender.Value),
                             RaceInfo.SubRaceToMainRace(localCustomization.Customize.Clan.Value - 1),
                             localCustomization.Customize.TailShape.Value - 1, false);
                         }
@@ -3705,7 +3705,7 @@ namespace RoleplayingVoice
                         }
                         else if (localCustomization.Customize.Gender.Value == 0)
                         {
-                            item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, 3,
+                            item = ProjectHelper.CreateBodyTextureSet(localCustomization.Customize.Gender.Value, DetectBaseBodyType(lastFile, collection, localCustomization.Customize.Gender.Value),
                             RaceInfo.SubRaceToMainRace(localCustomization.Customize.Clan.Value - 1),
                             localCustomization.Customize.TailShape.Value - 1, false);
                         }
@@ -4152,7 +4152,7 @@ namespace RoleplayingVoice
                 case BodyUVType.Gen2: return 0;
             }
 
-            return 2; // Default to Gen3
+            return 0; // Default to vanilla/gen2 when no body mod is detected
         }
 
         private string GetGearSlotFromBone(Bone bone)
