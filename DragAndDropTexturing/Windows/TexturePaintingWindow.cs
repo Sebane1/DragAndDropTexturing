@@ -1712,9 +1712,24 @@ namespace DragAndDropTexturing.Windows
                     }
 
                     // Cache gear metadata if needed
-                    if (_cachedWornGear != null && _cachedWornGear.Count > 0 && !_plugin.DragAndDropTextures.GearCategoryMeta.ContainsKey(contextKey))
+                    if (!_cachedIsMinion && !_cachedIsMount && contextKey.Contains("_gear_") && _cachedWornGear != null && _cachedWornGear.Count > 0 && !_plugin.DragAndDropTextures.GearCategoryMeta.ContainsKey(contextKey))
                     {
-                        _plugin.DragAndDropTextures.GearCategoryMeta[contextKey] = _cachedWornGear[0];
+                        string gearSlot = null;
+                        if (contextKey.Contains("_gear_top")) gearSlot = "top";
+                        else if (contextKey.Contains("_gear_bottom")) gearSlot = "bottom";
+                        else if (contextKey.Contains("_gear_hands")) gearSlot = "hands";
+                        else if (contextKey.Contains("_gear_feet")) gearSlot = "feet";
+                        else if (contextKey.Contains("_gear_head")) gearSlot = "head";
+                        else if (contextKey.EndsWith("_hair")) gearSlot = "hair";
+
+                        if (gearSlot != null)
+                        {
+                            var matchedGearPiece = _cachedWornGear.FirstOrDefault(p => p.SlotKey == gearSlot);
+                            if (matchedGearPiece != null)
+                            {
+                                _plugin.DragAndDropTextures.GearCategoryMeta[contextKey] = matchedGearPiece;
+                            }
+                        }
                     }
 
                     _plugin.Configuration.Save();
