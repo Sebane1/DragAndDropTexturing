@@ -324,7 +324,7 @@ namespace DragAndDropTexturing.VideoPlayback
 
             // Write Penumbra mod metadata
             LooseTextureCompilerCore.ProjectCreation.ProjectHelper.ExportMeta(
-                Path.Combine(state.ModPath, "meta.json"), state.ModName);
+                Path.Combine(state.ModPath, "meta.json"), state.ModName, new System.Collections.Generic.List<FFXIVVoicePackCreator.Json.Group>());
 
             // Write initial JSON pointing at ring slot 0
             WriteFrameJson(state, 0);
@@ -682,14 +682,19 @@ namespace DragAndDropTexturing.VideoPlayback
             if (string.IsNullOrEmpty(state.FrameTexPaths[ringSlot])) return;
             string relativePath = Path.GetRelativePath(state.ModPath, state.FrameTexPaths[ringSlot]).Replace('\\', '/');
             string gamePath = state.InternalGamePath.Replace("\\", "/");
-            string json = $@"{{
-  ""Name"": """",
-  ""Priority"": 0,
-  ""Files"": {{ ""{gamePath}"": ""{relativePath}"" }},
-  ""FileSwaps"": {{}},
-  ""Manipulations"": []
-}}";
-            File.WriteAllText(Path.Combine(state.ModPath, "default_mod.json"), json);
+            var modMeta = new FFXIVVoicePackCreator.Json.ModMeta
+            {
+                Name = state.ModName,
+                Author = "DragAndDropTexturing",
+                Description = "Video Playback Mod",
+                Version = "1.0.0.0",
+                Website = "https://github.com/Sebane1/DragAndDropTexturing",
+                DefaultData = new FFXIVVoicePackCreator.Json.ModDataContainer
+                {
+                    Files = new System.Collections.Generic.Dictionary<string, string> { { gamePath, relativePath } }
+                }
+            };
+            File.WriteAllText(Path.Combine(state.ModPath, "meta.json"), Newtonsoft.Json.JsonConvert.SerializeObject(modMeta, Newtonsoft.Json.Formatting.Indented));
         }
 
         private ICharacter FindCharacter(string name)
