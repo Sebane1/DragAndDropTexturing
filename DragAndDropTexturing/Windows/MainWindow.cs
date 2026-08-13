@@ -58,6 +58,10 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.DragAndDropTextures.TextureCollectionHistoryTints[_collectionId] = new Dictionary<string, List<Vector4>>();
         }
+        if (!Plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes.ContainsKey(_collectionId))
+        {
+            Plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes[_collectionId] = new Dictionary<string, List<int>>();
+        }
         if (!Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayTints.ContainsKey(_collectionId))
         {
             Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayTints[_collectionId] = new Dictionary<string, Vector4>();
@@ -843,6 +847,11 @@ public class MainWindow : Window, IDisposable
     {
         var textureHistory = ddt.TextureCollectionHistory[_collectionId];
         var textureHistoryTints = ddt.TextureCollectionHistoryTints[_collectionId];
+        if (ddt.TextureCollectionHistoryBlendModes == null)
+            ddt.TextureCollectionHistoryBlendModes = new Dictionary<string, Dictionary<string, List<int>>>();
+        if (!ddt.TextureCollectionHistoryBlendModes.ContainsKey(_collectionId))
+            ddt.TextureCollectionHistoryBlendModes[_collectionId] = new Dictionary<string, List<int>>();
+        var textureHistoryBlendModes = ddt.TextureCollectionHistoryBlendModes[_collectionId];
         InitJobNames();
         var presets = Plugin.Configuration.ActiveLayerPresets;
         if (presets == null)
@@ -883,6 +892,11 @@ public class MainWindow : Window, IDisposable
                 foreach (var kvp in textureHistoryTints)
                     preset.TextureHistoryTints[kvp.Key] = new List<System.Numerics.Vector4>(kvp.Value);
             }
+            if (textureHistoryBlendModes != null)
+            {
+                foreach (var kvp in textureHistoryBlendModes)
+                    preset.TextureHistoryBlendModes[kvp.Key] = new List<int>(kvp.Value);
+            }
             presets.Add(preset);
             Plugin.Configuration.Save();
             _selectedPresetIndex = presets.Count - 1;
@@ -894,6 +908,7 @@ public class MainWindow : Window, IDisposable
         ImGui.BeginChild("PresetDetailsColumn", new Vector2(0, 0), false);
         var targetHistory = _selectedPresetIndex == -1 ? textureHistory : presets[_selectedPresetIndex].TextureHistory;
         var targetTints = _selectedPresetIndex == -1 ? textureHistoryTints : presets[_selectedPresetIndex].TextureHistoryTints;
+        var targetBlendModes = _selectedPresetIndex == -1 ? textureHistoryBlendModes : presets[_selectedPresetIndex].TextureHistoryBlendModes;
 
         if (_selectedPresetIndex != -1)
         {
@@ -1101,6 +1116,27 @@ public class MainWindow : Window, IDisposable
                 string key = keys[_selectedActiveLayerIndex];
                 var list = targetHistory[key];
                 var tintList = targetTints != null && targetTints.ContainsKey(key) ? targetTints[key] : null;
+                var blendList = targetBlendModes != null && targetBlendModes.ContainsKey(key) ? targetBlendModes[key] : null;
+                if (blendList == null)
+                {
+                    if (_selectedPresetIndex == -1)
+                    {
+                        textureHistoryBlendModes[key] = new List<int>();
+                        blendList = textureHistoryBlendModes[key];
+                    }
+                    else
+                    {
+                        var preset = presets[_selectedPresetIndex];
+                        if (preset.TextureHistoryBlendModes == null)
+                            preset.TextureHistoryBlendModes = new Dictionary<string, List<int>>();
+                        preset.TextureHistoryBlendModes[key] = new List<int>();
+                        blendList = preset.TextureHistoryBlendModes[key];
+                    }
+                }
+                while (blendList.Count < list.Count)
+                    blendList.Add(0);
+                while (blendList.Count > list.Count)
+                    blendList.RemoveAt(blendList.Count - 1);
 
                 string displayKey = key;
                 if (ddt.GearCategoryMeta != null && ddt.GearCategoryMeta.TryGetValue(key, out var gearMetaDetail))
@@ -1120,6 +1156,7 @@ public class MainWindow : Window, IDisposable
                 {
                     list.Clear();
                     if (tintList != null) tintList.Clear();
+                    if (blendList != null) blendList.Clear();
                     if (_selectedPresetIndex == -1) ddt.RebuildCategory(key, false);
                     Plugin.Configuration.Save();
                 }
@@ -1156,11 +1193,11 @@ public class MainWindow : Window, IDisposable
                         ImGui.Image(wrap.Handle, new Vector2(40, 40));
                         ImGui.SameLine();
                         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 10);
-                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 200);
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 490);
                     }
                     else
                     {
-                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 150);
+                        ImGui.SetNextItemWidth(ImGui.GetWindowWidth() - 440);
                     }
 
                     if (ImGui.InputText("##path_" + key + i, ref path, 1024)) list[i] = path;
@@ -1176,6 +1213,7 @@ public class MainWindow : Window, IDisposable
                                 {
                                     list[i] = files[0];
                                     if (tintList != null && i < tintList.Count) tintList[i] = System.Numerics.Vector4.One;
+                                    if (blendList != null && i < blendList.Count) blendList[i] = 0;
                                     changed = true;
                                 }
                             }
@@ -1190,6 +1228,10 @@ public class MainWindow : Window, IDisposable
                         {
                             var tempTint = tintList[i - 1]; tintList[i - 1] = tintList[i]; tintList[i] = tempTint;
                         }
+                        if (blendList != null && i < blendList.Count && i - 1 < blendList.Count)
+                        {
+                            var tempBlend = blendList[i - 1]; blendList[i - 1] = blendList[i]; blendList[i] = tempBlend;
+                        }
                         changed = true;
                     }
 
@@ -1200,6 +1242,10 @@ public class MainWindow : Window, IDisposable
                         if (tintList != null && i < tintList.Count && i + 1 < tintList.Count)
                         {
                             var tempTint = tintList[i + 1]; tintList[i + 1] = tintList[i]; tintList[i] = tempTint;
+                        }
+                        if (blendList != null && i < blendList.Count && i + 1 < blendList.Count)
+                        {
+                            var tempBlend = blendList[i + 1]; blendList[i + 1] = blendList[i]; blendList[i] = tempBlend;
                         }
                         changed = true;
                     }
@@ -1214,6 +1260,7 @@ public class MainWindow : Window, IDisposable
                     {
                         list.RemoveAt(i);
                         if (tintList != null && i < tintList.Count) tintList.RemoveAt(i);
+                        if (blendList != null && i < blendList.Count) blendList.RemoveAt(i);
                         removed = true;
                         changed = true;
                     }
@@ -1223,14 +1270,53 @@ public class MainWindow : Window, IDisposable
 
                     if (removed) { i--; continue; }
 
+                    if (blendList != null && i < blendList.Count)
+                    {
+                        int blendMode = blendList[i];
+                        ImGui.SameLine();
+                        ImGui.AlignTextToFramePadding();
+                        ImGui.Text(Translator.LocalizeUI("Blend"));
+                        ImGui.SameLine();
+                        ImGui.SetNextItemWidth(110);
+                        if (ImGui.BeginCombo("##blend_" + key + i, Translator.LocalizeUI(FFXIVLooseTextureCompiler.ImageProcessing.LayerBlendModeNames.GetName(blendMode))))
+                        {
+                            for (int b = 0; b < FFXIVLooseTextureCompiler.ImageProcessing.LayerBlendModeNames.All.Length; b++)
+                            {
+                                string blendLabel = Translator.LocalizeUI(FFXIVLooseTextureCompiler.ImageProcessing.LayerBlendModeNames.All[b]);
+                                if (ImGui.Selectable(blendLabel, b == blendMode))
+                                {
+                                    blendList[i] = b;
+                                    changed = true;
+                                }
+                                if (ImGui.IsItemHovered())
+                                {
+                                    ImGui.SetTooltip(Translator.LocalizeUI(FFXIVLooseTextureCompiler.ImageProcessing.LayerBlendModeDescriptions.All[b]));
+                                }
+                            }
+                            ImGui.EndCombo();
+                        }
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.SetTooltip(Translator.LocalizeUI(FFXIVLooseTextureCompiler.ImageProcessing.LayerBlendModeDescriptions.GetDescription(blendMode)));
+                        }
+                        if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
+                    }
+
                     if (tintList != null && i < tintList.Count)
                     {
                         System.Numerics.Vector4 col = tintList[i];
+                        ImGui.SameLine();
+                        ImGui.AlignTextToFramePadding();
+                        ImGui.Text(Translator.LocalizeUI("Tint"));
                         ImGui.SameLine();
                         ImGui.SetNextItemWidth(40);
                         if (ImGui.ColorEdit4("##tint_" + key + i, ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaBar | ImGuiColorEditFlags.AlphaPreview))
                         {
                             tintList[i] = col;
+                        }
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.SetTooltip(Translator.LocalizeUI("Multiplies this layer's color and opacity. White = no change."));
                         }
                         if (ImGui.IsItemDeactivatedAfterEdit()) changed = true;
                     }
@@ -1285,11 +1371,18 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.DragAndDropTextures.TextureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
         }
+        if (!Plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes.ContainsKey(collectionId))
+        {
+            Plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes[collectionId] = new Dictionary<string, List<int>>();
+        }
         var textureHistory = Plugin.DragAndDropTextures.TextureCollectionHistory[collectionId];
         var textureHistoryTints = Plugin.DragAndDropTextures.TextureCollectionHistoryTints[collectionId];
+        var textureHistoryBlendModes = Plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes[collectionId];
         textureHistory.Clear();
         if (textureHistoryTints != null)
             textureHistoryTints.Clear();
+        if (textureHistoryBlendModes != null)
+            textureHistoryBlendModes.Clear();
 
         foreach (var kvp in preset.TextureHistory)
         {
@@ -1302,9 +1395,17 @@ public class MainWindow : Window, IDisposable
                 textureHistoryTints[kvp.Key] = new List<Vector4>(kvp.Value);
             }
         }
+        if (preset.TextureHistoryBlendModes != null && textureHistoryBlendModes != null)
+        {
+            foreach (var kvp in preset.TextureHistoryBlendModes)
+            {
+                textureHistoryBlendModes[kvp.Key] = new List<int>(kvp.Value);
+            }
+        }
 
         Plugin.Configuration.CollectionSortedTextureHistory = Plugin.DragAndDropTextures.TextureCollectionHistory;
         Plugin.Configuration.CollectionSortedTextureHistoryTints = Plugin.DragAndDropTextures.TextureCollectionHistoryTints;
+        Plugin.Configuration.CollectionSortedTextureHistoryBlendModes = Plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes;
         Plugin.Configuration.Save();
 
         foreach (var category in textureHistory.Keys)

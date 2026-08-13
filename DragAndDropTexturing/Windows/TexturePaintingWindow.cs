@@ -1691,6 +1691,9 @@ namespace DragAndDropTexturing.Windows
                     }
                     var textureHistory = _plugin.DragAndDropTextures.TextureCollectionHistory[collectionId];
                     var textureHistoryTints = _plugin.DragAndDropTextures.TextureCollectionHistoryTints[collectionId];
+                    if (!_plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes.ContainsKey(collectionId))
+                        _plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes[collectionId] = new Dictionary<string, List<int>>();
+                    var textureHistoryBlendModes = _plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes[collectionId];
                     // Copy the underlay to SavedOverlays
                     string importDir = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "SavedOverlays");
                     if (!Directory.Exists(importDir)) Directory.CreateDirectory(importDir);
@@ -1703,12 +1706,14 @@ namespace DragAndDropTexturing.Windows
                     {
                         textureHistory[contextKey] = new List<string>();
                         textureHistoryTints[contextKey] = new List<System.Numerics.Vector4>();
+                        textureHistoryBlendModes[contextKey] = new List<int>();
                     }
                     if (!textureHistory[contextKey].Contains(destPath))
                     {
                         // Insert at position 0 so the underlay is the bottom-most layer
                         textureHistory[contextKey].Insert(0, destPath);
                         textureHistoryTints[contextKey].Insert(0, System.Numerics.Vector4.One);
+                        textureHistoryBlendModes[contextKey].Insert(0, 0);
                     }
 
                     // Cache gear metadata if needed
@@ -1884,16 +1889,21 @@ namespace DragAndDropTexturing.Windows
                                     }
                                     var textureHistory = _plugin.DragAndDropTextures.TextureCollectionHistory[collectionId];
                                     var textureHistoryTints = _plugin.DragAndDropTextures.TextureCollectionHistoryTints[collectionId];
+                                    if (!_plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes.ContainsKey(collectionId))
+                                        _plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes[collectionId] = new Dictionary<string, List<int>>();
+                                    var textureHistoryBlendModes = _plugin.DragAndDropTextures.TextureCollectionHistoryBlendModes[collectionId];
                                     _plugin.PluginLog.Info($"[Texture Painter] Appending new layer precisely to {contextKey}");
                                     if (!textureHistory.ContainsKey(contextKey))
                                     {
                                         textureHistory[contextKey] = new List<string>();
                                         textureHistoryTints[contextKey] = new List<System.Numerics.Vector4>();
+                                        textureHistoryBlendModes[contextKey] = new List<int>();
                                     }
                                     if (!textureHistory [contextKey].Contains(outPath))
                                     {
                                         textureHistory[contextKey].Add(outPath);
                                         textureHistoryTints[contextKey].Add(System.Numerics.Vector4.One);
+                                        textureHistoryBlendModes[contextKey].Add(0);
                                     }
                                     _plugin.Configuration.Save();
                                     

@@ -15,6 +15,7 @@ public class ActiveLayerPreset
     
     public Dictionary<string, List<string>> TextureHistory { get; set; } = new();
     public Dictionary<string, List<Vector4>> TextureHistoryTints { get; set; } = new();
+    public Dictionary<string, List<int>> TextureHistoryBlendModes { get; set; } = new();
 }
 
 [Serializable]
@@ -36,8 +37,10 @@ public class Configuration : IPluginConfiguration
     public int LastKnownFace { get; set; } = -1;
     public Dictionary<string, List<string>> TextureHistory { get; set; } = new Dictionary<string, List<string>>();
     public Dictionary<string, List<Vector4>> TextureHistoryTints { get; set; } = new Dictionary<string, List<Vector4>>();
+    public Dictionary<string, List<int>> TextureHistoryBlendModes { get; set; } = new Dictionary<string, List<int>>();
     public Dictionary<string, Dictionary<string, List<string>>> CollectionSortedTextureHistory { get; set; } = new();
     public Dictionary<string, Dictionary<string, List<Vector4>>> CollectionSortedTextureHistoryTints { get; set; } = new();
+    public Dictionary<string, Dictionary<string, List<int>>> CollectionSortedTextureHistoryBlendModes { get; set; } = new();
     public Dictionary<string, int> PersistedContextualStacks { get; set; } = new Dictionary<string, int>();
     public string PersistedProceduralCanvasPath { get; set; } = null;
     public List<string> RecentLayers { get; set; } = new List<string>();

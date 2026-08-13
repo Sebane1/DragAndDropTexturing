@@ -92,6 +92,7 @@ namespace RoleplayingVoice
         List<Tuple<string, float>> boneSorting = new List<Tuple<string, float>>();
         private Dictionary<string, Dictionary<string, List<string>>> _textureCollectionHistory;
         private Dictionary<string, Dictionary<string, List<Vector4>>> _textureCollectionHistoryTints;
+        private Dictionary<string, Dictionary<string, List<int>>> _textureCollectionHistoryBlendModes;
         private Dictionary<string, Dictionary<string, Vector4>> _collectionSortedPenumbraOverlayTints;
         private Dictionary<string, Dictionary<string, Vector4>> _collectionSortedPenumbraOverlayGlowTints;
         private readonly Dictionary<string, WornEquipmentPiece> _gearCategoryMeta = new();
@@ -108,7 +109,8 @@ namespace RoleplayingVoice
             {
                 var history = _textureCollectionHistory[collectionKey];
                 var tints = _textureCollectionHistoryTints.ContainsKey(collectionKey) ? _textureCollectionHistoryTints[collectionKey] : null;
-                migrated |= MigrateKeysInDictionary(history, tints, renames);
+                var blendModes = _textureCollectionHistoryBlendModes != null && _textureCollectionHistoryBlendModes.ContainsKey(collectionKey) ? _textureCollectionHistoryBlendModes[collectionKey] : null;
+                migrated |= MigrateKeysInDictionary(history, tints, blendModes, renames);
             }
 
             // Migrate saved presets
@@ -117,7 +119,7 @@ namespace RoleplayingVoice
             {
                 foreach (var preset in presets)
                 {
-                    migrated |= MigrateKeysInDictionary(preset.TextureHistory, preset.TextureHistoryTints, renames);
+                    migrated |= MigrateKeysInDictionary(preset.TextureHistory, preset.TextureHistoryTints, preset.TextureHistoryBlendModes, renames);
                 }
             }
 
@@ -170,6 +172,7 @@ namespace RoleplayingVoice
         private bool MigrateKeysInDictionary(
             Dictionary<string, List<string>> history,
             Dictionary<string, List<System.Numerics.Vector4>> tints,
+            Dictionary<string, List<int>> blendModes,
             (string oldSuffix, string newSuffix)[] renames)
         {
             bool migrated = false;
@@ -184,9 +187,12 @@ namespace RoleplayingVoice
                         history[newKey] = history[oldKey];
                         if (tints != null && tints.ContainsKey(oldKey))
                             tints[newKey] = tints[oldKey];
+                        if (blendModes != null && blendModes.ContainsKey(oldKey))
+                            blendModes[newKey] = blendModes[oldKey];
                     }
                     history.Remove(oldKey);
                     tints?.Remove(oldKey);
+                    blendModes?.Remove(oldKey);
                     migrated = true;
                     plugin?.PluginLog.Info($"[Migration] Renamed category key: '{oldKey}' → '{newKey}'");
                 }
@@ -200,7 +206,7 @@ namespace RoleplayingVoice
         private readonly object _regenerationLock = new object();
         private volatile bool _bulkRebuildInProgress;
 
-        private void AddToTextureSet(TextureSet item, string file, string overrideType = "", System.Numerics.Vector4? tint = null)
+        private void AddToTextureSet(TextureSet item, string file, string overrideType = "", System.Numerics.Vector4? tint = null, int blendMode = 0)
         {
             if (item.TextureSetName.ToLower().Contains("face"))
             {
@@ -255,8 +261,8 @@ namespace RoleplayingVoice
 
             if (uvType == UVMapType.Base)
             {
-                if (string.IsNullOrEmpty(item.Base)) { item.Base = file; item.BaseUV = sourceUV; item.BaseTint = tint ?? System.Numerics.Vector4.One; }
-                else if (!item.BaseOverlays.Contains(file)) { item.BaseOverlays.Add(file); item.BaseOverlayUVs.Add(sourceUV); item.BaseOverlayTints.Add(tint ?? System.Numerics.Vector4.One); }
+                if (string.IsNullOrEmpty(item.Base)) { item.Base = file; item.BaseUV = sourceUV; item.BaseTint = tint ?? System.Numerics.Vector4.One; item.BaseBlendMode = blendMode; }
+                else if (!item.BaseOverlays.Contains(file)) { item.BaseOverlays.Add(file); item.BaseOverlayUVs.Add(sourceUV); item.BaseOverlayTints.Add(tint ?? System.Numerics.Vector4.One); item.BaseOverlayBlendModes.Add(blendMode); }
             }
             else if (uvType == UVMapType.Normal)
             {
@@ -270,8 +276,8 @@ namespace RoleplayingVoice
             }
             else if (uvType == UVMapType.Glow)
             {
-                if (string.IsNullOrEmpty(item.Glow)) { item.Glow = file; item.GlowUV = sourceUV; item.GlowTint = tint ?? System.Numerics.Vector4.One; }
-                else if (!item.GlowOverlays.Contains(file)) { item.GlowOverlays.Add(file); item.GlowOverlayUVs.Add(sourceUV); item.GlowOverlayTints.Add(tint ?? System.Numerics.Vector4.One); }
+                if (string.IsNullOrEmpty(item.Glow)) { item.Glow = file; item.GlowUV = sourceUV; item.GlowTint = tint ?? System.Numerics.Vector4.One; item.GlowBlendMode = blendMode; }
+                else if (!item.GlowOverlays.Contains(file)) { item.GlowOverlays.Add(file); item.GlowOverlayUVs.Add(sourceUV); item.GlowOverlayTints.Add(tint ?? System.Numerics.Vector4.One); item.GlowOverlayBlendModes.Add(blendMode); }
             }
         }
 
@@ -490,6 +496,8 @@ namespace RoleplayingVoice
                 {
                     _textureCollectionHistory = plugin.Configuration.CollectionSortedTextureHistory;
                     _textureCollectionHistoryTints = plugin.Configuration.CollectionSortedTextureHistoryTints;
+                    _textureCollectionHistoryBlendModes = plugin.Configuration.CollectionSortedTextureHistoryBlendModes ?? new Dictionary<string, Dictionary<string, List<int>>>();
+                    plugin.Configuration.CollectionSortedTextureHistoryBlendModes = _textureCollectionHistoryBlendModes;
                     _collectionSortedPenumbraOverlayTints = plugin.Configuration.CollectionSortedPenumbraOverlayTints;
                     _collectionSortedPenumbraOverlayGlowTints = plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints;
 
@@ -505,6 +513,19 @@ namespace RoleplayingVoice
                                 for (int i = 0; i < textureHistory[textureHistoryKey].Count; i++)
                                 {
                                     textureHistoryTints[textureHistoryKey].Add(Vector4.One);
+                                }
+                            }
+                            if (!_textureCollectionHistoryBlendModes.ContainsKey(textureCollectionHistoryKey))
+                            {
+                                _textureCollectionHistoryBlendModes[textureCollectionHistoryKey] = new Dictionary<string, List<int>>();
+                            }
+                            var textureHistoryBlendModes = _textureCollectionHistoryBlendModes[textureCollectionHistoryKey];
+                            if (!textureHistoryBlendModes.ContainsKey(textureHistoryKey))
+                            {
+                                textureHistoryBlendModes[textureHistoryKey] = new List<int>();
+                                for (int i = 0; i < textureHistory[textureHistoryKey].Count; i++)
+                                {
+                                    textureHistoryBlendModes[textureHistoryKey].Add(0);
                                 }
                             }
                         }
@@ -540,10 +561,19 @@ namespace RoleplayingVoice
                             {
                                 _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
                             }
+                            if (!_textureCollectionHistoryBlendModes.ContainsKey(collectionId))
+                            {
+                                _textureCollectionHistoryBlendModes[collectionId] = new Dictionary<string, List<int>>();
+                            }
                             _textureCollectionHistory[collectionId] = plugin.Configuration.TextureHistory;
                             _textureCollectionHistoryTints[collectionId] = plugin.Configuration.TextureHistoryTints;
+                            if (plugin.Configuration.TextureHistoryBlendModes != null)
+                            {
+                                _textureCollectionHistoryBlendModes[collectionId] = plugin.Configuration.TextureHistoryBlendModes;
+                            }
                             plugin.Configuration.TextureHistory = null;
                             plugin.Configuration.TextureHistoryTints = null;
+                            plugin.Configuration.TextureHistoryBlendModes = null;
 
                             // Re-run migration on the freshly imported legacy history
                             MigrateLegacyGearCategoryKeys();
@@ -571,6 +601,7 @@ namespace RoleplayingVoice
 
         public Dictionary<string, Dictionary<string, List<string>>> TextureCollectionHistory { get => _textureCollectionHistory; set => _textureCollectionHistory = value; }
         public Dictionary<string, Dictionary<string, List<Vector4>>> TextureCollectionHistoryTints { get => _textureCollectionHistoryTints; set => _textureCollectionHistoryTints = value; }
+        public Dictionary<string, Dictionary<string, List<int>>> TextureCollectionHistoryBlendModes { get => _textureCollectionHistoryBlendModes; set => _textureCollectionHistoryBlendModes = value; }
         public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayTints { get => _collectionSortedPenumbraOverlayTints; set => _collectionSortedPenumbraOverlayTints = value; }
         public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayGlowTints { get => _collectionSortedPenumbraOverlayGlowTints; set => _collectionSortedPenumbraOverlayGlowTints = value; }
 
@@ -1558,9 +1589,13 @@ namespace RoleplayingVoice
                                         {
                                             _textureCollectionHistory[collectionId][categoryKey] = new List<string>();
                                             _textureCollectionHistoryTints[collectionId][categoryKey] = new List<System.Numerics.Vector4>();
+                                            if (!_textureCollectionHistoryBlendModes.ContainsKey(collectionId))
+                                                _textureCollectionHistoryBlendModes[collectionId] = new Dictionary<string, List<int>>();
+                                            _textureCollectionHistoryBlendModes[collectionId][categoryKey] = new List<int>();
                                         }
                                         _textureCollectionHistory[collectionId][categoryKey].Add(f);
                                         _textureCollectionHistoryTints[collectionId][categoryKey].Add(System.Numerics.Vector4.One);
+                                        _textureCollectionHistoryBlendModes[collectionId][categoryKey].Add(0);
                                         dragAndDroppedCategories.Add(categoryKey);
                                         Plugin.Configuration.Save();
                                         UpdateWatchers();
@@ -1740,7 +1775,9 @@ namespace RoleplayingVoice
                                                 {
                                                     string f = textureHistory[categoryKey][_i];
                                                     System.Numerics.Vector4? t = textureTintHistory.ContainsKey(categoryKey) && _i < textureTintHistory[categoryKey].Count ? textureTintHistory[categoryKey][_i] : null;
-                                                    AddToTextureSet(item, f, overrideType, t);
+                                                    int bm = (_textureCollectionHistoryBlendModes.ContainsKey(collectionId) && _textureCollectionHistoryBlendModes[collectionId].ContainsKey(categoryKey) && _i < _textureCollectionHistoryBlendModes[collectionId][categoryKey].Count)
+                                                        ? _textureCollectionHistoryBlendModes[collectionId][categoryKey][_i] : 0;
+                                                    AddToTextureSet(item, f, overrideType, t, bm);
                                                 }
                                                 catch (Exception e)
                                                 {
@@ -2767,8 +2804,13 @@ namespace RoleplayingVoice
                     {
                         _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
                     }
+                    if (!_textureCollectionHistoryBlendModes.ContainsKey(collectionId))
+                    {
+                        _textureCollectionHistoryBlendModes[collectionId] = new Dictionary<string, List<int>>();
+                    }
                     var textureHistory = _textureCollectionHistory[collectionId];
                     var textureHistoryTints = _textureCollectionHistoryTints[collectionId];
+                    var textureHistoryBlendModes = _textureCollectionHistoryBlendModes[collectionId];
                     if (!textureHistory.ContainsKey(categoryKey))
                     {
                         textureHistory[categoryKey] = new List<string>();
@@ -2781,17 +2823,27 @@ namespace RoleplayingVoice
                             textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
                         }
                     }
+                    if (!textureHistoryBlendModes.ContainsKey(categoryKey))
+                    {
+                        textureHistoryBlendModes[categoryKey] = new List<int>();
+                        for (int h = 0; h < textureHistory[categoryKey].Count; h++)
+                        {
+                            textureHistoryBlendModes[categoryKey].Add(0);
+                        }
+                    }
 
                     if (!plugin.Configuration.EnableTextureStacking && !droppedCategories.Contains(categoryKey))
                     {
                         textureHistory[categoryKey].Clear();
                         textureHistoryTints[categoryKey].Clear();
+                        textureHistoryBlendModes[categoryKey].Clear();
                     }
 
                     if (!textureHistory[categoryKey].Contains(file))
                     {
                         textureHistory[categoryKey].Add(file);
                         textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
+                        textureHistoryBlendModes[categoryKey].Add(0);
                     }
 
                     if (plugin.Configuration.RecentLayers.Contains(file))
@@ -2916,6 +2968,8 @@ namespace RoleplayingVoice
 
             if (!_textureCollectionHistoryTints.ContainsKey(collectionId))
                 _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
+            if (!_textureCollectionHistoryBlendModes.ContainsKey(collectionId))
+                _textureCollectionHistoryBlendModes[collectionId] = new Dictionary<string, List<int>>();
 
             foreach (var activeLayer in activeLayers)
             {
@@ -2929,6 +2983,8 @@ namespace RoleplayingVoice
 
                 if (!_textureCollectionHistoryTints[collectionId].ContainsKey(categoryKey))
                     _textureCollectionHistoryTints[collectionId][categoryKey] = new List<Vector4>();
+                if (!_textureCollectionHistoryBlendModes[collectionId].ContainsKey(categoryKey))
+                    _textureCollectionHistoryBlendModes[collectionId][categoryKey] = new List<int>();
             }
         }
         /// <summary>
@@ -3847,7 +3903,9 @@ namespace RoleplayingVoice
                         {
                             string f = textureHistory[categoryKey][_i];
                             System.Numerics.Vector4? t = textureHistoryTints.ContainsKey(categoryKey) && _i < textureHistoryTints[categoryKey].Count ? textureHistoryTints[categoryKey][_i] : null;
-                            AddToTextureSet(item, f, overrideType, t);
+                            int bm = (_textureCollectionHistoryBlendModes.ContainsKey(collectionId) && _textureCollectionHistoryBlendModes[collectionId].ContainsKey(categoryKey) && _i < _textureCollectionHistoryBlendModes[collectionId][categoryKey].Count)
+                                ? _textureCollectionHistoryBlendModes[collectionId][categoryKey][_i] : 0;
+                            AddToTextureSet(item, f, overrideType, t, bm);
                         }
 
                         bool hasContextualLayers = false;
@@ -4019,24 +4077,32 @@ namespace RoleplayingVoice
             {
                 _textureCollectionHistoryTints[collectionId] = new Dictionary<string, List<Vector4>>();
             }
+            if (!_textureCollectionHistoryBlendModes.ContainsKey(collectionId))
+            {
+                _textureCollectionHistoryBlendModes[collectionId] = new Dictionary<string, List<int>>();
+            }
             var textureHistory = _textureCollectionHistory[collectionId];
             var textureHistoryTints = _textureCollectionHistoryTints[collectionId];
+            var textureHistoryBlendModes = _textureCollectionHistoryBlendModes[collectionId];
             if (!textureHistory.ContainsKey(categoryKey))
             {
                 textureHistory[categoryKey] = new List<string>();
                 textureHistoryTints[categoryKey] = new List<Vector4>();
+                textureHistoryBlendModes[categoryKey] = new List<int>();
             }
 
             if (!plugin.Configuration.EnableTextureStacking)
             {
                 textureHistory[categoryKey].Clear();
                 textureHistoryTints[categoryKey].Clear();
+                textureHistoryBlendModes[categoryKey].Clear();
             }
 
             if (!textureHistory[categoryKey].Contains(pngPath))
             {
                 textureHistory[categoryKey].Add(pngPath);
                 textureHistoryTints[categoryKey].Add(System.Numerics.Vector4.One);
+                textureHistoryBlendModes[categoryKey].Add(0);
             }
 
             plugin.Configuration.Save();
