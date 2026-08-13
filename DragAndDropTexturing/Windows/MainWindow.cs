@@ -5,6 +5,7 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using DragAndDropTexturing.Equipment;
 using DragAndDropTexturing.LanguageHelpers;
+using DragAndDropTexturing.Overlays;
 using DragAndDropTexturing.VideoPlayback;
 using System;
 using System.Collections.Generic;
@@ -70,6 +71,12 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayGlowTints[_collectionId] = new Dictionary<string, Vector4>();
         }
+        if (Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows == null)
+            Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows = new Dictionary<string, Dictionary<string, List<AdvancedColorTableRow>>>();
+        if (!Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows.ContainsKey(_collectionId))
+            Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows[_collectionId] = new Dictionary<string, List<AdvancedColorTableRow>>();
+        if (Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayColorRows == null)
+            Plugin.DragAndDropTextures.CollectionSortedPenumbraOverlayColorRows = Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows;
     }
 
     public void TrySetLayerTargetFromDrop(IGameObject gameObject)
@@ -281,6 +288,7 @@ public class MainWindow : Window, IDisposable
     private string _cachedBodyModName = null;
     private DateTime _lastBodyTypeCheck = DateTime.MinValue;
     private string _pendingTintRebuildCategory = null;
+    private string _penumbraColorEditorOverlayKey = null;
 
     private void DrawSettings()
     {
@@ -673,7 +681,7 @@ public class MainWindow : Window, IDisposable
     private void DrawPenumbraFoundMods()
     {
         ImGui.Spacing();
-        ImGui.TextWrapped(Translator.LocalizeUI("This tab shows advanced textures (overlays) discovered from active Penumbra mods that include raw .png file options. You can customize color tinting for these layers here, but they cannot be removed since they are controlled by Penumbra."));
+        ImGui.TextWrapped(Translator.LocalizeUI("Proteus overlay mods discovered from Penumbra. Use Colors to edit the full 1–16 color table (index maps use multiple rows; overlays without an index mainly use row 16). Simple Tint/Emissive are optional extras on top of baked rows."));
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();
@@ -691,17 +699,27 @@ public class MainWindow : Window, IDisposable
             return;
         }
 
+        if (!Plugin.Configuration.CollectionSortedPenumbraOverlayTints.ContainsKey(_collectionId))
+            Plugin.Configuration.CollectionSortedPenumbraOverlayTints[_collectionId] = new Dictionary<string, Vector4>();
+        if (!Plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints.ContainsKey(_collectionId))
+            Plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints[_collectionId] = new Dictionary<string, Vector4>();
+        if (Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows == null)
+            Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows = new Dictionary<string, Dictionary<string, List<AdvancedColorTableRow>>>();
+        if (!Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows.ContainsKey(_collectionId))
+            Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows[_collectionId] = new Dictionary<string, List<AdvancedColorTableRow>>();
+
         bool changed = false;
         string rebuildCategory = null;
 
-        if (ImGui.BeginTable("PenumbraFoundModsTable", 6, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        if (ImGui.BeginTable("PenumbraFoundModsTable", 7, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Mod Name"), ImGuiTableColumnFlags.WidthFixed, 250);
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Part"), ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableSetupColumn(Translator.LocalizeUI("UV Type"), ImGuiTableColumnFlags.WidthFixed, 80);
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthFixed, 200);
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Tint"), ImGuiTableColumnFlags.WidthFixed, 80);
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Emissive"), ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Mod Name"), ImGuiTableColumnFlags.WidthFixed, 200);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Part"), ImGuiTableColumnFlags.WidthFixed, 70);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("UV Type"), ImGuiTableColumnFlags.WidthFixed, 60);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthFixed, 180);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Colors"), ImGuiTableColumnFlags.WidthFixed, 70);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Tint"), ImGuiTableColumnFlags.WidthFixed, 60);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("Emissive"), ImGuiTableColumnFlags.WidthFixed, 60);
             ImGui.TableHeadersRow();
 
             for (int i = 0; i < overlays.Count; i++)
@@ -738,43 +756,63 @@ public class MainWindow : Window, IDisposable
                 }
 
                 ImGui.TableNextColumn();
-                // Tint control
-                string overlayKey = !string.IsNullOrEmpty(overlay.DiffusePath) ? overlay.DiffusePath : (!string.IsNullOrEmpty(overlay.NormalPath) ? overlay.NormalPath : overlay.MaskPath);
+                string overlayKey = ProteusColorTableHelper.GetOverlayKey(overlay);
+                if (!string.IsNullOrEmpty(overlayKey))
+                {
+                    bool editing = _penumbraColorEditorOverlayKey == overlayKey;
+                    if (ImGui.Button(editing ? "Close##" + i : "Edit##" + i))
+                    {
+                        _penumbraColorEditorOverlayKey = editing ? null : overlayKey;
+                        if (!editing)
+                            EnsurePenumbraColorRowsInitialized(overlay, overlayKey);
+                    }
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(Translator.LocalizeUI("Edit Proteus color table rows 1–16"));
+                }
+                else
+                {
+                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "N/A");
+                }
+
+                ImGui.TableNextColumn();
+                // Optional extra tint (rows are baked separately)
                 if (!string.IsNullOrEmpty(overlayKey))
                 {
                     Vector4 col = Vector4.One;
-                    if (Plugin.Configuration.CollectionSortedPenumbraOverlayTints[_collectionId].TryGetValue(overlayKey, out var savedCol))
+                    if (Plugin.Configuration.CollectionSortedPenumbraOverlayTints[_collectionId].TryGetValue(overlayKey, out var savedCol)
+                        && (savedCol.X != 0 || savedCol.Y != 0 || savedCol.Z != 0 || savedCol.W != 0))
                     {
                         col = savedCol;
                     }
 
-                    ImGui.SetNextItemWidth(60);
+                    ImGui.SetNextItemWidth(55);
                     if (ImGui.ColorEdit4($"##overlaytint_{i}", ref col, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaBar | ImGuiColorEditFlags.AlphaPreview))
                     {
                         Plugin.Configuration.CollectionSortedPenumbraOverlayTints[_collectionId][overlayKey] = col;
                         Plugin.Configuration.Save();
                     }
-                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Base Color Tint"));
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Extra multiplier applied after color rows bake"));
                     if (ImGui.IsItemDeactivatedAfterEdit())
                     {
                         _pendingTintRebuildCategory = overlay.TargetBodyPart;
                     }
 
                     ImGui.TableNextColumn();
-                    Vector4 glowCol = new Vector4(0, 0, 0, 1f);
-                    if (Plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints[_collectionId].TryGetValue(overlayKey, out var savedGlowCol))
+                    Vector4 glowCol = Vector4.One;
+                    if (Plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints[_collectionId].TryGetValue(overlayKey, out var savedGlowCol)
+                        && (savedGlowCol.X != 0 || savedGlowCol.Y != 0 || savedGlowCol.Z != 0))
                     {
                         glowCol = savedGlowCol;
                     }
 
-                    ImGui.SetNextItemWidth(60);
+                    ImGui.SetNextItemWidth(55);
                     if (ImGui.ColorEdit4($"##overlayglowtint_{i}", ref glowCol, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoAlpha))
                     {
                         glowCol.W = 1.0f;
                         Plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints[_collectionId][overlayKey] = glowCol;
                         Plugin.Configuration.Save();
                     }
-                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Glow Mask Tint"));
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip(Translator.LocalizeUI("Extra glow color multiplier after emissive bake"));
                     if (ImGui.IsItemDeactivatedAfterEdit())
                     {
                         _pendingTintRebuildCategory = overlay.TargetBodyPart;
@@ -789,6 +827,20 @@ public class MainWindow : Window, IDisposable
             }
 
             ImGui.EndTable();
+        }
+
+        if (!string.IsNullOrEmpty(_penumbraColorEditorOverlayKey))
+        {
+            var editedOverlay = overlays.Find(o => ProteusColorTableHelper.GetOverlayKey(o) == _penumbraColorEditorOverlayKey);
+            if (editedOverlay != null)
+            {
+                if (DrawPenumbraColorRowEditor(editedOverlay, _penumbraColorEditorOverlayKey, ref rebuildCategory))
+                    changed = true;
+            }
+            else
+            {
+                _penumbraColorEditorOverlayKey = null;
+            }
         }
 
         if (_pendingTintRebuildCategory != null && ImGui.IsWindowFocused(ImGuiFocusedFlags.RootWindow))
@@ -807,6 +859,154 @@ public class MainWindow : Window, IDisposable
                 ddt.RebuildCategory(categoryKey, false);
             }
         }
+    }
+
+    private void EnsurePenumbraColorRowsInitialized(ResolvedAdvancedOverlay overlay, string overlayKey)
+    {
+        var store = Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows[_collectionId];
+        if (store.ContainsKey(overlayKey))
+            return;
+
+        store[overlayKey] = ProteusColorTableHelper.CreateEditableRowSet(overlay.ColorTableRows);
+        Plugin.Configuration.Save();
+    }
+
+    /// <returns>True if a rebuild should run.</returns>
+    private bool DrawPenumbraColorRowEditor(ResolvedAdvancedOverlay overlay, string overlayKey, ref string rebuildCategory)
+    {
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Text($"{overlay.ModName} — {Translator.LocalizeUI("Color Table Rows")}");
+        if (string.IsNullOrEmpty(overlay.IndexPath))
+        {
+            ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.4f, 1f),
+                Translator.LocalizeUI("No index texture — row 16 is the main recolor row."));
+        }
+        else
+        {
+            ImGui.TextColored(new Vector4(0.6f, 0.8f, 0.6f, 1f),
+                Translator.LocalizeUI("Index texture active — red selects row (÷17), green blends A/B."));
+        }
+
+        var store = Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows[_collectionId];
+        if (!store.TryGetValue(overlayKey, out var rows) || rows == null)
+        {
+            rows = ProteusColorTableHelper.CreateEditableRowSet(overlay.ColorTableRows);
+            store[overlayKey] = rows;
+        }
+
+        bool rowChanged = false;
+
+        if (ImGui.Button(Translator.LocalizeUI("Reset to mod defaults")))
+        {
+            store[overlayKey] = ProteusColorTableHelper.CreateEditableRowSet(overlay.ColorTableRows);
+            Plugin.Configuration.Save();
+            rowChanged = true;
+        }
+        ImGui.SameLine();
+        if (ImGui.Button(Translator.LocalizeUI("Clear overrides")))
+        {
+            store.Remove(overlayKey);
+            Plugin.Configuration.Save();
+            rowChanged = true;
+        }
+
+        ImGui.Spacing();
+
+        if (ImGui.BeginChild("PenumbraColorRowsEditor", new Vector2(0, 320), true))
+        {
+            if (ImGui.BeginTable("PenumbraColorRowsTable", 3, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+            {
+                ImGui.TableSetupColumn(Translator.LocalizeUI("Row"), ImGuiTableColumnFlags.WidthFixed, 40);
+                ImGui.TableSetupColumn(Translator.LocalizeUI("Sub A — Diffuse / Emissive / Opacity"), ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn(Translator.LocalizeUI("Sub B — Diffuse / Emissive / Opacity"), ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableHeadersRow();
+
+                bool hasIndex = !string.IsNullOrEmpty(overlay.IndexPath);
+                for (int ri = 0; ri < rows.Count; ri++)
+                {
+                    var row = rows[ri];
+                    bool authored = ProteusColorTableHelper.RowIsAuthoredInMetadata(row.Row, overlay.ColorTableRows);
+                    bool isRow16 = row.Row == 16;
+                    if (!hasIndex && !authored && !isRow16)
+                        continue;
+
+                    ImGui.TableNextRow();
+                    if (!authored && !isRow16)
+                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.55f, 0.55f, 0.55f, 1f));
+
+                    ImGui.TableNextColumn();
+                    ImGui.Text(row.Row.ToString());
+
+                    ImGui.TableNextColumn();
+                    rowChanged |= DrawPenumbraColorSubRowEditor(row, true, ri);
+
+                    ImGui.TableNextColumn();
+                    rowChanged |= DrawPenumbraColorSubRowEditor(row, false, ri);
+
+                    if (!authored && !isRow16)
+                        ImGui.PopStyleColor();
+                }
+
+                ImGui.EndTable();
+            }
+        }
+        ImGui.EndChild();
+
+        if (rowChanged)
+        {
+            Plugin.Configuration.Save();
+            rebuildCategory = overlay.TargetBodyPart;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool DrawPenumbraColorSubRowEditor(AdvancedColorTableRow row, bool subRowA, int rowIndex)
+    {
+        var sub = subRowA ? row.SubRowA : row.SubRowB;
+        if (sub == null)
+        {
+            sub = ProteusColorTableHelper.CreateDefaultSubRow();
+            if (subRowA) row.SubRowA = sub;
+            else row.SubRowB = sub;
+        }
+
+        bool changed = false;
+        string prefix = $"##proteusrow_{rowIndex}_{(subRowA ? "a" : "b")}";
+
+        Vector4 tint4 = ProteusColorTableHelper.SubRowToTint(sub);
+        Vector3 tint = new Vector3(tint4.X, tint4.Y, tint4.Z);
+        ImGui.SetNextItemWidth(90);
+        if (ImGui.ColorEdit3(prefix + "_diff", ref tint, ImGuiColorEditFlags.NoInputs))
+        {
+            ProteusColorTableHelper.TintToSubRowDiffuse(ref sub, new Vector4(tint.X, tint.Y, tint.Z, 1f));
+            changed = true;
+        }
+        ImGui.SameLine();
+
+        float emissive = sub.Emissive;
+        ImGui.SetNextItemWidth(80);
+        if (ImGui.SliderFloat(prefix + "_em", ref emissive, 0f, 1f, "E %.2f"))
+        {
+            sub.Emissive = emissive;
+            changed = true;
+        }
+        ImGui.SameLine();
+
+        int opacity = sub.Opacity;
+        ImGui.SetNextItemWidth(100);
+        if (ImGui.SliderInt(prefix + "_op", ref opacity, -100, 100, "Op %d"))
+        {
+            sub.Opacity = opacity;
+            changed = true;
+        }
+
+        if (ImGui.IsItemDeactivatedAfterEdit())
+            changed = true;
+
+        return changed;
     }
 
     private int _selectedPresetIndex = -1;

@@ -52,6 +52,8 @@ public class Configuration : IPluginConfiguration
 
     public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayTints { get; set; } = new Dictionary<string, Dictionary<string, Vector4>>();
     public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayGlowTints { get; set; } = new Dictionary<string, Dictionary<string, Vector4>>();
+    /// <summary>User-edited Proteus color table rows per overlay (collection → overlay path key → rows 1–16).</summary>
+    public Dictionary<string, Dictionary<string, List<Overlays.AdvancedColorTableRow>>> CollectionSortedPenumbraOverlayColorRows { get; set; } = new();
 
     // the below exist just to make saving less cumbersome
     public void Save()

@@ -95,6 +95,7 @@ namespace RoleplayingVoice
         private Dictionary<string, Dictionary<string, List<int>>> _textureCollectionHistoryBlendModes;
         private Dictionary<string, Dictionary<string, Vector4>> _collectionSortedPenumbraOverlayTints;
         private Dictionary<string, Dictionary<string, Vector4>> _collectionSortedPenumbraOverlayGlowTints;
+        private Dictionary<string, Dictionary<string, List<AdvancedColorTableRow>>> _collectionSortedPenumbraOverlayColorRows;
         private readonly Dictionary<string, WornEquipmentPiece> _gearCategoryMeta = new();
         public Dictionary<string, WornEquipmentPiece> GearCategoryMeta { get => _gearCategoryMeta; }
         public List<WornEquipmentPiece> CachedWornGear { get; private set; } = new();
@@ -284,119 +285,75 @@ namespace RoleplayingVoice
         private bool ApplyAdvancedOverlays(TextureSet item, string categoryKey, string collectionId)
         {
             bool applied = false;
-            if (AdvancedOverlayParser.ActiveOverlays.Count > 0)
+            if (AdvancedOverlayParser.ActiveOverlays.Count == 0)
+                return false;
+
+            if (!AdvancedOverlayParser.ActiveOverlays.ContainsKey(collectionId))
+                AdvancedOverlayParser.ActiveOverlays[collectionId] = new List<ResolvedAdvancedOverlay>();
+
+            var overlaysList = new List<ResolvedAdvancedOverlay>(AdvancedOverlayParser.ActiveOverlays[collectionId]);
+            overlaysList.Reverse();
+
+            if (!_collectionSortedPenumbraOverlayTints.ContainsKey(collectionId))
+                _collectionSortedPenumbraOverlayTints[collectionId] = new Dictionary<string, Vector4>();
+            if (!_collectionSortedPenumbraOverlayGlowTints.ContainsKey(collectionId))
+                _collectionSortedPenumbraOverlayGlowTints[collectionId] = new Dictionary<string, Vector4>();
+            if (_collectionSortedPenumbraOverlayColorRows == null)
+                _collectionSortedPenumbraOverlayColorRows = new Dictionary<string, Dictionary<string, List<AdvancedColorTableRow>>>();
+            if (!_collectionSortedPenumbraOverlayColorRows.ContainsKey(collectionId))
+                _collectionSortedPenumbraOverlayColorRows[collectionId] = new Dictionary<string, List<AdvancedColorTableRow>>();
+
+            var colorRowOverrides = Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows;
+            if (colorRowOverrides != null && colorRowOverrides.TryGetValue(collectionId, out var collectionColorRows)
+                && collectionColorRows != null)
             {
-                if (!DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays.ContainsKey(collectionId))
+                _collectionSortedPenumbraOverlayColorRows[collectionId] = collectionColorRows;
+            }
+
+            foreach (var activeOverlay in overlaysList)
+            {
+                if (!categoryKey.EndsWith("_" + activeOverlay.TargetBodyPart.ToLower()))
+                    continue;
+
+                if (activeOverlay.RequiresShaderPath)
+                    continue;
+
+                applied = true;
+                try
                 {
-                    DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays[collectionId] = new List<DragAndDropTexturing.Overlays.ResolvedAdvancedOverlay>();
-                }
-                var overlaysList = new List<DragAndDropTexturing.Overlays.ResolvedAdvancedOverlay>(DragAndDropTexturing.Overlays.AdvancedOverlayParser.ActiveOverlays[collectionId]);
-                overlaysList.Reverse();
-                foreach (var activeOverlay in overlaysList)
-                {
-                    if (categoryKey.EndsWith("_" + activeOverlay.TargetBodyPart.ToLower()))
+                    if (!ProteusOverlayApplyHelper.TryPrepareOverlayPaths(
+                        activeOverlay,
+                        _collectionSortedPenumbraOverlayTints[collectionId],
+                        _collectionSortedPenumbraOverlayGlowTints[collectionId],
+                        _collectionSortedPenumbraOverlayColorRows[collectionId],
+                        out var diffusePath,
+                        out var normalPath,
+                        out var maskPath,
+                        out var emissivePath,
+                        out var tintColor,
+                        out var glowTintColor,
+                        out var overlayKey))
                     {
-                        applied = true;
-                        string diffusePath = activeOverlay.DiffusePath;
-                        string normalPath = activeOverlay.NormalPath;
-                        string maskPath = activeOverlay.MaskPath;
-
-                        if (!string.IsNullOrEmpty(diffusePath))
-                        {
-                            if (!string.IsNullOrEmpty(normalPath))
-                            {
-                                string memoryPath = "memory:\\" + normalPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked";
-                                if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
-                                {
-                                    var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(normalPath);
-                                    if (dims.Width > 0 && dims.Height > 0)
-                                    {
-                                        using (System.Drawing.Bitmap merged = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.MergeAlphaChannelToRGBGpuFromPaths(normalPath, diffusePath, dims.Width, dims.Height, false))
-                                        {
-                                            FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveMemoryBitmap(merged, memoryPath);
-                                        }
-                                    }
-                                }
-                                normalPath = memoryPath;
-                            }
-
-                            if (!string.IsNullOrEmpty(maskPath))
-                            {
-                                string memoryPath = "memory:\\" + maskPath.GetHashCode() + "_" + diffusePath.GetHashCode() + "_masked_grayscale";
-                                if (!FFXIVLooseTextureCompiler.ImageProcessing.TexIO.VirtualFileSystem.ContainsKey(memoryPath))
-                                {
-                                    var dims = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.GetImageDimensions(maskPath);
-                                    if (dims.Width > 0 && dims.Height > 0)
-                                    {
-                                        using (System.Drawing.Bitmap merged = FFXIVLooseTextureCompiler.ImageProcessing.ComputeSharpLayering.MergeAlphaChannelToRGBGpuFromPaths(maskPath, diffusePath, dims.Width, dims.Height, false))
-                                        {
-                                            using (System.Drawing.Bitmap grayscale = FFXIVLooseTextureCompiler.ImageProcessing.Grayscale.MakeGrayscale(merged))
-                                            {
-                                                FFXIVLooseTextureCompiler.ImageProcessing.TexIO.SaveMemoryBitmap(grayscale, memoryPath);
-                                            }
-                                        }
-                                    }
-                                }
-                                maskPath = memoryPath;
-                            }
-                        }
-
-                        string overlayKey = !string.IsNullOrEmpty(diffusePath) ? diffusePath : (!string.IsNullOrEmpty(normalPath) ? normalPath : maskPath);
-                        System.Numerics.Vector4 tintColor = System.Numerics.Vector4.One;
-
-                        try
-                        {
-                            if (!_collectionSortedPenumbraOverlayTints.ContainsKey(collectionId))
-                            {
-                                _collectionSortedPenumbraOverlayTints.Add(collectionId, new Dictionary<string, Vector4>());
-                            }
-                            if (!_collectionSortedPenumbraOverlayGlowTints.ContainsKey(collectionId))
-                            {
-                                _collectionSortedPenumbraOverlayGlowTints.Add(collectionId, new Dictionary<string, Vector4>());
-                            }
-                            if (!_collectionSortedPenumbraOverlayTints[collectionId].ContainsKey(overlayKey))
-                            {
-                                _collectionSortedPenumbraOverlayTints[collectionId].Add(overlayKey, new Vector4());
-                            }
-                            if (!_collectionSortedPenumbraOverlayGlowTints[collectionId].ContainsKey(overlayKey))
-                            {
-                                _collectionSortedPenumbraOverlayGlowTints[collectionId].Add(overlayKey, new Vector4());
-                            }
-
-                            if (overlayKey != null && _collectionSortedPenumbraOverlayTints[collectionId].TryGetValue(overlayKey, out var savedTint))
-                            {
-                                tintColor = savedTint;
-                            }
-
-                            System.Numerics.Vector4 glowTintColor = new System.Numerics.Vector4(0, 0, 0, 1f);
-                            if (overlayKey != null && _collectionSortedPenumbraOverlayGlowTints[collectionId].TryGetValue(overlayKey, out var savedGlowTint))
-                            {
-                                glowTintColor = savedGlowTint;
-                            }
-
-                            if (!string.IsNullOrEmpty(diffusePath))
-                            {
-                                if (string.IsNullOrEmpty(item.Base)) { item.Base = diffusePath; item.BaseUV = activeOverlay.UVType; item.BaseTint = tintColor; }
-                                else if (!item.BaseOverlays.Contains(diffusePath)) { item.BaseOverlays.Add(diffusePath); item.BaseOverlayUVs.Add(activeOverlay.UVType); item.BaseOverlayTints.Add(tintColor); }
-                            }
-                            if (!string.IsNullOrEmpty(normalPath))
-                            {
-                                if (string.IsNullOrEmpty(item.Normal)) { item.Normal = normalPath; item.NormalUV = activeOverlay.UVType; }
-                                else if (!item.NormalOverlays.Contains(normalPath)) { item.NormalOverlays.Add(normalPath); item.NormalOverlayUVs.Add(activeOverlay.UVType); }
-                            }
-                            if (!string.IsNullOrEmpty(maskPath))
-                            {
-                                if (string.IsNullOrEmpty(item.Glow)) { item.Glow = maskPath; item.GlowUV = activeOverlay.UVType; item.GlowTint = glowTintColor; }
-                                else if (!item.GlowOverlays.Contains(maskPath)) { item.GlowOverlays.Add(maskPath); item.GlowOverlayUVs.Add(activeOverlay.UVType); item.GlowOverlayTints.Add(glowTintColor); }
-                            }
-                        }
-                        catch (Exception e)
-                        {
-                            Plugin.PluginLog.Warning(e.Message, e.StackTrace);
-                        }
+                        continue;
                     }
+
+                    if (!string.IsNullOrEmpty(overlayKey))
+                    {
+                        if (!_collectionSortedPenumbraOverlayTints[collectionId].ContainsKey(overlayKey))
+                            _collectionSortedPenumbraOverlayTints[collectionId][overlayKey] = tintColor;
+                        if (!_collectionSortedPenumbraOverlayGlowTints[collectionId].ContainsKey(overlayKey))
+                            _collectionSortedPenumbraOverlayGlowTints[collectionId][overlayKey] = glowTintColor;
+                    }
+
+                    ProteusOverlayApplyHelper.ApplyToTextureSet(
+                        item, activeOverlay, diffusePath, normalPath, maskPath, emissivePath, tintColor, glowTintColor);
+                }
+                catch (Exception e)
+                {
+                    Plugin.PluginLog.Warning(e.Message, e.StackTrace);
                 }
             }
+
             return applied;
         }
 
@@ -500,6 +457,7 @@ namespace RoleplayingVoice
                     plugin.Configuration.CollectionSortedTextureHistoryBlendModes = _textureCollectionHistoryBlendModes;
                     _collectionSortedPenumbraOverlayTints = plugin.Configuration.CollectionSortedPenumbraOverlayTints;
                     _collectionSortedPenumbraOverlayGlowTints = plugin.Configuration.CollectionSortedPenumbraOverlayGlowTints;
+                    _collectionSortedPenumbraOverlayColorRows = plugin.Configuration.CollectionSortedPenumbraOverlayColorRows;
 
                     foreach (var textureCollectionHistoryKey in _textureCollectionHistory.Keys)
                     {
@@ -604,6 +562,7 @@ namespace RoleplayingVoice
         public Dictionary<string, Dictionary<string, List<int>>> TextureCollectionHistoryBlendModes { get => _textureCollectionHistoryBlendModes; set => _textureCollectionHistoryBlendModes = value; }
         public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayTints { get => _collectionSortedPenumbraOverlayTints; set => _collectionSortedPenumbraOverlayTints = value; }
         public Dictionary<string, Dictionary<string, Vector4>> CollectionSortedPenumbraOverlayGlowTints { get => _collectionSortedPenumbraOverlayGlowTints; set => _collectionSortedPenumbraOverlayGlowTints = value; }
+        public Dictionary<string, Dictionary<string, List<AdvancedColorTableRow>>> CollectionSortedPenumbraOverlayColorRows { get => _collectionSortedPenumbraOverlayColorRows; set => _collectionSortedPenumbraOverlayColorRows = value; }
 
         private async Task CheckAndDownloadDLC()
         {
@@ -2529,24 +2488,7 @@ namespace RoleplayingVoice
                 try
                 {
                     string fullModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), e.ModDirectory);
-                    if (Directory.Exists(fullModPath))
-                    {
-                        if (File.Exists(Path.Combine(fullModPath, "metadata.json")))
-                        {
-                            hasAdvancedOverlay = true;
-                        }
-                        else
-                        {
-                            foreach (var d in Directory.GetDirectories(fullModPath))
-                            {
-                                if (File.Exists(Path.Combine(d, "metadata.json")))
-                                {
-                                    hasAdvancedOverlay = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                    hasAdvancedOverlay = AdvancedOverlayParser.HasOverlaySidecar(fullModPath);
                 }
                 catch { }
 
