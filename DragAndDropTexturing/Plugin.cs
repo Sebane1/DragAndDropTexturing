@@ -142,6 +142,15 @@ public sealed class Plugin : IDalamudPlugin
 
         try
         {
+            Ktisis.Interop.Alloc.Init();
+        }
+        catch (Exception ex)
+        {
+            pluginLog.Error(ex, "Failed to initialize Ktisis matrix allocator.");
+        }
+
+        try
+        {
             _emoteReaderHooks = new EmoteReaderHooks(gameInteropProvider, clientState, _safeGameObjectManager);
             _actionReaderHooks = new ActionReaderHooks(gameInteropProvider);
             _audioReaderHooks = new AudioReaderHooks(gameInteropProvider, SigScanner);
@@ -303,6 +312,15 @@ public sealed class Plugin : IDalamudPlugin
         TexturePaintingWindows.Clear();
         CommandManager.RemoveHandler(CommandName);
 
+        try
+        {
+            Ktisis.Interop.Alloc.Dispose();
+        }
+        catch
+        {
+            // Best-effort cleanup on unload.
+        }
+
         // Release all GPU resources held in static caches to prevent VRAM leaks on plugin reload
         try
         {
@@ -405,6 +423,12 @@ public sealed class Plugin : IDalamudPlugin
     private void DrawUI()
     {
         WindowSystem.Draw();
+
+        foreach (var window in TexturePaintingWindows)
+        {
+            if (window.IsOpen)
+                window.DrawCharacterOverlayPass();
+        }
 
         for (int i = TexturePaintingWindows.Count - 1; i >= 0; i--)
         {

@@ -29,6 +29,7 @@ namespace DragAndDropTexturing.Windows
         private ModelRenderer _renderer;
         private bool _rendererInitialized = false;
         private System.Collections.Concurrent.ConcurrentQueue<Action> _mainThreadActions = new System.Collections.Concurrent.ConcurrentQueue<Action>();
+        private const string MeshCacheVersion = "|skin8";
         private static System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.List<ExtractedMesh>> _meshCache = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.List<ExtractedMesh>>();
         private Vector2 _lastMousePos = Vector2.Zero;
         private bool _isDragging = false;
@@ -53,6 +54,9 @@ namespace DragAndDropTexturing.Windows
         private PainterPreviewMeshMode _previewMeshMode = PainterPreviewMeshMode.MatchTexture;
         private int _manualPreviewBodyType = 2;
         private bool _uvBridgeEnabled = true;
+        private bool _transparentSkinPreview = false;
+        private bool _overlayOnCharacter = false;
+        private PainterCharacterOverlay.OverlayState _characterOverlayState;
         private readonly PainterUvBridge _uvBridge = new PainterUvBridge();
         private string _canvasUvKeyword = null;
         private string _previewMeshKeyword = null;
@@ -347,6 +351,8 @@ namespace DragAndDropTexturing.Windows
             _previewMeshMode = (PainterPreviewMeshMode)_plugin.Configuration.PainterPreviewMeshMode;
             _manualPreviewBodyType = _plugin.Configuration.PainterManualPreviewBodyType;
             _uvBridgeEnabled = _plugin.Configuration.PainterUvBridgeEnabled;
+            _transparentSkinPreview = _plugin.Configuration.PainterTransparentSkinPreview;
+            _overlayOnCharacter = _plugin.Configuration.PainterOverlayOnCharacter;
             if (string.IsNullOrEmpty(EditSourcePath))
                 _previewMeshMode = PainterPreviewMeshMode.MatchWornBody;
             _editLayerLoaded = EditSourcePath != null ? false : true; // Need to load if editing
@@ -727,6 +733,24 @@ namespace DragAndDropTexturing.Windows
                         RefreshUvBridge();
                     }
 
+                    if (ImGui.Checkbox(Translator.LocalizeUI("Hide skin in 3D preview"), ref _transparentSkinPreview))
+                    {
+                        _plugin.Configuration.PainterTransparentSkinPreview = _transparentSkinPreview;
+                        _plugin.Configuration.Save();
+                        UpdateMeshVisibility();
+                        _needsComposite = true;
+                    }
+                    if (_transparentSkinPreview)
+                        ImGui.TextDisabled("Shows paint layer only; skin and companion body meshes hidden.");
+
+                    if (ImGui.Checkbox(Translator.LocalizeUI("Overlay preview on character"), ref _overlayOnCharacter))
+                    {
+                        _plugin.Configuration.PainterOverlayOnCharacter = _overlayOnCharacter;
+                        _plugin.Configuration.Save();
+                    }
+                    if (_overlayOnCharacter)
+                        ImGui.TextDisabled("Syncs game camera and draws paint preview over the target character.");
+
                     string canvasLabel = _canvasUvKeyword ?? _targetKeyword ?? "?";
                     string previewLabel = _previewMeshKeyword ?? "?";
                     if (_uvBridge.IsActive)
@@ -951,19 +975,36 @@ namespace DragAndDropTexturing.Windows
             if (_renderer != null && _modelsLoaded)
             {
                 var region = ImGui.GetContentRegionAvail();
-                if (region.X > 0 && region.Y > 0 && ((int)region.X != _renderer.Width || (int)region.Y != _renderer.Height))
+                var cursorPos = ImGui.GetCursorScreenPos();
+                if (_overlayOnCharacter)
+                {
+                    // Render size is chosen in DrawCharacterOverlayPass (full viewport).
+                }
+                else if (region.X > 0 && region.Y > 0
+                         && ((int)region.X != _renderer.Width || (int)region.Y != _renderer.Height))
                 {
                     _renderer.Resize((int)region.X, (int)region.Y);
                 }
 
-                _renderer.Render();
-
-                if (_renderer.ShaderResourceViewHandle != IntPtr.Zero)
+                if (_overlayOnCharacter)
                 {
-                    var cursorPos = ImGui.GetCursorScreenPos();
-                    var drawList = ImGui.GetWindowDrawList();
-                    drawList.AddImage(new ImTextureID(_renderer.ShaderResourceViewHandle), cursorPos, cursorPos + region);
+                    ImGui.TextDisabled("Preview projected onto character in-world (see overlay).");
+                }
+                else
+                {
+                    UpdateCharacterOverlayTransform();
+                    _renderer.TransparentSkinPreview = _transparentSkinPreview;
+                    _renderer.Render();
 
+                    if (_renderer.ShaderResourceViewHandle != IntPtr.Zero)
+                    {
+                        var drawList = ImGui.GetWindowDrawList();
+                        drawList.AddImage(new ImTextureID(_renderer.ShaderResourceViewHandle), cursorPos, cursorPos + region);
+                    }
+                }
+
+                if (_renderer.ShaderResourceViewHandle != IntPtr.Zero || _overlayOnCharacter)
+                {
                     ImGui.InvisibleButton("##viewport3d", region);
                     
                     if (Plugin.DragDropManager.CreateImGuiTarget("TextureDragDrop", out var files, out _))
@@ -1568,6 +1609,106 @@ namespace DragAndDropTexturing.Windows
             _activeShape = p.Shape;
         }
 
+        private void UpdateCharacterOverlayTransform()
+        {
+            if (_renderer == null)
+                return;
+
+            if (!_overlayOnCharacter)
+            {
+                _renderer.ClearCharacterOverlay();
+                _characterOverlayState = default;
+                return;
+            }
+
+            var character = ResolvePaintingTargetCharacter();
+            unsafe
+            {
+                if (character != null && character.IsValid())
+                {
+                    var actor = (Ktisis.Structs.Actor.Actor*)character.Address;
+                    _renderer.SetOverlayPoseSource(actor->Model);
+                }
+                else
+                {
+                    _renderer.SetOverlayPoseSource(null);
+                }
+            }
+
+            _characterOverlayState = PainterCharacterOverlay.TryBuild(
+                character,
+                _renderer.BoundsMin,
+                _renderer.BoundsMax,
+                WorldToScreenForOverlay,
+                _renderer.OverlaySkinningActive);
+
+            if (!_characterOverlayState.IsValid)
+            {
+                _renderer.ClearCharacterOverlay();
+                return;
+            }
+
+            _renderer.UseCharacterOverlay = true;
+            _renderer.CharacterWorldMatrix = _characterOverlayState.WorldMatrix;
+            _renderer.SetGameCameraMatrices(_characterOverlayState.ViewMatrix, _characterOverlayState.ProjectionMatrix);
+        }
+
+        /// <summary>
+        /// Renders and composites the character overlay after all UI windows, covering the full game viewport.
+        /// Must be called from Plugin.DrawUI after WindowSystem.Draw().
+        /// </summary>
+        public void DrawCharacterOverlayPass()
+        {
+            if (!IsOpen || !_overlayOnCharacter || !_modelsLoaded || _renderer == null)
+                return;
+
+            var viewport = ImGui.GetMainViewport();
+            if (viewport.Size.X <= 0 || viewport.Size.Y <= 0)
+                return;
+
+            int vw = (int)viewport.Size.X;
+            int vh = (int)viewport.Size.Y;
+            if (vw != _renderer.Width || vh != _renderer.Height)
+                _renderer.Resize(vw, vh);
+
+            UpdateCharacterOverlayTransform();
+            if (!_characterOverlayState.IsValid)
+                return;
+
+            _renderer.TransparentSkinPreview = _transparentSkinPreview;
+            _renderer.Render();
+
+            if (_renderer.ShaderResourceViewHandle == IntPtr.Zero)
+                return;
+
+            ImGui.SetNextWindowPos(viewport.Pos);
+            ImGui.SetNextWindowSize(viewport.Size);
+            ImGui.SetNextWindowViewport(viewport.ID);
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+            if (ImGui.Begin("##PainterCharacterOverlay", ImGuiWindowFlags.NoInputs | ImGuiWindowFlags.NoDecoration
+                    | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoMove
+                    | ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoFocusOnAppearing
+                    | ImGuiWindowFlags.NoSavedSettings))
+            {
+                ImGui.Image(new ImTextureID(_renderer.ShaderResourceViewHandle), viewport.Size);
+
+                var drawList = ImGui.GetWindowDrawList();
+                string debugLine = _renderer.OverlaySkinningDebugLine;
+                if (string.IsNullOrEmpty(debugLine))
+                    debugLine = _renderer.OverlaySkinningActive
+                        ? $"skin active, maxΔ={_renderer.OverlaySkinningMaxDelta:F3}"
+                        : "skin inactive";
+                drawList.AddText(viewport.Pos + new Vector2(8, 8), 0xFF00FF00, $"[Overlay] {debugLine}");
+
+                ImGui.End();
+            }
+            ImGui.PopStyleVar(2);
+        }
+
+        private bool WorldToScreenForOverlay(Vector3 worldPos, out Vector2 screen)
+            => Plugin.GameGui.WorldToScreen(worldPos, out screen);
+
         private void UpdateMeshVisibility()
         {
             if (_renderer == null) return;
@@ -1577,6 +1718,17 @@ namespace DragAndDropTexturing.Windows
                 foreach (var slot in _renderer.GetAllSlotNames())
                 {
                     if (!_mainModelSlots.Contains(slot))
+                        _renderer.HiddenSlots.Add(slot);
+                }
+            }
+
+            if (_transparentSkinPreview)
+            {
+                _renderer.HiddenSlots.Add("PreviewTop");
+                _renderer.HiddenSlots.Add("PreviewBottom");
+                foreach (var slot in _renderer.GetAllSlotNames())
+                {
+                    if (!_primarySlots.Contains(slot))
                         _renderer.HiddenSlots.Add(slot);
                 }
             }
@@ -1976,14 +2128,44 @@ namespace DragAndDropTexturing.Windows
             if (!activelyPainting || (++_compositeFrameCounter % 2) == 0)
                 _renderer.RunCompositePass(_targetChannel);
 
-            if (!bridgeDisplay)
+            if (bridgeDisplay)
+                _renderer.RunPreviewCompositePass(_targetChannel);
+
+            if (_transparentSkinPreview && TryGetPaintOverlaySrv(bridgeDisplay, out var overlaySrv))
             {
-                _renderer.AssignCompositeToSlots(_primarySlotArray, _renderer.CompositeSrv);
+                _renderer.ClearTransparentOverlayFromAllSlots();
+                _renderer.AssignPaintOverlayToSlots(_primarySlotArray, overlaySrv);
+                UpdateMeshVisibility();
                 return;
             }
 
-            _renderer.RunPreviewCompositePass(_targetChannel);
-            _renderer.AssignCompositeToSlots(_primarySlotArray, _renderer.PreviewCompositeSrv);
+            _renderer.ClearTransparentOverlayFromAllSlots();
+            UpdateMeshVisibility();
+            if (!bridgeDisplay)
+                _renderer.AssignCompositeToSlots(_primarySlotArray, _renderer.CompositeSrv);
+            else
+                _renderer.AssignCompositeToSlots(_primarySlotArray, _renderer.PreviewCompositeSrv);
+        }
+
+        private bool TryGetPaintOverlaySrv(bool bridgeDisplay, out Vortice.Direct3D11.ID3D11ShaderResourceView overlaySrv)
+        {
+            overlaySrv = null;
+            if (_renderer == null)
+                return false;
+
+            if (bridgeDisplay && _renderer.PreviewPaintSrv != null)
+            {
+                overlaySrv = _renderer.PreviewPaintSrv;
+                return true;
+            }
+
+            if (_renderer.CanvasPaintSrv != null)
+            {
+                overlaySrv = _renderer.CanvasPaintSrv;
+                return true;
+            }
+
+            return false;
         }
 
         private void Save16BitTiff(string outputPath)
@@ -3496,6 +3678,86 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
+        private static string NormalizeMtrlGamePath(string rawMatPath)
+        {
+            if (string.IsNullOrEmpty(rawMatPath))
+                return rawMatPath;
+            string path = rawMatPath.Replace("\\", "/");
+            if (path.StartsWith("/"))
+                path = path.Substring(1);
+            return path;
+        }
+
+        private static List<string> BuildMtrlCandidates(string matFileName, string internalMaterialPath)
+        {
+            matFileName = NormalizeMtrlGamePath(matFileName);
+            var mtrlCandidates = new List<string>();
+
+            if (!string.IsNullOrEmpty(internalMaterialPath))
+                mtrlCandidates.Add(NormalizeMtrlGamePath(internalMaterialPath));
+
+            var equipMatch = System.Text.RegularExpressions.Regex.Match(matFileName, @"mt_c(\d{4})([eht])(\d+)");
+            if (equipMatch.Success)
+            {
+                string cCode = "c" + equipMatch.Groups[1].Value;
+                string typeCode = equipMatch.Groups[2].Value;
+                string codeStr = typeCode + equipMatch.Groups[3].Value;
+
+                if (typeCode == "e")
+                {
+                    for (int v = 1; v <= 10; v++)
+                        mtrlCandidates.Add($"chara/equipment/{codeStr}/material/v{v:D4}/{matFileName}");
+                    mtrlCandidates.Add($"chara/equipment/{codeStr}/material/{matFileName}");
+                }
+                else if (typeCode == "h")
+                {
+                    mtrlCandidates.Add($"chara/human/{cCode}/obj/hair/{codeStr}/material/v0001/{matFileName}");
+                    mtrlCandidates.Add($"chara/human/{cCode}/obj/hair/{codeStr}/material/{matFileName}");
+                }
+                else if (typeCode == "t")
+                {
+                    mtrlCandidates.Add($"chara/human/{cCode}/obj/tail/{codeStr}/material/v0001/{matFileName}");
+                    mtrlCandidates.Add($"chara/human/{cCode}/obj/tail/{codeStr}/material/{matFileName}");
+                }
+            }
+
+            var bodyMatch = System.Text.RegularExpressions.Regex.Match(
+                matFileName, @"mt_(c\d{4})b(\d{4})_(.+)\.mtrl", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (bodyMatch.Success)
+            {
+                string cCode = bodyMatch.Groups[1].Value;
+                string bCode = "b" + bodyMatch.Groups[2].Value;
+                for (int v = 1; v <= 10; v++)
+                    mtrlCandidates.Add($"chara/human/{cCode}/obj/body/{bCode}/material/v{v:D4}/{matFileName}");
+                mtrlCandidates.Add($"chara/human/{cCode}/obj/body/{bCode}/material/{matFileName}");
+            }
+
+            if (!mtrlCandidates.Contains(matFileName))
+                mtrlCandidates.Add(matFileName);
+
+            return mtrlCandidates;
+        }
+
+        private static string GetSlotMaterialHint(string slot, string editSourcePath)
+        {
+            if (!string.IsNullOrEmpty(editSourcePath))
+            {
+                string fileName = System.IO.Path.GetFileNameWithoutExtension(editSourcePath).ToLowerInvariant();
+                var suffixMatch = System.Text.RegularExpressions.Regex.Match(fileName, @"_([a-z0-9]+)$");
+                if (suffixMatch.Success)
+                    return $"_{suffixMatch.Groups[1].Value}";
+            }
+
+            return slot switch
+            {
+                "Face" => "_fac",
+                "Hair" => "_hir",
+                "Tail" => "_til",
+                "Head" => "_met",
+                _ => "_b",
+            };
+        }
+
         private void LoadModelIntoSlot(string slot, string path, Guid collectionId, string internalMaterialPath = null)
         {
             try
@@ -3530,20 +3792,22 @@ namespace DragAndDropTexturing.Windows
 
                 if (System.IO.File.Exists(diskPath))
                 {
-                    if (_meshCache.TryGetValue(diskPath, out var cachedMeshes))
+                    string cacheKey = diskPath + MeshCacheVersion;
+                    if (_meshCache.TryGetValue(cacheKey, out var cachedMeshes))
                     {
-                        _plugin.PluginLog.Info($"[PSD Preview] Loaded external file from cache: {diskPath}");
+                        int cachedSkin = cachedMeshes.Sum(m => m.BoneWeights.Count(w => w.X + w.Y + w.Z + w.W > 0.001f));
+                        _plugin.PluginLog.Warning($"[OverlaySkin] Cache hit: {diskPath} — {cachedSkin}/{cachedMeshes.Sum(m => m.Positions.Count)} weighted verts, hasSkinning={cachedMeshes.Any(m => m.HasSkinning)}");
                         meshes = cachedMeshes;
                     }
                     else
                     {
                         _plugin.PluginLog.Info($"[PSD Preview] Reading external file from disk: {diskPath}");
                         meshes = MdlParser.ParseFromDisk(diskPath, out var loadStatus);
-                        _plugin.PluginLog.Info($"[PSD Preview] Disk parse status: {loadStatus}");
+                        _plugin.PluginLog.Warning($"[OverlaySkin] Parse: {loadStatus}");
                         
                         if (meshes != null)
                         {
-                            _meshCache[diskPath] = meshes;
+                            _meshCache[cacheKey] = meshes;
                         }
                     }
                 }
@@ -3652,7 +3916,12 @@ namespace DragAndDropTexturing.Windows
                         searchPattern = "fac_a";
                     }
 
-                    bool isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) && 
+                    if (string.IsNullOrEmpty(searchPattern))
+                        searchPattern = null;
+                    if (string.IsNullOrEmpty(autoDetectedMaterial))
+                        autoDetectedMaterial = null;
+
+                    bool isEditingNormal = !string.IsNullOrEmpty(EditSourcePath) &&
                         (EditSourcePath.IndexOf("norm", StringComparison.OrdinalIgnoreCase) >= 0 || 
                          EditSourcePath.IndexOf("bump", StringComparison.OrdinalIgnoreCase) >= 0 || 
                          EditSourcePath.IndexOf("_n_", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -3671,7 +3940,8 @@ namespace DragAndDropTexturing.Windows
                             
                             if (!string.IsNullOrEmpty(matPath))
                             {
-                                if (searchPattern != null && matPath.ToLower().Contains(searchPattern))
+                                string matLower = matPath.ToLowerInvariant();
+                                if (!string.IsNullOrEmpty(searchPattern) && matLower.Contains(searchPattern))
                                 {
                                     isMatch = true;
                                 }
@@ -3697,9 +3967,36 @@ namespace DragAndDropTexturing.Windows
                         
                         if (primaryMeshes.Count == 0)
                         {
-                            _plugin.PluginLog.Warning($"[PSD Preview] Could not find any mesh matching '{searchPattern}' in MaterialPaths. Defaulting to Mesh[0].");
-                            primaryMeshes.Add(meshesCopy[0]);
-                            for (int i = 1; i < meshesCopy.Count; i++) secondaryMeshes.Add(meshesCopy[i]);
+                            string matHint = GetSlotMaterialHint(slot, EditSourcePath);
+                            var withMaterial = meshesCopy.Where(m => !string.IsNullOrEmpty(m.MaterialPath)).ToList();
+                            var hinted = withMaterial.FirstOrDefault(m =>
+                                !string.IsNullOrEmpty(matHint) &&
+                                m.MaterialPath.IndexOf(matHint, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                            if (hinted != null)
+                            {
+                                primaryMeshes.Add(hinted);
+                                foreach (var m in meshesCopy)
+                                {
+                                    if (!ReferenceEquals(m, hinted))
+                                        secondaryMeshes.Add(m);
+                                }
+                            }
+                            else if (withMaterial.Count > 0)
+                            {
+                                primaryMeshes.Add(withMaterial[0]);
+                                foreach (var m in meshesCopy)
+                                {
+                                    if (!ReferenceEquals(m, withMaterial[0]))
+                                        secondaryMeshes.Add(m);
+                                }
+                            }
+                            else
+                            {
+                                _plugin.PluginLog.Warning($"[PSD Preview] Could not find any mesh matching '{searchPattern ?? autoDetectedMaterial ?? matHint}' in MaterialPaths. Defaulting to Mesh[0].");
+                                primaryMeshes.Add(meshesCopy[0]);
+                                for (int i = 1; i < meshesCopy.Count; i++) secondaryMeshes.Add(meshesCopy[i]);
+                            }
                         }
 
                         // Dynamically reload the texture from the active material's .mtrl file
@@ -3707,49 +4004,9 @@ namespace DragAndDropTexturing.Windows
                         {
                             string rawMatPath = primaryMeshes[0].MaterialPath;
                             _plugin.PluginLog.Info($"[Texture Painter] Attempting dynamic texture reload from material: {rawMatPath}");
-                            
-                            // Strip leading slash
-                            string matFileName = rawMatPath;
-                            if (matFileName.StartsWith("/")) matFileName = matFileName.Substring(1);
-                            
-                            // Extract equipment code from the material filename
-                            var mtrlMatch = System.Text.RegularExpressions.Regex.Match(matFileName, @"mt_c(\d+)([eht])(\d+)");
-                            
-                            // Build candidate mtrl paths to try
-                            var mtrlCandidates = new List<string>();
-                            if (mtrlMatch.Success)
-                            {
-                                string cCode = "c" + mtrlMatch.Groups[1].Value;
-                                string typeCode = mtrlMatch.Groups[2].Value;
-                                string codeStr = typeCode + mtrlMatch.Groups[3].Value;
 
-                                if (typeCode == "e")
-                                {
-                                    for (int v = 1; v <= 10; v++)
-                                    {
-                                        mtrlCandidates.Add($"chara/equipment/{codeStr}/material/v{v:D4}/{matFileName}");
-                                    }
-                                    mtrlCandidates.Add($"chara/equipment/{codeStr}/material/{matFileName}");
-                                }
-                                else if (typeCode == "h")
-                                {
-                                    mtrlCandidates.Add($"chara/human/{cCode}/obj/hair/{codeStr}/material/v0001/{matFileName}");
-                                    mtrlCandidates.Add($"chara/human/{cCode}/obj/hair/{codeStr}/material/{matFileName}");
-                                }
-                                else if (typeCode == "t")
-                                {
-                                    mtrlCandidates.Add($"chara/human/{cCode}/obj/tail/{codeStr}/material/v0001/{matFileName}");
-                                    mtrlCandidates.Add($"chara/human/{cCode}/obj/tail/{codeStr}/material/{matFileName}");
-                                }
-                            }
-                            // Also try the raw path directly
-                            mtrlCandidates.Add(matFileName);
-                            
-                            if (!string.IsNullOrEmpty(internalMaterialPath))
-                            {
-                                mtrlCandidates.Insert(0, internalMaterialPath);
-                                _plugin.PluginLog.Info($"[Texture Painter] Injecting exact material path: {internalMaterialPath}");
-                            }
+                            string matFileName = NormalizeMtrlGamePath(rawMatPath);
+                            var mtrlCandidates = BuildMtrlCandidates(matFileName, internalMaterialPath);
                             
                             string resolvedMtrlDisk = null;
                             string resolvedMtrlGamePath = null;
@@ -3763,11 +4020,25 @@ namespace DragAndDropTexturing.Windows
                                     break;
                                 }
                             }
-                            
+
                             if (string.IsNullOrEmpty(resolvedMtrlDisk))
                             {
-                                resolvedMtrlDisk = rawMatPath; // Fallback to raw game path
-                                _plugin.PluginLog.Info($"[Texture Painter] Mtrl not overridden by Penumbra. Falling back to vanilla game path: {resolvedMtrlDisk}");
+                                foreach (var candidate in mtrlCandidates)
+                                {
+                                    if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(candidate, out _, out _, out _))
+                                    {
+                                        resolvedMtrlGamePath = candidate;
+                                        resolvedMtrlDisk = candidate;
+                                        _plugin.PluginLog.Info($"[Texture Painter] Using Lumina game path for mtrl: {candidate}");
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (string.IsNullOrEmpty(resolvedMtrlDisk))
+                            {
+                                resolvedMtrlDisk = matFileName;
+                                _plugin.PluginLog.Info($"[Texture Painter] Mtrl not overridden by Penumbra. Falling back to game path: {resolvedMtrlDisk}");
                             }
                             
                             if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(resolvedMtrlDisk, out string baseP, out string normP, out string maskP))
@@ -3885,6 +4156,8 @@ namespace DragAndDropTexturing.Windows
 
                     _mainThreadActions.Enqueue(() => {
                         _renderer.LoadMeshes(slot, primaryMeshes);
+                        int skinVerts = primaryMeshes.Sum(m => m.BoneWeights.Count(w => w.X + w.Y + w.Z + w.W > 0.001f));
+                        _plugin.PluginLog.Warning($"[OverlaySkin] Loaded slot '{slot}': {skinVerts} weighted verts in {primaryMeshes.Count} primary mesh(es), hasSkinning={primaryMeshes.Any(m => m.HasSkinning)}");
                         
                         int counter = 1;
                         foreach (var sm in secondaryMeshes)

@@ -60,6 +60,10 @@ public class Configuration : IPluginConfiguration
     /// <summary>1 = Bibo+, 2 = Gen3, 3 = TBSE, 0 = Vanilla when PainterPreviewMeshMode is manual.</summary>
     public int PainterManualPreviewBodyType { get; set; } = 2;
     public bool PainterUvBridgeEnabled { get; set; } = true;
+    /// <summary>Paint-only 3D preview: hides skin base and companion body meshes.</summary>
+    public bool PainterTransparentSkinPreview { get; set; } = false;
+    /// <summary>Project painter preview onto the live target character using game camera + bones.</summary>
+    public bool PainterOverlayOnCharacter { get; set; } = false;
 
     // the below exist just to make saving less cumbersome
     public void Save()

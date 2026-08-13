@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using Lumina.Data.Files;
 using Lumina.Data.Parsing;
@@ -12,8 +13,30 @@ namespace DragAndDropTexturing.Windows
         public List<Vector3> Positions = new();
         public List<Vector2> UVs = new();
         public List<Vector3> Normals = new();
+        public List<Vector4> BoneWeights = new();
+        public List<Vector4> BoneIndices = new();
         public List<uint> Indices = new();
         public string MaterialPath = "";
+        public ushort[] BoneTable = Array.Empty<ushort>();
+        /// <summary>MDL bone name for each entry in the model header bone list (bone table values index into this).</summary>
+        public string[] MdlBoneNames = Array.Empty<string>();
+        /// <summary>Maps mesh bone index to skeleton bone index (from MDL element IDs).</summary>
+        public ushort[] ElementSkeletonBones = Array.Empty<ushort>();
+        public bool HasSkinning
+        {
+            get
+            {
+                if (BoneWeights.Count == 0 || BoneIndices.Count != BoneWeights.Count)
+                    return false;
+                for (int i = 0; i < BoneWeights.Count; i++)
+                {
+                    var w = BoneWeights[i];
+                    if (w.X + w.Y + w.Z + w.W > 0.001f)
+                        return true;
+                }
+                return false;
+            }
+        }
     }
 
     public class MdlParser
@@ -63,6 +86,10 @@ namespace DragAndDropTexturing.Windows
                             Vector3 pos = Vector3.Zero;
                             Vector3 norm = Vector3.Zero;
                             Vector2 uv = Vector2.Zero;
+                            Vector4 boneWeights = Vector4.Zero;
+                            Vector4 boneIndices = Vector4.Zero;
+                            bool hasWeights = false;
+                            bool hasIndices = false;
 
                             foreach (var decl in declarations)
                             {
@@ -113,6 +140,18 @@ namespace DragAndDropTexturing.Windows
                                             norm = new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
                                         }
                                     }
+                                    // Usage 1 = BlendWeight
+                                    else if (decl.Usage == 1)
+                                    {
+                                        if (TryReadBoneWeights(reader, ms, decl.Type, ref boneWeights))
+                                            hasWeights = true;
+                                    }
+                                    // Usage 2 = BlendIndices
+                                    else if (decl.Usage == 2)
+                                    {
+                                        if (TryReadBoneIndices(reader, ms, decl.Type, ref boneIndices))
+                                            hasIndices = true;
+                                    }
                                     // Usage 4 = TexCoord/UV
                                     else if (decl.Usage == 4)
                                     {
@@ -140,6 +179,27 @@ namespace DragAndDropTexturing.Windows
                             extracted.Positions.Add(pos);
                             extracted.Normals.Add(norm);
                             extracted.UVs.Add(uv);
+                            if (!hasWeights || !hasIndices)
+                            {
+                                TryExtractSkinningFixedLayouts(
+                                    ms, reader,
+                                    Array.ConvertAll(meshStruct.VertexBufferOffset, x => (int)x),
+                                    meshStruct.VertexBufferStride, v,
+                                    mdlFile.FileHeader.VertexOffset[0],
+                                    ref boneWeights, ref boneIndices, ref hasWeights, ref hasIndices);
+                            }
+                            if (!hasWeights || !hasIndices)
+                            {
+                                TryReadSkinningHeuristic(
+                                    ms, reader,
+                                    Array.ConvertAll(meshStruct.VertexBufferOffset, x => (int)x),
+                                    meshStruct.VertexBufferStride, v,
+                                    mdlFile.FileHeader.VertexOffset[0],
+                                    ref boneWeights, ref boneIndices, ref hasWeights, ref hasIndices);
+                            }
+
+                            extracted.BoneWeights.Add(hasWeights ? NormalizeBoneWeights(boneWeights) : Vector4.Zero);
+                            extracted.BoneIndices.Add(hasIndices ? boneIndices : Vector4.Zero);
                         }
                     }
 
@@ -272,7 +332,8 @@ namespace DragAndDropTexturing.Windows
                 int pathBlockSize = reader.ReadInt32();
                 byte[] pathBlock = reader.ReadBytes(pathBlockSize);
 
-                var stringBlock = new List<string>();
+                var pathOffsets = new List<uint>();
+                var pathStrings = new List<string>();
                 var mtrlStrings = new List<string>();
                 int strStart = 0;
                 for (int i = 0; i < pathBlockSize; i++)
@@ -281,8 +342,9 @@ namespace DragAndDropTexturing.Windows
                     {
                         if (i > strStart)
                         {
-                            string s = System.Text.Encoding.ASCII.GetString(pathBlock, strStart, i - strStart);
-                            stringBlock.Add(s);
+                            pathOffsets.Add((uint)strStart);
+                            string s = System.Text.Encoding.UTF8.GetString(pathBlock, strStart, i - strStart);
+                            pathStrings.Add(s);
                             if (s.EndsWith(".mtrl", StringComparison.OrdinalIgnoreCase))
                                 mtrlStrings.Add(s);
                         }
@@ -323,8 +385,15 @@ namespace DragAndDropTexturing.Windows
                 // Total: 56 bytes ✓
 
                 //ElementIds (32 bytes each: uint ElementId, uint ParentBone, float3 Translate, float3 Rotate)
-                // TexTools: br.ReadBytes(mdlModelData.ElementIdCount * 32)
-                reader.ReadBytes(elementIdCount * 32);
+                var elementSkeletonBones = new List<ushort>();
+                for (int i = 0; i < elementIdCount; i++)
+                {
+                    uint elementBone = reader.ReadUInt32();
+                    reader.ReadUInt32(); // ParentBone
+                    reader.ReadSingle(); reader.ReadSingle(); reader.ReadSingle(); // Translate
+                    reader.ReadSingle(); reader.ReadSingle(); reader.ReadSingle(); // Rotate
+                    elementSkeletonBones.Add((ushort)Math.Min(elementBone, ushort.MaxValue));
+                }
 
                 //LOD structs (56 bytes each × 3)
                 // TexTools reads exactly: MeshIndex(2), MeshCount(2), ModelLodRange(4), TextureLodRange(4),
@@ -376,7 +445,7 @@ namespace DragAndDropTexturing.Windows
                 //           VertexDataOffset[3](12), VertexDataEntrySize[3](3), VertexStreamCount(1) = 36
                 // IMPORTANT: TexTools reads VertexCount as Int32 (not UInt16+padding)!
                 var meshStructs = new List<(int vertexCount, int indexCount, int startIndex,
-                    int[] vbOffset, byte[] vbStride, short materialIndex)>();
+                    int[] vbOffset, byte[] vbStride, short materialIndex, short boneTableIndex)>();
 
                 for (int m = 0; m < meshCount; m++)
                 {
@@ -385,15 +454,31 @@ namespace DragAndDropTexturing.Windows
                     short matIndex = reader.ReadInt16();                        // MaterialIndex
                     reader.ReadInt16();                        // SubMeshIndex
                     reader.ReadInt16();                        // SubMeshCount
-                    reader.ReadInt16();                        // BoneTableIndex
+                    short boneTableIndex = reader.ReadInt16();  // BoneTableIndex
                     int startIdx = reader.ReadInt32();          // 4
                     int[] vbOff = { reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32() }; // 12
                     byte[] vbStr = { reader.ReadByte(), reader.ReadByte(), reader.ReadByte() };   // 3
                     reader.ReadByte();                          // VertexStreamCount                 // 1
                     // Total: 36 ✓
 
-                    meshStructs.Add((vtxCount, idxCount, startIdx, vbOff, vbStr, matIndex));
+                    meshStructs.Add((vtxCount, idxCount, startIdx, vbOff, vbStr, matIndex, boneTableIndex));
                 }
+
+                var boneTables = ReadMdlBoneTables(
+                    reader,
+                    mdlVersion,
+                    boneSetCount,
+                    boneSetSize,
+                    terrainShadowMeshCount,
+                    attributeCount,
+                    meshPartCount,
+                    terrainShadowPartCount,
+                    materialCount,
+                    boneCount,
+                    pathBlock,
+                    pathOffsets,
+                    pathStrings,
+                    out string[] mdlBoneNames);
 
                 //Extract geometry from data region
                 // The vertex/index data offsets in the FileHeader (vertexOffset[], indexOffset[])
@@ -407,6 +492,14 @@ namespace DragAndDropTexturing.Windows
 
                     var mesh = meshStructs[meshIdx];
                     var extracted = new ExtractedMesh();
+                    extracted.MdlBoneNames = mdlBoneNames;
+                    extracted.ElementSkeletonBones = elementSkeletonBones.Count > 0
+                        ? elementSkeletonBones.ToArray()
+                        : Array.Empty<ushort>();
+                    if (mesh.boneTableIndex >= 0 && mesh.boneTableIndex < boneTables.Count)
+                        extracted.BoneTable = boneTables[mesh.boneTableIndex];
+                    else if (boneTables.Count > 0 && boneTables[0].Length > 0)
+                        extracted.BoneTable = boneTables[0];
                     
                     if (mesh.materialIndex >= 0 && mesh.materialIndex < mtrlStrings.Count)
                     {
@@ -432,7 +525,11 @@ namespace DragAndDropTexturing.Windows
                         Vector3 pos = Vector3.Zero;
                         Vector3 norm = Vector3.UnitY;
                         Vector2 uv = Vector2.Zero;
+                        Vector4 boneWeights = Vector4.Zero;
+                        Vector4 boneIndices = Vector4.Zero;
                         bool uvRead = false;
+                        bool hasWeights = false;
+                        bool hasIndices = false;
 
                         foreach (var elem in decl)
                         {
@@ -480,6 +577,16 @@ namespace DragAndDropTexturing.Windows
                                     else if (elem.type == 3 && ms.Position + 16 <= fileData.Length) // Float4
                                         norm = new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
                                 }
+                                else if (elem.usage == 1)
+                                {
+                                    if (TryReadBoneWeights(reader, ms, elem.type, ref boneWeights))
+                                        hasWeights = true;
+                                }
+                                else if (elem.usage == 2)
+                                {
+                                    if (TryReadBoneIndices(reader, ms, elem.type, ref boneIndices))
+                                        hasIndices = true;
+                                }
                                 else if (elem.usage == 4 && !uvRead) // UV (TexCoord)
                                 {
                                     if (elem.type == 13 && ms.Position + 4 <= fileData.Length) // Half2
@@ -515,6 +622,23 @@ namespace DragAndDropTexturing.Windows
                         extracted.Positions.Add(pos);
                         extracted.Normals.Add(norm);
                         extracted.UVs.Add(uv);
+                        if (!hasWeights || !hasIndices)
+                        {
+                            TryExtractSkinningFixedLayouts(
+                                ms, reader, mesh.vbOffset, mesh.vbStride, v,
+                                vertexOffset[0],
+                                ref boneWeights, ref boneIndices, ref hasWeights, ref hasIndices);
+                        }
+                        if (!hasWeights || !hasIndices)
+                        {
+                            TryReadSkinningHeuristic(
+                                ms, reader, mesh.vbOffset, mesh.vbStride, v,
+                                vertexOffset[0],
+                                ref boneWeights, ref boneIndices, ref hasWeights, ref hasIndices);
+                        }
+
+                        extracted.BoneWeights.Add(hasWeights ? NormalizeBoneWeights(boneWeights) : Vector4.Zero);
+                        extracted.BoneIndices.Add(hasIndices ? boneIndices : Vector4.Zero);
                     }
 
                     if (extracted.Positions.Count > 0 && extracted.Indices.Count > 0)
@@ -524,6 +648,7 @@ namespace DragAndDropTexturing.Windows
                 if (extractedMeshes.Count > 0)
                 {
                     int totalVerts = 0, totalIdx = 0;
+                    int skinVerts = 0;
                     int uvNonZero = 0;
                     float uvMinX = float.MaxValue, uvMinY = float.MaxValue;
                     float uvMaxX = float.MinValue, uvMaxY = float.MinValue;
@@ -531,6 +656,8 @@ namespace DragAndDropTexturing.Windows
                     {
                         totalVerts += em.Positions.Count;
                         totalIdx += em.Indices.Count;
+                        if (em.HasSkinning)
+                            skinVerts += em.BoneWeights.Count(w => w.X + w.Y + w.Z + w.W > 0.001f);
                         foreach (var uv in em.UVs)
                         {
                             if (uv.X != 0 || uv.Y != 0) uvNonZero++;
@@ -540,8 +667,10 @@ namespace DragAndDropTexturing.Windows
                             if (uv.Y > uvMaxY) uvMaxY = uv.Y;
                         }
                     }
+                    int tableEntries = boneTables.Sum(t => t.Length);
                     statusMessage = $"Loaded {extractedMeshes.Count} mesh(es) ({totalVerts} verts, {totalIdx / 3} tris) from disk. " +
                                     $"[v{mdlVersion}, vtxOff=0x{vertexOffset[0]:X}, idxOff=0x{indexOffset[0]:X}] " +
+                                    $"Skin: {skinVerts}/{totalVerts} verts, boneTables={boneTables.Count} ({tableEntries} entries), mdlBones={mdlBoneNames.Length}, elements={elementSkeletonBones.Count}. " +
                                     $"UVs: {uvNonZero}/{totalVerts} nonzero, range ({uvMinX:F3},{uvMinY:F3})-({uvMaxX:F3},{uvMaxY:F3})";
                     // Append vertex declaration info for first mesh
                     if (vertexDeclarations.Count > 0)
@@ -550,6 +679,10 @@ namespace DragAndDropTexturing.Windows
                         foreach (var e in vertexDeclarations[0])
                             declInfo.Append($"[s{e.stream} off{e.offset} t{e.type} u{e.usage}] ");
                         statusMessage += declInfo.ToString();
+                    }
+                    if (mdlBoneNames.Length > 0)
+                    {
+                        statusMessage += $" | sampleBones: {string.Join(", ", mdlBoneNames.Take(3))}";
                     }
                     return extractedMeshes;
                 }
@@ -567,6 +700,431 @@ namespace DragAndDropTexturing.Windows
                 statusMessage = "Raw MDL parse error: " + ex.Message;
                 return GetDummyCube();
             }
+        }
+
+        private static List<ushort[]> ReadMdlBoneTables(
+            BinaryReader reader,
+            int mdlVersion,
+            short boneTableCount,
+            short boneTableArrayCountTotal,
+            byte terrainShadowMeshCount,
+            short attributeCount,
+            short submeshCount,
+            short terrainShadowSubmeshCount,
+            short materialCount,
+            short boneCount,
+            byte[] pathBlock,
+            List<uint> pathOffsets,
+            List<string> pathStrings,
+            out string[] mdlBoneNames)
+        {
+            mdlBoneNames = Array.Empty<string>();
+            var tables = new List<ushort[]>();
+            try
+            {
+                for (int i = 0; i < attributeCount; i++)
+                    reader.ReadUInt32();
+
+                reader.ReadBytes(terrainShadowMeshCount * 20);
+                reader.ReadBytes(submeshCount * 16);
+                reader.ReadBytes(terrainShadowSubmeshCount * 12);
+
+                for (int i = 0; i < materialCount; i++)
+                    reader.ReadUInt32();
+
+                mdlBoneNames = new string[Math.Max(boneCount, (short)0)];
+                for (int i = 0; i < boneCount; i++)
+                {
+                    uint offset = reader.ReadUInt32();
+                    mdlBoneNames[i] = ResolvePathString(pathBlock, pathOffsets, pathStrings, offset);
+                }
+
+                if (boneTableCount <= 0)
+                    return tables;
+
+                if (mdlVersion >= 6)
+                {
+                    for (int i = 0; i < boneTableCount; i++)
+                    {
+                        long tableHeaderStart = reader.BaseStream.Position;
+                        ushort offset = reader.ReadUInt16();
+                        ushort size = reader.ReadUInt16();
+                        long returnPos = reader.BaseStream.Position;
+
+                        if (size == 0)
+                        {
+                            tables.Add(Array.Empty<ushort>());
+                            continue;
+                        }
+
+                        long indexPos = tableHeaderStart + (long)offset * 4;
+                        if (indexPos < 0 || indexPos + size * 2L > reader.BaseStream.Length)
+                        {
+                            tables.Add(Array.Empty<ushort>());
+                            reader.BaseStream.Position = returnPos;
+                            continue;
+                        }
+
+                        reader.BaseStream.Position = indexPos;
+                        var slice = new ushort[size];
+                        for (int j = 0; j < size; j++)
+                            slice[j] = reader.ReadUInt16();
+                        tables.Add(slice);
+                        reader.BaseStream.Position = returnPos;
+                    }
+
+                    if (boneTableArrayCountTotal > 0)
+                        reader.ReadBytes(boneTableArrayCountTotal * 2);
+                }
+                else
+                {
+                    for (int i = 0; i < boneTableCount; i++)
+                    {
+                        var block = reader.ReadBytes(132);
+                        if (block.Length < 2)
+                        {
+                            tables.Add(Array.Empty<ushort>());
+                            continue;
+                        }
+                        int count = BitConverter.ToUInt16(block, 0);
+                        count = Math.Min(count, (block.Length - 2) / 2);
+                        var slice = new ushort[count];
+                        for (int j = 0; j < count; j++)
+                            slice[j] = BitConverter.ToUInt16(block, 2 + j * 2);
+                        tables.Add(slice);
+                    }
+                }
+            }
+            catch (EndOfStreamException)
+            {
+                // Bone tables are optional for rendering; rigid fallback remains available.
+            }
+
+            return tables;
+        }
+
+        private static string ResolvePathString(byte[] pathBlock, List<uint> pathOffsets, List<string> pathStrings, uint offset)
+        {
+            int idx = pathOffsets.IndexOf(offset);
+            if (idx >= 0)
+                return pathStrings[idx];
+
+            if (pathBlock != null && offset < pathBlock.Length)
+            {
+                int start = (int)offset;
+                int end = start;
+                while (end < pathBlock.Length && pathBlock[end] != 0)
+                    end++;
+                if (end > start)
+                    return System.Text.Encoding.UTF8.GetString(pathBlock, start, end - start);
+            }
+
+            return string.Empty;
+        }
+
+        private static bool TryExtractSkinningFixedLayouts(
+            Stream ms,
+            BinaryReader reader,
+            int[] vbOffset,
+            byte[] vbStride,
+            int vertexIndex,
+            uint vertexFileOffset,
+            ref Vector4 boneWeights,
+            ref Vector4 boneIndices,
+            ref bool hasWeights,
+            ref bool hasIndices)
+        {
+            if (hasWeights && hasIndices)
+                return true;
+
+            if (vbOffset == null || vbOffset.Length == 0 || vbStride == null || vbStride.Length == 0)
+                return false;
+
+            int stride = vbStride[0];
+            long basePos = vertexFileOffset + vbOffset[0] + ((long)vertexIndex * stride);
+            if (stride < 16 || basePos < 0 || basePos + stride > ms.Length)
+                return false;
+
+            (int strideMin, int weightOffset, int indexOffset, bool indexIsUShort4)[] profiles =
+            {
+                (20, 12, 16, false), // s0: float3 + ubyte4 weights + ubyte4 indices
+                (48, 16, 32, false),
+                (56, 16, 32, false),
+                (64, 16, 32, false),
+                (72, 16, 32, false),
+                (52, 16, 32, false),
+                (32, 12, 28, false),
+                (44, 12, 28, false),
+                (48, 12, 28, false),
+                (64, 24, 40, false),
+                (64, 16, 48, false),
+                (72, 16, 40, false),
+            };
+
+            foreach (var profile in profiles)
+            {
+                if (stride < profile.strideMin)
+                    continue;
+                if (profile.weightOffset + 16 > stride || profile.indexOffset + (profile.indexIsUShort4 ? 8 : 4) > stride)
+                    continue;
+
+                if (!hasWeights && basePos + profile.weightOffset + 16 <= ms.Length)
+                {
+                    ms.Position = basePos + profile.weightOffset;
+                    var w = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                    if (IsPlausibleWeights(w))
+                    {
+                        boneWeights = w;
+                        hasWeights = true;
+                    }
+                    else if (basePos + profile.weightOffset + 8 <= ms.Length)
+                    {
+                        ms.Position = basePos + profile.weightOffset;
+                        w = new Vector4(
+                            (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16()),
+                            (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16()),
+                            (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16()),
+                            (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16()));
+                        if (IsPlausibleWeights(w))
+                        {
+                            boneWeights = w;
+                            hasWeights = true;
+                        }
+                    }
+                    else if (basePos + profile.weightOffset + 4 <= ms.Length)
+                    {
+                        ms.Position = basePos + profile.weightOffset;
+                        w = new Vector4(
+                            reader.ReadByte() / 255f,
+                            reader.ReadByte() / 255f,
+                            reader.ReadByte() / 255f,
+                            reader.ReadByte() / 255f);
+                        if (IsPlausibleWeights(w))
+                        {
+                            boneWeights = w;
+                            hasWeights = true;
+                        }
+                    }
+                }
+
+                if (!hasIndices)
+                {
+                    if (profile.indexIsUShort4 && basePos + profile.indexOffset + 8 <= ms.Length)
+                    {
+                        ms.Position = basePos + profile.indexOffset;
+                        var idx = new Vector4(reader.ReadUInt16(), reader.ReadUInt16(), reader.ReadUInt16(), reader.ReadUInt16());
+                        if (IsPlausibleIndices(idx))
+                        {
+                            boneIndices = idx;
+                            hasIndices = true;
+                        }
+                    }
+                    else if (basePos + profile.indexOffset + 4 <= ms.Length)
+                    {
+                        ms.Position = basePos + profile.indexOffset;
+                        var idx = new Vector4(reader.ReadByte(), reader.ReadByte(), reader.ReadByte(), reader.ReadByte());
+                        if (IsPlausibleIndices(idx))
+                        {
+                            boneIndices = idx;
+                            hasIndices = true;
+                        }
+                    }
+                }
+
+                if (hasWeights && hasIndices)
+                    return true;
+            }
+
+            return hasWeights && hasIndices;
+        }
+
+        private static bool IsPlausibleWeights(Vector4 w)
+        {
+            float sum = w.X + w.Y + w.Z + w.W;
+            if (sum <= 0.01f || sum > 4f)
+                return false;
+            if (w.X < 0f || w.Y < 0f || w.Z < 0f || w.W < 0f)
+                return false;
+            return w.X <= 1.05f || w.Y <= 1.05f || w.Z <= 1.05f || w.W <= 1.05f;
+        }
+
+        private static bool IsPlausibleIndices(Vector4 idx)
+        {
+            if (idx.X >= 256 || idx.Y >= 256 || idx.Z >= 256 || idx.W >= 256)
+                return false;
+            if (idx.X < 0 || idx.Y < 0 || idx.Z < 0 || idx.W < 0)
+                return false;
+            return true;
+        }
+
+        private static void TryReadSkinningHeuristic(
+            Stream ms,
+            BinaryReader reader,
+            int[] vbOffset,
+            byte[] vbStride,
+            int vertexIndex,
+            uint vertexFileOffset,
+            ref Vector4 boneWeights,
+            ref Vector4 boneIndices,
+            ref bool hasWeights,
+            ref bool hasIndices)
+        {
+            for (int stream = 0; stream < vbOffset.Length; stream++)
+            {
+                int stride = vbStride[stream];
+                if (stride < 16)
+                    continue;
+
+                long basePos = vertexFileOffset + vbOffset[stream] + ((long)vertexIndex * stride);
+                if (basePos < 0 || basePos >= ms.Length)
+                    continue;
+
+                if (!hasWeights)
+                {
+                    int[] weightOffsets = { 12, 16, 20, 24, 28, 32 };
+                    foreach (int wOff in weightOffsets)
+                    {
+                        if (wOff + 4 > stride || basePos + wOff + 4 > ms.Length)
+                            continue;
+
+                        ms.Position = basePos + wOff;
+                        var wBytes = new Vector4(
+                            reader.ReadByte() / 255f,
+                            reader.ReadByte() / 255f,
+                            reader.ReadByte() / 255f,
+                            reader.ReadByte() / 255f);
+                        if (IsPlausibleWeights(wBytes))
+                        {
+                            boneWeights = wBytes;
+                            hasWeights = true;
+                            break;
+                        }
+
+                        if (wOff + 16 > stride || basePos + wOff + 16 > ms.Length)
+                            continue;
+
+                        ms.Position = basePos + wOff;
+                        var w = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                        if (IsPlausibleWeights(w))
+                        {
+                            boneWeights = w;
+                            hasWeights = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!hasIndices)
+                {
+                    int[] indexOffsets = { 16, 32, 28, 40, 48, stride - 4, 44, 56, 64, 24, 20 };
+                    foreach (int off in indexOffsets)
+                    {
+                        if (off < 0 || off + 4 > stride || basePos + off + 4 > ms.Length)
+                            continue;
+
+                        ms.Position = basePos + off;
+                        var idx = new Vector4(reader.ReadByte(), reader.ReadByte(), reader.ReadByte(), reader.ReadByte());
+                        if (idx.X <= 127 && idx.Y <= 127 && idx.Z <= 127 && idx.W <= 127)
+                        {
+                            boneIndices = idx;
+                            hasIndices = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!hasIndices && stride >= 36 && basePos + 36 <= ms.Length)
+                {
+                    ms.Position = basePos + 28;
+                    var idx = new Vector4(reader.ReadUInt16(), reader.ReadUInt16(), reader.ReadUInt16(), reader.ReadUInt16());
+                    if (idx.X < 256 && idx.Y < 256 && idx.Z < 256 && idx.W < 256)
+                    {
+                        boneIndices = idx;
+                        hasIndices = true;
+                    }
+                }
+
+                if (!hasWeights && boneWeights.X + boneWeights.Y + boneWeights.Z + boneWeights.W > 0.001f && hasIndices)
+                    hasWeights = true;
+            }
+        }
+
+        private static bool TryReadBoneWeights(BinaryReader reader, Stream ms, byte type, ref Vector4 boneWeights)
+        {
+            if (type == 3 && ms.Position + 16 <= ms.Length)
+            {
+                boneWeights = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                return true;
+            }
+            if (type == 2 && ms.Position + 12 <= ms.Length)
+            {
+                float w0 = reader.ReadSingle();
+                float w1 = reader.ReadSingle();
+                float w2 = reader.ReadSingle();
+                float w3 = MathF.Max(0f, 1f - (w0 + w1 + w2));
+                boneWeights = new Vector4(w0, w1, w2, w3);
+                return true;
+            }
+            if (type == 14 && ms.Position + 8 <= ms.Length)
+            {
+                float w0 = (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16());
+                float w1 = (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16());
+                float w2 = (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16());
+                float w3 = (float)BitConverter.Int16BitsToHalf((short)reader.ReadUInt16());
+                boneWeights = new Vector4(w0, w1, w2, w3);
+                return true;
+            }
+            if (type == 1 && ms.Position + 8 <= ms.Length)
+            {
+                float w0 = reader.ReadSingle();
+                float w1 = reader.ReadSingle();
+                boneWeights = new Vector4(w0, w1, MathF.Max(0f, 1f - w0 - w1), 0f);
+                return w0 + w1 > 0.001f;
+            }
+            if ((type == 6 || type == 8 || type == 12) && ms.Position + 4 <= ms.Length)
+            {
+                // Type 8 at usage 1 = UByte4N blend weights (not Dec3N — that is usage 3).
+                boneWeights = new Vector4(
+                    reader.ReadByte() / 255f,
+                    reader.ReadByte() / 255f,
+                    reader.ReadByte() / 255f,
+                    reader.ReadByte() / 255f);
+                return boneWeights.X + boneWeights.Y + boneWeights.Z + boneWeights.W > 0.001f;
+            }
+            return false;
+        }
+
+        private static bool TryReadBoneIndices(BinaryReader reader, Stream ms, byte type, ref Vector4 boneIndices)
+        {
+            if ((type == 5 || type == 6 || type == 7 || type == 10 || type == 11 || type == 12 || type == 15) && ms.Position + 4 <= ms.Length)
+            {
+                boneIndices = new Vector4(reader.ReadByte(), reader.ReadByte(), reader.ReadByte(), reader.ReadByte());
+                return true;
+            }
+            if (type == 9 && ms.Position + 8 <= ms.Length)
+            {
+                boneIndices = new Vector4(reader.ReadUInt16(), reader.ReadUInt16(), reader.ReadUInt16(), reader.ReadUInt16());
+                return true;
+            }
+            if (type == 4 && ms.Position + 16 <= ms.Length)
+            {
+                boneIndices = new Vector4(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32());
+                return true;
+            }
+            if (type == 3 && ms.Position + 16 <= ms.Length)
+            {
+                boneIndices = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                return true;
+            }
+            return false;
+        }
+
+        private static Vector4 NormalizeBoneWeights(Vector4 weights)
+        {
+            float sum = weights.X + weights.Y + weights.Z + weights.W;
+            if (sum <= 0.0001f)
+                return Vector4.Zero;
+            return weights / sum;
         }
     }
 }

@@ -19,7 +19,18 @@ namespace DragAndDropTexturing.Windows
         private ID3D11Texture2D _depthStencilTexture;
         private ID3D11DepthStencilView _depthStencilView;
         private ID3D11DepthStencilState _depthStencilState;
+        private ID3D11BlendState _alphaBlendState;
         private ID3D11RasterizerState _rasterizerState;
+        public bool TransparentSkinPreview { get; set; }
+        public bool UseCharacterOverlay { get; set; }
+        public Matrix4x4 CharacterWorldMatrix { get; set; } = Matrix4x4.Identity;
+        public Vector3 BoundsMin => _boundsMin;
+        public Vector3 BoundsMax => _boundsMax;
+
+        private Matrix4x4 _gameViewMatrix = Matrix4x4.Identity;
+        private Matrix4x4 _gameProjMatrix = Matrix4x4.Identity;
+        private bool _hasGameCameraMatrices;
+        private Ktisis.Structs.Actor.ActorModel* _overlayPoseModel;
 
         // GPU Paint system
         private ID3D11Texture2D _gpuPaintTex;
@@ -158,6 +169,26 @@ namespace DragAndDropTexturing.Windows
             Resize(Width, Height);
         }
 
+        public void SetGameCameraMatrices(Matrix4x4 view, Matrix4x4 projection)
+        {
+            _gameViewMatrix = view;
+            _gameProjMatrix = projection;
+            _hasGameCameraMatrices = true;
+        }
+
+        public void ClearCharacterOverlay()
+        {
+            UseCharacterOverlay = false;
+            _hasGameCameraMatrices = false;
+            _overlayPoseModel = null;
+            CharacterWorldMatrix = Matrix4x4.Identity;
+        }
+
+        public unsafe void SetOverlayPoseSource(Ktisis.Structs.Actor.ActorModel* model)
+        {
+            _overlayPoseModel = model;
+        }
+
         public void Resize(int width, int height)
         {
             if (_disposed || width <= 0 || height <= 0 || _device == null) return;
@@ -215,6 +246,25 @@ namespace DragAndDropTexturing.Windows
             };
             _depthStencilState = _device.CreateDepthStencilState(dsStateDesc);
 
+            _alphaBlendState?.Dispose();
+            var blendDesc = new BlendDescription
+            {
+                AlphaToCoverageEnable = false,
+                IndependentBlendEnable = false
+            };
+            blendDesc.RenderTarget[0] = new RenderTargetBlendDescription
+            {
+                BlendEnable = true,
+                SourceBlend = Blend.SourceAlpha,
+                DestinationBlend = Blend.InverseSourceAlpha,
+                BlendOperation = BlendOperation.Add,
+                SourceBlendAlpha = Blend.One,
+                DestinationBlendAlpha = Blend.InverseSourceAlpha,
+                BlendOperationAlpha = BlendOperation.Add,
+                RenderTargetWriteMask = ColorWriteEnable.All
+            };
+            _alphaBlendState = _device.CreateBlendState(blendDesc);
+
             _rasterizerState?.Dispose();
             var rsDesc = new RasterizerDescription
             {
@@ -241,6 +291,14 @@ namespace DragAndDropTexturing.Windows
         public class RenderModel : IDisposable
         {
             public Vertex[] Vertices { get; set; }
+            public Vertex[] BindVertices { get; set; }
+            public Vertex[] SkinnedVertices { get; set; }
+            public Vector4[] BoneWeights { get; set; }
+            public Vector4[] BoneIndices { get; set; }
+            public ushort[] BoneTable { get; set; } = Array.Empty<ushort>();
+            public string[] MdlBoneNames { get; set; } = Array.Empty<string>();
+            public ushort[] ElementSkeletonBones { get; set; } = Array.Empty<ushort>();
+            public bool HasSkinning { get; set; }
             public ushort[] Indices { get; set; }
             public ID3D11Buffer VertexBuffer { get; set; }
             public ID3D11Buffer IndexBuffer { get; set; }
@@ -250,6 +308,9 @@ namespace DragAndDropTexturing.Windows
             public ID3D11ShaderResourceView TextureSRV { get; set; }
             public ID3D11SamplerState SamplerState { get; set; }
             public bool HasTexture { get; set; } = false;
+            public ID3D11ShaderResourceView UnderlaySRV { get; set; }
+            public ID3D11ShaderResourceView OverlaySRV { get; set; }
+            public bool UseTransparentOverlay { get; set; }
 
             public Vector3 BoundsMin { get; set; } = new Vector3(float.MaxValue);
             public Vector3 BoundsMax { get; set; } = new Vector3(float.MinValue);
@@ -286,9 +347,9 @@ cbuffer Constants : register(b0)
 };
 cbuffer PixelConstants : register(b1)
 {
-    float4 Flags; // x = hasTexture (1.0 or 0.0)
+    float4 Flags; // x = hasTexture, y = preserveAlpha
 };
-Texture2D diffuseMap : register(t0);
+Texture2D<float4> diffuseMap : register(t0);
 SamplerState diffuseSampler : register(s0);
 struct VS_IN
 {
@@ -316,7 +377,8 @@ float4 PS(PS_IN input) : SV_TARGET
     if (Flags.x > 0.5f)
     {
         float4 texColor = diffuseMap.Sample(diffuseSampler, input.uv);
-        return float4(texColor.rgb, 1.0f);
+        float alpha = Flags.y > 0.5f ? texColor.a : 1.0f;
+        return float4(texColor.rgb, alpha);
     }
     return float4(normalColor, 1.0f);
 }";
@@ -589,9 +651,15 @@ float4 PS(PS_IN input) : SV_TARGET
 
             var allVertices = new List<Vertex>();
             var allIndices = new List<ushort>();
+            var allBoneWeights = new List<Vector4>();
+            var allBoneIndices = new List<Vector4>();
 
             var bMin = new Vector3(float.MaxValue);
             var bMax = new Vector3(float.MinValue);
+            ushort[] boneTable = Array.Empty<ushort>();
+            string[] mdlBoneNames = Array.Empty<string>();
+            ushort[] elementSkeletonBones = Array.Empty<ushort>();
+            bool hasSkinning = false;
 
             foreach (var mesh in meshes)
             {
@@ -607,9 +675,21 @@ float4 PS(PS_IN input) : SV_TARGET
                         UV = mesh.UVs.Count > i ? mesh.UVs[i] : Vector2.Zero
                     });
 
+                    allBoneWeights.Add(mesh.BoneWeights.Count > i ? mesh.BoneWeights[i] : Vector4.Zero);
+                    allBoneIndices.Add(mesh.BoneIndices.Count > i ? mesh.BoneIndices[i] : Vector4.Zero);
+
                     bMin = Vector3.Min(bMin, pos);
                     bMax = Vector3.Max(bMax, pos);
                 }
+
+                if (mesh.BoneTable.Length > 0 && boneTable.Length == 0)
+                    boneTable = mesh.BoneTable;
+                if (mesh.MdlBoneNames.Length > 0 && mdlBoneNames.Length == 0)
+                    mdlBoneNames = mesh.MdlBoneNames;
+                if (mesh.ElementSkeletonBones.Length > 0 && elementSkeletonBones.Length == 0)
+                    elementSkeletonBones = mesh.ElementSkeletonBones;
+                if (mesh.HasSkinning)
+                    hasSkinning = true;
 
                 foreach (var idx in mesh.Indices)
                 {
@@ -626,11 +706,23 @@ float4 PS(PS_IN input) : SV_TARGET
             model.BoundsMin = bMin;
             model.BoundsMax = bMax;
             model.IndexCount = allIndices.Count;
-            model.Vertices = allVertices.ToArray();
+            model.BindVertices = allVertices.ToArray();
+            model.Vertices = model.BindVertices;
+            model.SkinnedVertices = null;
+            model.BoneWeights = allBoneWeights.ToArray();
+            model.BoneIndices = allBoneIndices.ToArray();
+            model.BoneTable = boneTable;
+            model.MdlBoneNames = mdlBoneNames;
+            model.ElementSkeletonBones = elementSkeletonBones;
+            model.HasSkinning = meshes.Any(m => m.HasSkinning);
             model.Indices = allIndices.ToArray();
 
+            int weightedVerts = model.BoneWeights.Count(w => w.X + w.Y + w.Z + w.W > 0.001f);
+            DragAndDropTexturing.Plugin.Log.Warning(
+                $"[OverlaySkin] LoadMeshes '{slot}': verts={model.BindVertices.Length}, weighted={weightedVerts}, hasSkinning={model.HasSkinning}, boneTable={boneTable.Length}, mdlBones={mdlBoneNames.Length}, elements={elementSkeletonBones.Length}");
+
             model.VertexBuffer?.Dispose();
-            model.VertexBuffer = _device.CreateBuffer(model.Vertices, BindFlags.VertexBuffer);
+            model.VertexBuffer = _device.CreateBuffer(model.BindVertices, BindFlags.VertexBuffer);
 
             model.IndexBuffer?.Dispose();
             model.IndexBuffer = _device.CreateBuffer(model.Indices, BindFlags.IndexBuffer);
@@ -683,6 +775,71 @@ float4 PS(PS_IN input) : SV_TARGET
 
             InvalidateMeshDerivedData();
             _meshLoaded = true;
+        }
+
+        private unsafe void ApplyLivePoseSkinning()
+        {
+            OverlaySkinningDebugLine = "skin: no pose model";
+            if (_overlayPoseModel == null)
+                return;
+
+            if (_overlayPoseModel->Skeleton == null)
+            {
+                OverlaySkinningDebugLine = "skin: skeleton null";
+                return;
+            }
+
+            var skeleton = _overlayPoseModel->Skeleton;
+            int skinnedSlots = 0;
+            float maxDelta = 0f;
+
+            foreach (var kvp in _models)
+            {
+                if (HiddenSlots.Contains(kvp.Key))
+                    continue;
+
+                var model = kvp.Value;
+                if (!model.HasSkinning || model.VertexBuffer == null)
+                    continue;
+
+                try
+                {
+                    PainterLivePoseSkinner.SkinModel(model, skeleton, 0);
+                    if (model.Vertices != null)
+                        _context.UpdateSubresource(model.Vertices, model.VertexBuffer);
+                    skinnedSlots++;
+                    maxDelta = MathF.Max(maxDelta, PainterLivePoseSkinner.LastMaxVertexDelta);
+                }
+                catch (Exception ex)
+                {
+                    model.Vertices = model.BindVertices;
+                    _context.UpdateSubresource(model.BindVertices, model.VertexBuffer);
+                    OverlaySkinningDebugLine = $"skin: error {ex.Message}";
+                }
+            }
+
+            int skinnable = _models.Count(kvp => !HiddenSlots.Contains(kvp.Key) && kvp.Value.HasSkinning);
+            int boneCount = 0;
+            var pose = skeleton->PartialSkeletons[0].GetHavokPose(0);
+            if (pose != null)
+                boneCount = pose->Skeleton->Bones.Length;
+
+            if (skinnable == 0)
+                OverlaySkinningDebugLine = $"skin: no weighted meshes ({_models.Count} slots)";
+            else if (skinnedSlots == 0)
+                OverlaySkinningDebugLine = "skin: meshes flagged but none skinned";
+            else
+                OverlaySkinningDebugLine = $"skin: p{PainterLivePoseSkinner.LastUsedPartial} {skinnedSlots}/{skinnable} slots, maxΔ={maxDelta:F3}, resolved={PainterLivePoseSkinner.LastResolvedBoneCount}, miss={PainterLivePoseSkinner.LastUnresolvedBoneCount}";
+        }
+
+        public bool OverlaySkinningActive { get; private set; }
+        public float OverlaySkinningMaxDelta { get; private set; }
+        public string OverlaySkinningDebugLine { get; private set; } = "";
+
+        private void UpdateOverlaySkinningStats()
+        {
+            OverlaySkinningActive = UseCharacterOverlay && _models.Values.Any(m => m.HasSkinning);
+            OverlaySkinningMaxDelta = PainterLivePoseSkinner.LastMaxVertexDelta;
         }
 
         private bool _meshLoaded = false;
@@ -948,8 +1105,11 @@ float4 PS(PS_IN input) : SV_TARGET
                 _context.OMSetRenderTargets(_renderTargetView, _depthStencilView);
                 _context.OMSetDepthStencilState(_depthStencilState);
                 
-                // Clear to a dark gray background + depth
-                _context.ClearRenderTargetView(_renderTargetView, new Vortice.Mathematics.Color4(0.15f, 0.15f, 0.15f, 1.0f));
+                // Character overlay uses a transparent background so we can composite over the game.
+                if (UseCharacterOverlay && _hasGameCameraMatrices)
+                    _context.ClearRenderTargetView(_renderTargetView, new Vortice.Mathematics.Color4(0f, 0f, 0f, 0f));
+                else
+                    _context.ClearRenderTargetView(_renderTargetView, new Vortice.Mathematics.Color4(0.15f, 0.15f, 0.15f, 1.0f));
                 _context.ClearDepthStencilView(_depthStencilView, DepthStencilClearFlags.Depth, 1.0f, 0);
 
                 // Set Viewport and Rasterizer
@@ -958,42 +1118,56 @@ float4 PS(PS_IN input) : SV_TARGET
 
                 if (_meshLoaded)
                 {
-                    // Orbital camera: compute eye position from spherical coordinates
-                    float camDist = _boundsRadius * 2.5f * _cameraDistance;
-                    float farPlane = Math.Max(camDist + _boundsRadius * 10f, 100f);
-                    float nearPlane = Math.Max(_boundsRadius * 0.01f, 0.01f);
+                    if (UseCharacterOverlay && _overlayPoseModel != null)
+                        ApplyLivePoseSkinning();
+                    UpdateOverlaySkinningStats();
 
-                    float cosPitch = MathF.Cos(CameraPitch);
-                    float sinPitch = MathF.Sin(CameraPitch);
-                    float cosYaw = MathF.Cos(CameraYaw);
-                    float sinYaw = MathF.Sin(CameraYaw);
-
-                    var eyeOffset = new Vector3(
-                        sinYaw * cosPitch,
-                        sinPitch,
-                        cosYaw * cosPitch
-                    ) * camDist;
-
-                    var target = _cameraPan;
-                    var eye = target + eyeOffset;
-                    _lastEye = eye + _boundsCenter;
-
-                    var centerOffset = Matrix4x4.CreateTranslation(-_boundsCenter);
-                    var view = Matrix4x4.CreateLookAt(eye, target, Vector3.UnitY);
-                    Matrix4x4 proj;
-                    if (UseOrthographic)
+                    Matrix4x4 wvp;
+                    if (UseCharacterOverlay && _hasGameCameraMatrices)
                     {
-                        float orthoHeight = _boundsRadius * 2f * _cameraDistance;
-                        float orthoWidth = orthoHeight * (float)Width / Height;
-                        proj = Matrix4x4.CreateOrthographic(orthoWidth, orthoHeight, nearPlane, farPlane);
+                        wvp = CharacterWorldMatrix * _gameViewMatrix * _gameProjMatrix;
+                        _lastEye = ExtractCameraPosition(_gameViewMatrix);
                     }
                     else
                     {
-                        proj = Matrix4x4.CreatePerspectiveFieldOfView((float)Math.PI / 4f, (float)Width / Height, nearPlane, farPlane);
+                        // Orbital camera: compute eye position from spherical coordinates
+                        float camDist = _boundsRadius * 2.5f * _cameraDistance;
+                        float farPlane = Math.Max(camDist + _boundsRadius * 10f, 100f);
+                        float nearPlane = Math.Max(_boundsRadius * 0.01f, 0.01f);
+
+                        float cosPitch = MathF.Cos(CameraPitch);
+                        float sinPitch = MathF.Sin(CameraPitch);
+                        float cosYaw = MathF.Cos(CameraYaw);
+                        float sinYaw = MathF.Sin(CameraYaw);
+
+                        var eyeOffset = new Vector3(
+                            sinYaw * cosPitch,
+                            sinPitch,
+                            cosYaw * cosPitch
+                        ) * camDist;
+
+                        var target = _cameraPan;
+                        var eye = target + eyeOffset;
+                        _lastEye = eye + _boundsCenter;
+
+                        var centerOffset = Matrix4x4.CreateTranslation(-_boundsCenter);
+                        var view = Matrix4x4.CreateLookAt(eye, target, Vector3.UnitY);
+                        Matrix4x4 proj;
+                        if (UseOrthographic)
+                        {
+                            float orthoHeight = _boundsRadius * 2f * _cameraDistance;
+                            float orthoWidth = orthoHeight * (float)Width / Height;
+                            proj = Matrix4x4.CreateOrthographic(orthoWidth, orthoHeight, nearPlane, farPlane);
+                        }
+                        else
+                        {
+                            proj = Matrix4x4.CreatePerspectiveFieldOfView((float)Math.PI / 4f, (float)Width / Height, nearPlane, farPlane);
+                        }
+
+                        wvp = centerOffset * view * proj;
                     }
-                    
-                    var wvp = centerOffset * view * proj;
-                    _lastWvp = wvp; // Store for raycasting
+
+                    _lastWvp = wvp;
                     _context.UpdateSubresource(Matrix4x4.Transpose(wvp), _constantBuffer);
 
                     _context.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
@@ -1004,31 +1178,14 @@ float4 PS(PS_IN input) : SV_TARGET
                     _context.PSSetShader(_pixelShader);
                     _context.PSSetConstantBuffer(1, _psConstantBuffer);
 
-                    // Render each model slot
-                    foreach (var kvp in _models)
+                    DrawAllModels(wvp, alphaBlend: false);
+
+                    if (TransparentSkinPreview)
                     {
-                        var model = kvp.Value;
-                        if (HiddenSlots.Contains(kvp.Key)) continue;
-                        if (model.IndexCount == 0 || model.VertexBuffer == null || model.IndexBuffer == null) continue;
-
-                        _context.IASetVertexBuffer(0, model.VertexBuffer, 32); // 32 bytes stride
-                        _context.IASetIndexBuffer(model.IndexBuffer, Format.R16_UInt, 0);
-
-                        // Bind texture if loaded
-                        if (model.HasTexture && model.TextureSRV != null && model.SamplerState != null)
-                        {
-                            _context.PSSetShaderResource(0, model.TextureSRV);
-                            _context.PSSetSampler(0, model.SamplerState);
-                            // Set pixel shader flags: hasTexture = 1.0
-                            _context.UpdateSubresource(new Vector4(1, 0, 0, 0), _psConstantBuffer);
-                        }
-                        else
-                        {
-                            _context.PSSetShaderResource(0, (ID3D11ShaderResourceView)null);
-                            _context.UpdateSubresource(new Vector4(0, 0, 0, 0), _psConstantBuffer);
-                        }
-
-                        _context.DrawIndexed(model.IndexCount, 0, 0);
+                        float blendFactor = 0f;
+                        _context.OMSetBlendState(_alphaBlendState, new Vortice.Mathematics.Color4(blendFactor, blendFactor, blendFactor, blendFactor), 0xFFFFFFFF);
+                        DrawAllModels(wvp, alphaBlend: true);
+                        _context.OMSetBlendState(null, null, 0xFFFFFFFF);
                     }
 
                     // Unbind texture to avoid state leaking into FFXIV
@@ -1042,6 +1199,55 @@ float4 PS(PS_IN input) : SV_TARGET
             catch (Exception ex)
             {
                 _renderError = "Render error: " + ex.Message;
+            }
+        }
+
+        private static Vector3 ExtractCameraPosition(Matrix4x4 view)
+        {
+            if (!Matrix4x4.Invert(view, out Matrix4x4 inv))
+                return Vector3.Zero;
+            return new Vector3(inv.M41, inv.M42, inv.M43);
+        }
+
+        private void DrawAllModels(Matrix4x4 wvp, bool alphaBlend)
+        {
+            _context.UpdateSubresource(Matrix4x4.Transpose(wvp), _constantBuffer);
+
+            foreach (var kvp in _models)
+            {
+                var model = kvp.Value;
+                if (HiddenSlots.Contains(kvp.Key)) continue;
+                if (model.IndexCount == 0 || model.VertexBuffer == null || model.IndexBuffer == null) continue;
+
+                ID3D11ShaderResourceView srv = null;
+                bool preserveAlpha = false;
+
+                if (alphaBlend)
+                {
+                    if (!model.UseTransparentOverlay || model.OverlaySRV == null)
+                        continue;
+                    srv = model.OverlaySRV;
+                    preserveAlpha = true;
+                }
+                else if (TransparentSkinPreview && model.UseTransparentOverlay)
+                {
+                    // Paint-only mode: skip opaque underlay entirely (skin stays hidden).
+                    continue;
+                }
+                else if (model.HasTexture && model.TextureSRV != null)
+                {
+                    srv = model.TextureSRV;
+                }
+
+                if (srv == null || model.SamplerState == null)
+                    continue;
+
+                _context.IASetVertexBuffer(0, model.VertexBuffer, 32);
+                _context.IASetIndexBuffer(model.IndexBuffer, Format.R16_UInt, 0);
+                _context.PSSetShaderResource(0, srv);
+                _context.PSSetSampler(0, model.SamplerState);
+                _context.UpdateSubresource(new Vector4(1, preserveAlpha ? 1 : 0, 0, 0), _psConstantBuffer);
+                _context.DrawIndexed(model.IndexCount, 0, 0);
             }
         }
 
@@ -2245,23 +2451,80 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 {
                     model.TextureSRV = srv;
                     model.HasTexture = true;
-
-                    if (model.SamplerState == null)
-                    {
-                        model.SamplerState = _device.CreateSamplerState(new SamplerDescription
-                        {
-                            Filter = Filter.MinMagMipLinear,
-                            AddressU = TextureAddressMode.Wrap,
-                            AddressV = TextureAddressMode.Wrap,
-                            AddressW = TextureAddressMode.Wrap,
-                            ComparisonFunc = ComparisonFunction.Never,
-                            MinLOD = 0,
-                            MaxLOD = float.MaxValue
-                        });
-                    }
+                    model.UseTransparentOverlay = false;
+                    model.UnderlaySRV = null;
+                    model.OverlaySRV = null;
+                    EnsureSlotSampler(model);
                 }
             }
         }
+
+        public void AssignPaintOverlayToSlots(string[] slots, ID3D11ShaderResourceView overlaySrv)
+        {
+            if (overlaySrv == null) return;
+            foreach (var slotName in slots)
+            {
+                if (!_models.TryGetValue(slotName, out var model))
+                    continue;
+                model.OverlaySRV = overlaySrv;
+                model.UnderlaySRV = null;
+                model.TextureSRV = overlaySrv;
+                model.UseTransparentOverlay = true;
+                model.HasTexture = true;
+                EnsureSlotSampler(model);
+            }
+        }
+
+        public void AssignTransparentOverlayToSlots(string[] slots, ID3D11ShaderResourceView underlaySrv, ID3D11ShaderResourceView overlaySrv)
+            => AssignPaintOverlayToSlots(slots, overlaySrv);
+
+        public void ClearTransparentOverlayFromAllSlots()
+        {
+            foreach (var model in _models.Values)
+            {
+                model.UseTransparentOverlay = false;
+                model.UnderlaySRV = null;
+                model.OverlaySRV = null;
+            }
+        }
+
+        private void EnsureSlotSampler(RenderModel model)
+        {
+            if (model.SamplerState == null)
+            {
+                model.SamplerState = _device.CreateSamplerState(new SamplerDescription
+                {
+                    Filter = Filter.MinMagMipLinear,
+                    AddressU = TextureAddressMode.Wrap,
+                    AddressV = TextureAddressMode.Wrap,
+                    AddressW = TextureAddressMode.Wrap,
+                    ComparisonFunc = ComparisonFunction.Never,
+                    MinLOD = 0,
+                    MaxLOD = float.MaxValue
+                });
+            }
+        }
+
+        public void AssignUnderlayToSlots(string[] slots, ID3D11ShaderResourceView underlaySrv)
+        {
+            if (underlaySrv == null) return;
+            foreach (var slotName in slots)
+            {
+                if (!_models.TryGetValue(slotName, out var model))
+                    continue;
+                model.TextureSRV = underlaySrv;
+                model.UnderlaySRV = underlaySrv;
+                model.OverlaySRV = null;
+                model.UseTransparentOverlay = false;
+                model.HasTexture = true;
+                EnsureSlotSampler(model);
+            }
+        }
+
+        public ID3D11ShaderResourceView CanvasBaseSrv => _gpuBaseSRV;
+        public ID3D11ShaderResourceView CanvasPaintSrv => _gpuPaintSRV;
+        public ID3D11ShaderResourceView PreviewBaseSrv => _gpuPreviewBaseSRV;
+        public ID3D11ShaderResourceView PreviewPaintSrv => _gpuPreviewPaintSRV;
 
         public byte[] ReadbackCompositeBgra()
         {
@@ -2729,6 +2992,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _depthStencilView?.Dispose();
             _depthStencilTexture?.Dispose();
             _depthStencilState?.Dispose();
+            _alphaBlendState?.Dispose();
             _rasterizerState?.Dispose();
 
             _renderTargetView?.Dispose();
