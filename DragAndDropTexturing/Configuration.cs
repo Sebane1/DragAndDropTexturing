@@ -55,6 +55,12 @@ public class Configuration : IPluginConfiguration
     /// <summary>User-edited Proteus color table rows per overlay (collection → overlay path key → rows 1–16).</summary>
     public Dictionary<string, Dictionary<string, List<Overlays.AdvancedColorTableRow>>> CollectionSortedPenumbraOverlayColorRows { get; set; } = new();
 
+    /// <summary>0 = match texture UV, 1 = match worn body, 2 = pick body mod manually.</summary>
+    public int PainterPreviewMeshMode { get; set; } = 0;
+    /// <summary>1 = Bibo+, 2 = Gen3, 3 = TBSE, 0 = Vanilla when PainterPreviewMeshMode is manual.</summary>
+    public int PainterManualPreviewBodyType { get; set; } = 2;
+    public bool PainterUvBridgeEnabled { get; set; } = true;
+
     // the below exist just to make saving less cumbersome
     public void Save()
     {

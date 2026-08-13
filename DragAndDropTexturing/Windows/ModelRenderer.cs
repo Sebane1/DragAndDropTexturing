@@ -35,6 +35,19 @@ namespace DragAndDropTexturing.Windows
         private ID3D11UnorderedAccessView _gpuCompositeUAV;
         private ID3D11ShaderResourceView _gpuCompositeSRV;
 
+        // Preview-space paint stack (mirrors canvas strokes in preview UV layout)
+        private ID3D11Texture2D _gpuPreviewPaintTex;
+        private ID3D11UnorderedAccessView _gpuPreviewPaintUAV;
+        private ID3D11ShaderResourceView _gpuPreviewPaintSRV;
+        private ID3D11Texture2D _gpuPreviewBaseTex;
+        private ID3D11ShaderResourceView _gpuPreviewBaseSRV;
+        private ID3D11Texture2D _gpuPreviewCompositeTex;
+        private ID3D11UnorderedAccessView _gpuPreviewCompositeUAV;
+        private ID3D11ShaderResourceView _gpuPreviewCompositeSRV;
+        private bool _previewPaintReady;
+
+        public enum PaintLayerTarget { Canvas, Preview }
+
         private ID3D11ComputeShader _paintBrushCS;
         private ID3D11ComputeShader _compositeCS;
         private ID3D11ComputeShader _stampCS;
@@ -56,7 +69,11 @@ namespace DragAndDropTexturing.Windows
         // Undo / Redo system
         private List<ID3D11Texture2D> _undoStack = new List<ID3D11Texture2D>();
         private List<ID3D11Texture2D> _redoStack = new List<ID3D11Texture2D>();
+        private List<ID3D11Texture2D> _previewUndoStack = new List<ID3D11Texture2D>();
+        private List<ID3D11Texture2D> _previewRedoStack = new List<ID3D11Texture2D>();
         private const int MaxUndoSteps = 10;
+
+        public bool PreviewPaintReady => _previewPaintReady;
 
         public bool CanUndo => _undoStack.Count > 0;
         public bool CanRedo => _redoStack.Count > 0;
@@ -80,8 +97,8 @@ namespace DragAndDropTexturing.Windows
             public int TexHeight;        // 4  texture dimensions                      offset 60
             public Vector4 Color;        // 16                                         offset 64
             public int TargetChannel;    // 4  (0=All, 1=R, 2=G, 3=B, 4=A)             offset 80
-            public int _pad0;
-            public int _pad1;
+            public uint OriginX;
+            public uint OriginY;
             public int _pad2;
         }
 
@@ -1173,8 +1190,8 @@ cbuffer BrushParams : register(b0)
     uint TexHeight;
     float4 Color;
     int TargetChannel;
-    int _pad0;
-    int _pad1;
+    uint OriginX;
+    uint OriginY;
     int _pad2;
 };
 RWTexture2D<float4> PaintLayer : register(u0);
@@ -1288,16 +1305,19 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
 {
     uint w = TexWidth;
     uint h = TexHeight;
-    if (id.x >= w || id.y >= h) return;
+    uint x = id.x + OriginX;
+    uint y = id.y + OriginY;
+    if (x >= w || y >= h) return;
+    uint2 coord = uint2(x, y);
 
     //   Fill Tool  
     if (ShapeMode == 2) // Fill
     {
-        PaintLayer[id.xy] = Color;
+        PaintLayer[coord] = Color;
         return;
     }
 
-    float2 pixel = float2(id.x, id.y) + 0.5f;
+    float2 pixel = float2(x, y) + 0.5f;
 
     //   Apply rotation: transform pixel into brush-local space  
     float2 localPixel = pixel - Center;
@@ -1344,12 +1364,12 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
         }
 
         float alpha = Color.a * edge * Flow * noiseMod;
-        float4 existing = PaintLayer[id.xy];
+        float4 existing = PaintLayer[coord];
         
         if (BlendMode == 1) // Eraser
         {
             float outA = saturate(existing.a - alpha);
-            PaintLayer[id.xy] = float4(existing.rgb, outA);
+            PaintLayer[coord] = float4(existing.rgb, outA);
         }
         else if (BlendMode == 6) // Liquify / Smudge
         {
@@ -1360,7 +1380,7 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
                 float2 offset = delta * intensity;
                 
                 float2 samplePos = pixel - offset;
-                PaintLayer[id.xy] = SamplePaintLayerBilinear(samplePos, int2(w, h));
+                PaintLayer[coord] = SamplePaintLayerBilinear(samplePos, int2(w, h));
             }
         }
         else if (BlendMode == 7) // Warp
@@ -1383,11 +1403,11 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
                 float2 prevDisp = SampleDisplacementBilinear(samplePos, int2(w, h));
                 float2 newDisp = prevDisp + offset;
                 
-                DisplacementLayer[id.xy] = newDisp;
+                DisplacementLayer[coord] = newDisp;
             }
             
-            float2 totalDisp = DisplacementLayer[id.xy];
-            PaintLayer[id.xy] = SampleSnapshotBilinear(pixel - totalDisp, int2(w, h));
+            float2 totalDisp = DisplacementLayer[coord];
+            PaintLayer[coord] = SampleSnapshotBilinear(pixel - totalDisp, int2(w, h));
         }
         else
         {
@@ -1409,19 +1429,19 @@ void CSPaint(uint3 id : SV_DispatchThreadID)
                 : float3(0,0,0);
                 
             if (TargetChannel == 1)
-                PaintLayer[id.xy] = float4(outRGB.r, existing.g, existing.b, outA);
+                PaintLayer[coord] = float4(outRGB.r, existing.g, existing.b, outA);
             else if (TargetChannel == 2)
-                PaintLayer[id.xy] = float4(existing.r, outRGB.g, existing.b, outA);
+                PaintLayer[coord] = float4(existing.r, outRGB.g, existing.b, outA);
             else if (TargetChannel == 3)
-                PaintLayer[id.xy] = float4(existing.r, existing.g, outRGB.b, outA);
+                PaintLayer[coord] = float4(existing.r, existing.g, outRGB.b, outA);
             else if (TargetChannel == 4)
             {
                 float brushGray = dot(brushRGB, float3(0.299, 0.587, 0.114));
                 float newA = brushGray * alpha + existing.a * (1.0f - alpha);
-                PaintLayer[id.xy] = float4(existing.rgb, newA);
+                PaintLayer[coord] = float4(existing.rgb, newA);
             }
             else
-                PaintLayer[id.xy] = float4(outRGB, outA);
+                PaintLayer[coord] = float4(outRGB, outA);
         }
     }
 }";
@@ -1758,6 +1778,152 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _gpuPaintReady = true;
         }
 
+        public void InitPreviewPaintLayers()
+        {
+            if (_disposed || _device == null || !_gpuPaintReady || _paintTexWidth <= 0 || _paintTexHeight <= 0)
+                return;
+
+            DisposePreviewPaintLayers();
+
+            var paintDesc = new Texture2DDescription
+            {
+                Width = _paintTexWidth, Height = _paintTexHeight,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.UnorderedAccess | BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            _gpuPreviewPaintTex = _device.CreateTexture2D(paintDesc);
+            _gpuPreviewPaintUAV = _device.CreateUnorderedAccessView(_gpuPreviewPaintTex);
+            _gpuPreviewPaintSRV = _device.CreateShaderResourceView(_gpuPreviewPaintTex);
+
+            var baseDesc = new Texture2DDescription
+            {
+                Width = _paintTexWidth, Height = _paintTexHeight,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            _gpuPreviewBaseTex = _device.CreateTexture2D(baseDesc);
+            _gpuPreviewBaseSRV = _device.CreateShaderResourceView(_gpuPreviewBaseTex);
+
+            var compDesc = new Texture2DDescription
+            {
+                Width = _paintTexWidth, Height = _paintTexHeight,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.UnorderedAccess | BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+            _gpuPreviewCompositeTex = _device.CreateTexture2D(compDesc);
+            _gpuPreviewCompositeUAV = _device.CreateUnorderedAccessView(_gpuPreviewCompositeTex);
+            _gpuPreviewCompositeSRV = _device.CreateShaderResourceView(_gpuPreviewCompositeTex);
+
+            GpuClearPreviewPaint();
+            _previewPaintReady = true;
+        }
+
+        public void DisposePreviewPaintLayers()
+        {
+            _previewPaintReady = false;
+            foreach (var t in _previewUndoStack) t.Dispose();
+            _previewUndoStack.Clear();
+            foreach (var t in _previewRedoStack) t.Dispose();
+            _previewRedoStack.Clear();
+
+            _gpuPreviewPaintUAV?.Dispose(); _gpuPreviewPaintUAV = null;
+            _gpuPreviewPaintSRV?.Dispose(); _gpuPreviewPaintSRV = null;
+            _gpuPreviewPaintTex?.Dispose(); _gpuPreviewPaintTex = null;
+            _gpuPreviewBaseSRV?.Dispose(); _gpuPreviewBaseSRV = null;
+            _gpuPreviewBaseTex?.Dispose(); _gpuPreviewBaseTex = null;
+            _gpuPreviewCompositeUAV?.Dispose(); _gpuPreviewCompositeUAV = null;
+            _gpuPreviewCompositeSRV?.Dispose(); _gpuPreviewCompositeSRV = null;
+            _gpuPreviewCompositeTex?.Dispose(); _gpuPreviewCompositeTex = null;
+        }
+
+        public void UploadPreviewBaseBgra(byte[] bgraPixels, int width, int height)
+        {
+            if (_disposed || _device == null || _context == null || bgraPixels == null || !_previewPaintReady) return;
+            if (width != _paintTexWidth || height != _paintTexHeight) return;
+
+            unsafe
+            {
+                fixed (byte* ptr = bgraPixels)
+                {
+                    _context.UpdateSubresource(_gpuPreviewBaseTex, 0, null, (IntPtr)ptr, width * 4, 0);
+                }
+            }
+        }
+
+        public void LoadPreviewPaintLayerFromRgba(byte[] rgbaPixels, int width, int height)
+        {
+            if (!_previewPaintReady || _context == null || _gpuPreviewPaintTex == null) return;
+            if (width != _paintTexWidth || height != _paintTexHeight) return;
+
+            float[] floatPixels = new float[width * height * 4];
+            for (int i = 0; i < width * height; i++)
+            {
+                int bi = i * 4;
+                floatPixels[bi + 0] = rgbaPixels[bi + 0] / 255f;
+                floatPixels[bi + 1] = rgbaPixels[bi + 1] / 255f;
+                floatPixels[bi + 2] = rgbaPixels[bi + 2] / 255f;
+                floatPixels[bi + 3] = rgbaPixels[bi + 3] / 255f;
+            }
+
+            var stagingDesc = new Texture2DDescription
+            {
+                Width = width, Height = height,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.None
+            };
+
+            unsafe
+            {
+                fixed (float* ptr = floatPixels)
+                {
+                    var subData = new SubresourceData((IntPtr)ptr, width * 16);
+                    using var staging = _device.CreateTexture2D(stagingDesc, new[] { subData });
+                    _context.CopyResource(_gpuPreviewPaintTex, staging);
+                }
+            }
+        }
+
+        public void RunPreviewCompositePass(int targetChannel = 0)
+        {
+            if (!_previewPaintReady || _context == null || _gpuPreviewBaseSRV == null) return;
+
+            var dims = new CompositeDims { TexWidth = _paintTexWidth, TexHeight = _paintTexHeight, TargetChannel = targetChannel };
+            _context.UpdateSubresource(dims, _compositeCB);
+
+            _context.CSSetShader(_compositeCS);
+            _context.CSSetConstantBuffer(0, _compositeCB);
+            _context.CSSetShaderResource(0, _gpuPreviewBaseSRV);
+            _context.CSSetShaderResource(1, _gpuPreviewPaintSRV);
+            _context.CSSetUnorderedAccessView(0, _gpuPreviewCompositeUAV);
+
+            int groupsX = (_paintTexWidth + 15) / 16;
+            int groupsY = (_paintTexHeight + 15) / 16;
+            _context.Dispatch(groupsX, groupsY, 1);
+
+            _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
+            _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
+            _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
+            _context.CSSetShader(null);
+        }
+
+        public ID3D11ShaderResourceView PreviewCompositeSrv => _gpuPreviewCompositeSRV;
+
         public void SetBaseTexture(IntPtr bgraPixels, int width, int height)
         {
             if (_disposed || _device == null || bgraPixels == IntPtr.Zero) return;
@@ -1788,9 +1954,16 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _baseTexHeight = height;
         }
 
-        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, float hardness, Vector4 color, int blendMode = 0, int shapeMode = 0, float flow = 1.0f, float angle = 0f, float noiseScale = 0f, float noiseAmount = 0f, float seed = 0f, int targetChannel = 0)
+        public void GpuPaintStroke(Vector2 uvCenter, Vector2? uvPrev, float radiusPixels, float hardness, Vector4 color, int blendMode = 0, int shapeMode = 0, float flow = 1.0f, float angle = 0f, float noiseScale = 0f, float noiseAmount = 0f, float seed = 0f, int targetChannel = 0, PaintLayerTarget layerTarget = PaintLayerTarget.Canvas)
         {
             if (_disposed || !_gpuPaintReady || _context == null) return;
+
+            ID3D11UnorderedAccessView paintUav = layerTarget == PaintLayerTarget.Preview ? _gpuPreviewPaintUAV : _gpuPaintUAV;
+            if (paintUav == null) return;
+
+            // Warp displacement is only maintained on the canvas paint layer.
+            if (layerTarget == PaintLayerTarget.Preview && blendMode == 7)
+                return;
 
             var brushParams = new BrushParams
             {
@@ -1814,20 +1987,51 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
                 TargetChannel = targetChannel
             };
 
+            float cx = brushParams.Center.X;
+            float cy = brushParams.Center.Y;
+            float px = uvPrev.HasValue ? brushParams.PrevCenter.X : cx;
+            float py = uvPrev.HasValue ? brushParams.PrevCenter.Y : cy;
+            float margin = radiusPixels + 2f;
+
+            int minX, minY, maxX, maxY;
+            if (shapeMode == 2)
+            {
+                minX = 0;
+                minY = 0;
+                maxX = _paintTexWidth - 1;
+                maxY = _paintTexHeight - 1;
+            }
+            else
+            {
+                minX = (int)MathF.Floor(MathF.Min(cx, px) - margin);
+                minY = (int)MathF.Floor(MathF.Min(cy, py) - margin);
+                maxX = (int)MathF.Ceiling(MathF.Max(cx, px) + margin);
+                maxY = (int)MathF.Ceiling(MathF.Max(cy, py) + margin);
+                minX = Math.Clamp(minX, 0, _paintTexWidth - 1);
+                minY = Math.Clamp(minY, 0, _paintTexHeight - 1);
+                maxX = Math.Clamp(maxX, 0, _paintTexWidth - 1);
+                maxY = Math.Clamp(maxY, 0, _paintTexHeight - 1);
+            }
+
+            brushParams.OriginX = (uint)minX;
+            brushParams.OriginY = (uint)minY;
+
             _context.UpdateSubresource(brushParams, _brushCB);
 
             _context.CSSetShader(_paintBrushCS);
             _context.CSSetConstantBuffer(0, _brushCB);
-            _context.CSSetUnorderedAccessView(0, _gpuPaintUAV);
+            _context.CSSetUnorderedAccessView(0, paintUav);
             
-            if (blendMode == 7 && _gpuWarpDisplacementUAV != null && _gpuWarpSnapshotSRV != null)
+            if (blendMode == 7 && layerTarget == PaintLayerTarget.Canvas && _gpuWarpDisplacementUAV != null && _gpuWarpSnapshotSRV != null)
             {
                 _context.CSSetUnorderedAccessView(1, _gpuWarpDisplacementUAV);
                 _context.CSSetShaderResource(0, _gpuWarpSnapshotSRV);
             }
 
-            int groupsX = (_paintTexWidth + 15) / 16;
-            int groupsY = (_paintTexHeight + 15) / 16;
+            int regionW = maxX - minX + 1;
+            int regionH = maxY - minY + 1;
+            int groupsX = (regionW + 15) / 16;
+            int groupsY = (regionH + 15) / 16;
             _context.Dispatch(groupsX, groupsY, 1);
 
             _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
@@ -2004,6 +2208,12 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
         public void GpuComposite(string[] slots, int targetChannel = 0)
         {
+            RunCompositePass(targetChannel);
+            AssignCompositeToSlots(slots, _gpuCompositeSRV);
+        }
+
+        public void RunCompositePass(int targetChannel = 0)
+        {
             if (!_gpuPaintReady || _context == null || _gpuBaseSRV == null) return;
 
             var dims = new CompositeDims { TexWidth = _paintTexWidth, TexHeight = _paintTexHeight, TargetChannel = targetChannel };
@@ -2019,25 +2229,23 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             int groupsY = (_paintTexHeight + 15) / 16;
             _context.Dispatch(groupsX, groupsY, 1);
 
-            // Unbind
             _context.CSSetUnorderedAccessView(0, (ID3D11UnorderedAccessView)null);
             _context.CSSetShaderResource(0, (ID3D11ShaderResourceView)null);
             _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
-            _context.CSSetShaderResource(2, (ID3D11ShaderResourceView)null);
-            _context.CSSetShaderResource(1, (ID3D11ShaderResourceView)null);
             _context.CSSetShader(null);
+        }
 
-            // Point the model texture SRVs at the composite
+        public void AssignCompositeToSlots(string[] slots, ID3D11ShaderResourceView srv = null)
+        {
+            srv ??= _gpuCompositeSRV;
+            if (srv == null) return;
             foreach (var slotName in slots)
             {
                 if (_models.TryGetValue(slotName, out var model))
                 {
-                    // Replace the model's texture SRV with the composite SRV
-                    // (don't dispose the old one if it was previously the composite SRV)
-                    model.TextureSRV = _gpuCompositeSRV;
+                    model.TextureSRV = srv;
                     model.HasTexture = true;
 
-                    // Ensure a SamplerState exists so the render pipeline uses the texture
                     if (model.SamplerState == null)
                     {
                         model.SamplerState = _device.CreateSamplerState(new SamplerDescription
@@ -2055,12 +2263,70 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             }
         }
 
+        public byte[] ReadbackCompositeBgra()
+        {
+            if (!_gpuPaintReady || _gpuCompositeTex == null || _context == null) return null;
+
+            var stagingDesc = new Texture2DDescription
+            {
+                Width = _paintTexWidth, Height = _paintTexHeight,
+                MipLevels = 1, ArraySize = 1,
+                Format = Format.R32G32B32A32_Float,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read
+            };
+            using var staging = _device.CreateTexture2D(stagingDesc);
+            _context.CopyResource(staging, _gpuCompositeTex);
+
+            var mapped = _context.Map(staging, 0, MapMode.Read);
+            try
+            {
+                byte[] result = new byte[_paintTexWidth * _paintTexHeight * 4];
+                for (int y = 0; y < _paintTexHeight; y++)
+                {
+                    float* row = (float*)((byte*)mapped.DataPointer + y * mapped.RowPitch);
+                    for (int x = 0; x < _paintTexWidth; x++)
+                    {
+                        int si = x * 4;
+                        int di = (y * _paintTexWidth + x) * 4;
+                        result[di + 0] = (byte)(Math.Clamp(row[si + 2], 0f, 1f) * 255f);
+                        result[di + 1] = (byte)(Math.Clamp(row[si + 1], 0f, 1f) * 255f);
+                        result[di + 2] = (byte)(Math.Clamp(row[si + 0], 0f, 1f) * 255f);
+                        result[di + 3] = (byte)(Math.Clamp(row[si + 3], 0f, 1f) * 255f);
+                    }
+                }
+                return result;
+            }
+            finally
+            {
+                _context.Unmap(staging, 0);
+            }
+        }
+
+        public void UploadPreviewDisplayTexture(IntPtr bgraPixels, int width, int height)
+        {
+            // Legacy entry point — routes to preview base upload when dual-paint layers exist.
+            if (bgraPixels == IntPtr.Zero || width <= 0 || height <= 0) return;
+            byte[] bgra = new byte[width * height * 4];
+            System.Runtime.InteropServices.Marshal.Copy(bgraPixels, bgra, 0, bgra.Length);
+            UploadPreviewBaseBgra(bgra, width, height);
+        }
+
+        public ID3D11ShaderResourceView PreviewDisplaySrv => _gpuPreviewCompositeSRV ?? _gpuCompositeSRV;
+        public ID3D11ShaderResourceView CompositeSrv => _gpuCompositeSRV;
+
         public void GpuClearPaint()
         {
             if (_context == null || _gpuPaintUAV == null) return;
-
-            // Clear the UAV memory directly instead of recreating the texture
             _context.ClearUnorderedAccessView(_gpuPaintUAV, System.Numerics.Vector4.Zero);
+        }
+
+        public void GpuClearPreviewPaint()
+        {
+            if (_context == null || _gpuPreviewPaintUAV == null) return;
+            _context.ClearUnorderedAccessView(_gpuPreviewPaintUAV, System.Numerics.Vector4.Zero);
         }
 
         public IntPtr GetCompositeSrvHandle()
@@ -2321,6 +2587,28 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
             _context.CopyResource(snapshot, _gpuPaintTex);
             _undoStack.Add(snapshot);
+
+            if (_previewPaintReady && _gpuPreviewPaintTex != null)
+            {
+                foreach (var t in _previewRedoStack) t.Dispose();
+                _previewRedoStack.Clear();
+
+                ID3D11Texture2D previewSnapshot = null;
+                var previewDesc = _gpuPreviewPaintTex.Description;
+                if (_previewUndoStack.Count >= MaxUndoSteps)
+                {
+                    var oldest = _previewUndoStack[0];
+                    _previewUndoStack.RemoveAt(0);
+                    if (oldest.Description.Width == previewDesc.Width && oldest.Description.Height == previewDesc.Height && oldest.Description.Format == previewDesc.Format)
+                        previewSnapshot = oldest;
+                    else
+                        oldest.Dispose();
+                }
+                if (previewSnapshot == null)
+                    previewSnapshot = _device.CreateTexture2D(previewDesc);
+                _context.CopyResource(previewSnapshot, _gpuPreviewPaintTex);
+                _previewUndoStack.Add(previewSnapshot);
+            }
         }
         
         public void Undo()
@@ -2339,6 +2627,19 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             
             _context.CopyResource(_gpuPaintTex, undoTex);
             undoTex.Dispose();
+
+            if (_previewPaintReady && _previewUndoStack.Count > 0 && _gpuPreviewPaintTex != null)
+            {
+                var previewDesc = _gpuPreviewPaintTex.Description;
+                var previewCurrent = _device.CreateTexture2D(previewDesc);
+                _context.CopyResource(previewCurrent, _gpuPreviewPaintTex);
+                _previewRedoStack.Add(previewCurrent);
+
+                var previewUndoTex = _previewUndoStack[_previewUndoStack.Count - 1];
+                _previewUndoStack.RemoveAt(_previewUndoStack.Count - 1);
+                _context.CopyResource(_gpuPreviewPaintTex, previewUndoTex);
+                previewUndoTex.Dispose();
+            }
         }
         
         public void Redo()
@@ -2357,11 +2658,25 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             
             _context.CopyResource(_gpuPaintTex, redoTex);
             redoTex.Dispose();
+
+            if (_previewPaintReady && _previewRedoStack.Count > 0 && _gpuPreviewPaintTex != null)
+            {
+                var previewDesc = _gpuPreviewPaintTex.Description;
+                var previewCurrent = _device.CreateTexture2D(previewDesc);
+                _context.CopyResource(previewCurrent, _gpuPreviewPaintTex);
+                _previewUndoStack.Add(previewCurrent);
+
+                var previewRedoTex = _previewRedoStack[_previewRedoStack.Count - 1];
+                _previewRedoStack.RemoveAt(_previewRedoStack.Count - 1);
+                _context.CopyResource(_gpuPreviewPaintTex, previewRedoTex);
+                previewRedoTex.Dispose();
+            }
         }
 
         private void DisposeGpuPaint()
         {
             _gpuPaintReady = false;
+            DisposePreviewPaintLayers();
             foreach(var t in _undoStack) t.Dispose();
             _undoStack.Clear();
             foreach(var t in _redoStack) t.Dispose();

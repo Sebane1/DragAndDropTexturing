@@ -12,6 +12,8 @@ using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Bindings.ImGui;
 using PenumbraAndGlamourerHelpers;
 using SixLabors.ImageSharp;
+using FFXIVLooseTextureCompiler.ImageProcessing;
+using LooseTextureCompilerCore;
 using SixLabors.ImageSharp.Formats.Tiff;
 using Dalamud.Game.ClientState.Objects.Types;
 
@@ -41,11 +43,29 @@ namespace DragAndDropTexturing.Windows
         private bool _isBiboPreview = false;
         private bool _isTbsePreview = false;
 
+        private enum PainterPreviewMeshMode
+        {
+            MatchTexture = 0,
+            MatchWornBody = 1,
+            Manual = 2
+        }
+
+        private PainterPreviewMeshMode _previewMeshMode = PainterPreviewMeshMode.MatchTexture;
+        private int _manualPreviewBodyType = 2;
+        private bool _uvBridgeEnabled = true;
+        private readonly PainterUvBridge _uvBridge = new PainterUvBridge();
+        private string _canvasUvKeyword = null;
+        private string _previewMeshKeyword = null;
+
         private float _brushSize = 10f;
         private System.Numerics.Vector4 _paintColor = new System.Numerics.Vector4(1, 0, 0, 1);
         private Vector2? _lastUvHit = null;
+        private Vector2? _lastPreviewUvHit = null;
         private bool _gpuPaintInitialized = false;
+        private int _compositeFrameCounter = 0;
         private bool _needsComposite = true;
+        private bool _needsPreviewPaintSync = false;
+        private volatile bool _previewLayerSyncRunning = false;
         private System.Drawing.Bitmap _cachedBaseBitmap = null;
         private string _cachedBaseBitmapPath = "";
         
@@ -324,6 +344,11 @@ namespace DragAndDropTexturing.Windows
             _isGen3Preview = false;
             _isBiboPreview = false;
             _isTbsePreview = false;
+            _previewMeshMode = (PainterPreviewMeshMode)_plugin.Configuration.PainterPreviewMeshMode;
+            _manualPreviewBodyType = _plugin.Configuration.PainterManualPreviewBodyType;
+            _uvBridgeEnabled = _plugin.Configuration.PainterUvBridgeEnabled;
+            if (string.IsNullOrEmpty(EditSourcePath))
+                _previewMeshMode = PainterPreviewMeshMode.MatchWornBody;
             _editLayerLoaded = EditSourcePath != null ? false : true; // Need to load if editing
             _needsComposite = true;
             _modelsLoaded = false;
@@ -626,6 +651,7 @@ namespace DragAndDropTexturing.Windows
             {
                 _renderer?.PushUndoSnapshot();
                 _renderer?.GpuClearPaint();
+                _renderer?.GpuClearPreviewPaint();
                 _needsComposite = true;
             }
             ImGui.SameLine();
@@ -662,6 +688,68 @@ namespace DragAndDropTexturing.Windows
             if (ImGui.Checkbox(Translator.LocalizeUI("Filter White Background In Stamps"), ref _filterWhiteBackgroundOnImport))
             {
                 RefreshFloatingLayerFilter();
+            }
+
+            if (!string.IsNullOrEmpty(EditSourcePath) || _modelsLoaded)
+            {
+                ImGui.Separator();
+                if (ImGui.TreeNode(Translator.LocalizeUI("Preview Mesh & UV Bridge")))
+                {
+                    string[] previewModeLabels = { "Match Texture UV", "Match Worn Body", "Pick Body Mod" };
+                    int previewModeIdx = (int)_previewMeshMode;
+                    if (ImGui.Combo(Translator.LocalizeUI("Preview Mesh"), ref previewModeIdx, previewModeLabels, previewModeLabels.Length))
+                    {
+                        _previewMeshMode = (PainterPreviewMeshMode)previewModeIdx;
+                        _plugin.Configuration.PainterPreviewMeshMode = previewModeIdx;
+                        _plugin.Configuration.Save();
+                        _renderer?.PushUndoSnapshot();
+                        StartLoadPlayerModels();
+                    }
+
+                    if (_previewMeshMode == PainterPreviewMeshMode.Manual)
+                    {
+                        string[] manualBodyLabels = { "Vanilla", "Bibo+", "Gen3", "TBSE" };
+                        int manualBodyIdx = _manualPreviewBodyType switch { 1 => 1, 2 => 2, 3 => 3, _ => 0 };
+                        if (ImGui.Combo(Translator.LocalizeUI("Body Type"), ref manualBodyIdx, manualBodyLabels, manualBodyLabels.Length))
+                        {
+                            _manualPreviewBodyType = manualBodyIdx switch { 1 => 1, 2 => 2, 3 => 3, _ => 0 };
+                            _plugin.Configuration.PainterManualPreviewBodyType = _manualPreviewBodyType;
+                            _plugin.Configuration.Save();
+                            _renderer?.PushUndoSnapshot();
+                            StartLoadPlayerModels();
+                        }
+                    }
+
+                    if (ImGui.Checkbox(Translator.LocalizeUI("UV Bridge (cross-body paint)"), ref _uvBridgeEnabled))
+                    {
+                        _plugin.Configuration.PainterUvBridgeEnabled = _uvBridgeEnabled;
+                        _plugin.Configuration.Save();
+                        RefreshUvBridge();
+                    }
+
+                    string canvasLabel = _canvasUvKeyword ?? _targetKeyword ?? "?";
+                    string previewLabel = _previewMeshKeyword ?? "?";
+                    if (_uvBridge.IsActive)
+                    {
+                        ImGui.TextColored(new Vector4(0.4f, 0.9f, 0.5f, 1f), $"UV bridge active: painting {canvasLabel} canvas on {previewLabel} preview");
+                        if (!string.IsNullOrEmpty(_uvBridge.ForwardMapPath))
+                            ImGui.TextWrapped($"Display map: {System.IO.Path.GetFileName(_uvBridge.ForwardMapPath)}");
+                    }
+                    else if (!string.Equals(canvasLabel, previewLabel, StringComparison.OrdinalIgnoreCase) && canvasLabel != "?" && previewLabel != "?")
+                    {
+                        string lookupHint = _uvBridge.LastLookupPath;
+                        if (!string.IsNullOrEmpty(lookupHint))
+                            ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), $"No transfer map: {canvasLabel} -> {previewLabel}");
+                        else
+                            ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), $"Canvas ({canvasLabel}) and preview ({previewLabel}) differ — no transfer map found");
+                        if (!string.IsNullOrEmpty(lookupHint))
+                            ImGui.TextWrapped($"Expected: {lookupHint}");
+                    }
+                    else
+                        ImGui.TextDisabled($"Canvas UV: {canvasLabel}  |  Preview mesh: {previewLabel}");
+
+                    ImGui.TreePop();
+                }
             }
 
             // Model Override Selectors
@@ -901,7 +989,7 @@ namespace DragAndDropTexturing.Windows
                                         else hitNormal = Vector3.UnitZ;
                                     }
 
-                                    _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
+                                    _floatingLayer.Position = GetCanvasUvForLayerPlacement(uvHit) - (_floatingLayer.Scale / 2.0f);
                                     if (_floatingLayer.ProjectionMode == 0)
                                         _floatingLayer.ProjectionMode = _default3DProjectionMode;
                                     _floatingLayer.DecalCenter = worldHit;
@@ -986,7 +1074,7 @@ namespace DragAndDropTexturing.Windows
                                         else hitNormal = Vector3.UnitZ;
                                     }
 
-                                    _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
+                                    _floatingLayer.Position = GetCanvasUvForLayerPlacement(uvHit) - (_floatingLayer.Scale / 2.0f);
                                     if (_floatingLayer.ProjectionMode == 0)
                                         _floatingLayer.ProjectionMode = _default3DProjectionMode;
                                     _floatingLayer.DecalCenter = worldHit;
@@ -1008,7 +1096,10 @@ namespace DragAndDropTexturing.Windows
                         else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
                         {
                             _lastUvHit = null;
+                            _lastPreviewUvHit = null;
                             _hasCachedRaycast = false;
+                            if (_needsPreviewPaintSync)
+                                SchedulePreviewLayerSync(paintOnly: true);
                         }
                         else
                         {
@@ -1189,13 +1280,16 @@ namespace DragAndDropTexturing.Windows
                             }
                             else if (_dragHandle == -1)
                             {
-                                PaintAtUV(uv);
+                                PaintAtUV(uv, canvasSpace: true);
                             }
                         }
                         else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
                         {
                             _lastUvHit = null;
+                            _lastPreviewUvHit = null;
                             _dragHandle = -1;
+                            if (_needsPreviewPaintSync)
+                                SchedulePreviewLayerSync(paintOnly: true);
                         }
                         else
                         {
@@ -1207,22 +1301,25 @@ namespace DragAndDropTexturing.Windows
 
             ImGui.EndChild();
 
-            // GPU composite every frame (microseconds)
+            // GPU composite + preview composite (dual-paint layers).
             if (_renderer != null && _gpuPaintInitialized && _needsComposite)
             {
-                _renderer.GpuComposite(_primarySlotArray, _targetChannel);
-                if (_floatingLayer != null && _floatingLayer.SRV != null)
-                {                    if (_floatingLayer.ProjectionMode > 0)
-                    {
-                        float previewDepth = _floatingLayer.ProjectionDepth > 0f ? _floatingLayer.ProjectionDepth : _floatingLayer.Scale.X * 2.0f;
-                        GetRotatedTangents(_floatingLayer, out var rotT, out var rotB);
-                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, rotT, rotB, _floatingLayer.Scale.X * 0.5f, previewDepth);
-                    }
-                    else
-                    {
-                        _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0, angle: _floatingLayer.Rotation);
-                    } }
+                CompositeAndAssignToModels();
                 _needsComposite = false;
+            }
+
+            if (_renderer != null && _gpuPaintInitialized && _floatingLayer != null && _floatingLayer.SRV != null)
+            {
+                if (_floatingLayer.ProjectionMode > 0)
+                {
+                    float previewDepth = _floatingLayer.ProjectionDepth > 0f ? _floatingLayer.ProjectionDepth : _floatingLayer.Scale.X * 2.0f;
+                    GetRotatedTangents(_floatingLayer, out var rotT, out var rotB);
+                    _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, _floatingLayer.ProjectionMode, _floatingLayer.DecalCenter, _floatingLayer.DecalNormal, rotT, rotB, _floatingLayer.Scale.X * 0.5f, previewDepth);
+                }
+                else
+                {
+                    _renderer.GpuPreviewStampTexture(_floatingLayer.SRV, _floatingLayer.Position, _floatingLayer.Scale, 0, angle: _floatingLayer.Rotation);
+                }
             }
         }
 
@@ -1431,7 +1528,7 @@ namespace DragAndDropTexturing.Windows
                                 else hitNormal = Vector3.UnitZ;
                             }
 
-                            _floatingLayer.Position = uvHit - (_floatingLayer.Scale / 2.0f);
+                            _floatingLayer.Position = GetCanvasUvForLayerPlacement(uvHit) - (_floatingLayer.Scale / 2.0f);
                             if (_floatingLayer.ProjectionMode == 0)
                                 _floatingLayer.ProjectionMode = _default3DProjectionMode;
                             _floatingLayer.DecalCenter = worldHit;
@@ -1485,30 +1582,48 @@ namespace DragAndDropTexturing.Windows
             }
         }
 
-        private void PaintAtUV(Vector2 uvHit)
+        private void PaintAtUV(Vector2 uvHit, bool canvasSpace = false)
         {
             if (_renderer == null || !_gpuPaintInitialized) return;
+
+            Vector2 paintUv;
+            Vector2 previewUv;
+            bool dualPaint;
+
+            if (canvasSpace)
+            {
+                paintUv = uvHit;
+                previewUv = uvHit;
+                dualPaint = false;
+            }
+            else
+            {
+                if (!TryGetCanvasUvForPaint(uvHit, out paintUv))
+                    return;
+                previewUv = uvHit;
+                dualPaint = IsDualPaintActive();
+            }
             
             if (_activeTool == PaintTool.Eyedropper)
             {
-                var color = _renderer.ReadCompositePixel(uvHit);
+                var color = _renderer.ReadCompositePixel(paintUv);
                 _paintColor = new Vector4(color.X, color.Y, color.Z, 1.0f);
                 return;
             }
 
-            // Break the stroke if the UV gap is too large (crossing UV island seams)
-            Vector2? prev = _lastUvHit;
-            if (prev.HasValue && Vector2.Distance(uvHit, prev.Value) > 0.1f)
-                prev = null;
+            Vector2? prevCanvas = _lastUvHit;
+            Vector2? prevPreview = canvasSpace ? null : _lastPreviewUvHit;
+            if (prevCanvas.HasValue && Vector2.Distance(paintUv, prevCanvas.Value) > 0.1f)
+                prevCanvas = null;
+            if (prevPreview.HasValue && Vector2.Distance(previewUv, prevPreview.Value) > 0.1f)
+                prevPreview = null;
             
             int blendMode = _activeTool == PaintTool.Eraser ? 1 : (_activeTool == PaintTool.Liquify ? 6 : (_activeTool == PaintTool.Warp ? 7 : _brushBlendMode));
             int shapeMode = _activeTool == PaintTool.Fill ? 2 : (_activeShape == PaintShape.Square ? 1 : 0);
 
-            // Auto-switch to eraser if pen eraser end is detected
             if (_tabletInput != null && _tabletInput.IsEraser && _activeTool == PaintTool.Brush)
                 blendMode = 1;
 
-            // Apply pen pressure
             float pressure = (_tabletInput != null && _tabletInput.IsPenActive) ? _tabletInput.Pressure : 1.0f;
             float pressuredOpacity = _brushOpacity;
             if (_pressureAffectsOpacity && pressure < 1.0f)
@@ -1520,66 +1635,77 @@ namespace DragAndDropTexturing.Windows
 
             float finalAlpha = _paintColor.W * pressuredOpacity;
 
-            // Seed noise per stroke (reset when mouse is first pressed)
-            if (!prev.HasValue)
+            if (!prevCanvas.HasValue)
             {
                 _strokeSeed = (float)(_rng.NextDouble() * 1000.0);
                 _strokeDistance = 0f;
             }
 
-            // CPU-side dab loop with spacing
-            // Apply pressure to size
             float pressuredSize = _brushSize;
             if (_pressureAffectsSize && pressure < 1.0f)
                 pressuredSize *= MathF.Max(_pressureMinSize, pressure);
 
             float diameter = pressuredSize * 2f;
             float spacingStep = Math.Max(diameter * _brushSpacing, 0.5f);
-            // Convert spacing from pixel to UV space (approximate)
             float texSize = Math.Max(_renderer.PaintTexWidth, _renderer.PaintTexHeight);
             float spacingUV = spacingStep / texSize;
-            
-            if (blendMode == 7 && prev.HasValue)
+            var strokeColor = new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha);
+
+            if (canvasSpace && IsDualPaintActive())
+                _needsPreviewPaintSync = true;
+
+            if (blendMode == 7 && prevCanvas.HasValue)
             {
-                // Warp tool: Do NOT interpolate into tiny dabs. 
-                // We advect the displacement field once per frame to prevent bilinear blurring destroying the field.
-                _renderer.GpuPaintStroke(
-                    uvHit, prev.Value, pressuredSize, _brushHardness,
-                    new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
-                    blendMode, shapeMode, pressuredFlow, _brushAngle,
-                    _brushNoiseScale, _brushNoiseAmount, _strokeSeed, _targetChannel);
-                
-                _lastUvHit = uvHit;
+                ApplyPaintStroke(paintUv, prevCanvas, previewUv, prevPreview, pressuredSize, blendMode, shapeMode, pressuredFlow, _strokeSeed, dualPaint: false, strokeColor);
+                if (!canvasSpace) _needsPreviewPaintSync = dualPaint;
+                _lastUvHit = paintUv;
+                if (!canvasSpace) _lastPreviewUvHit = previewUv;
                 _needsComposite = true;
                 return;
             }
 
-            if (prev.HasValue)
+            bool wantsDiscreteDabs = _brushScatter > 0.001f || _brushSizeJitter > 0.001f || _brushSpacing > 0.35f;
+            if (!wantsDiscreteDabs)
             {
-                Vector2 delta = uvHit - prev.Value;
+                float dabRadius = pressuredSize;
+                if (!prevCanvas.HasValue && _brushSizeJitter > 0.001f)
+                    dabRadius *= (1f - _brushSizeJitter * (float)_rng.NextDouble());
+
+                ApplyPaintStroke(paintUv, prevCanvas, previewUv, prevPreview, dabRadius, blendMode, shapeMode, pressuredFlow, _strokeSeed, dualPaint, strokeColor);
+                _lastUvHit = paintUv;
+                if (!canvasSpace) _lastPreviewUvHit = previewUv;
+                _needsComposite = true;
+                return;
+            }
+
+            if (!canvasSpace) _needsPreviewPaintSync = dualPaint;
+            else if (IsDualPaintActive()) _needsPreviewPaintSync = true;
+            if (prevCanvas.HasValue)
+            {
+                Vector2 delta = paintUv - prevCanvas.Value;
                 float segLen = delta.Length();
                 if (segLen < 0.0001f)
                 {
-                    _lastUvHit = uvHit;
+                    _lastUvHit = paintUv;
+                    if (!canvasSpace) _lastPreviewUvHit = previewUv;
                     return;
                 }
                 Vector2 dir = delta / segLen;
-                // Perpendicular for scatter
                 Vector2 perp = new Vector2(-dir.Y, dir.X);
 
                 float t = 0f;
-                while (t <= segLen)
+                int dabCount = 0;
+                const int maxDabsPerFrame = 4;
+                while (t <= segLen && dabCount < maxDabsPerFrame)
                 {
-                    Vector2 dabPos = prev.Value + dir * t;
+                    Vector2 dabPos = prevCanvas.Value + dir * t;
 
-                    // Scatter offset
                     if (_brushScatter > 0.001f)
                     {
                         float scatterOffset = ((float)_rng.NextDouble() * 2f - 1f) * _brushScatter * _brushSize / texSize;
                         dabPos += perp * scatterOffset;
                     }
 
-                    // Size jitter
                     float dabRadius = pressuredSize;
                     if (_brushSizeJitter > 0.001f)
                     {
@@ -1588,36 +1714,276 @@ namespace DragAndDropTexturing.Windows
                     }
 
                     Vector2? dabPrev = null;
-                    if (blendMode == 6 || blendMode == 7)
+                    if (blendMode == 6)
                         dabPrev = dabPos - dir * spacingUV;
 
                     float dabSeed = _strokeSeed + _strokeDistance;
-                    _renderer.GpuPaintStroke(
-                        dabPos, dabPrev, dabRadius, _brushHardness,
-                        new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
-                        blendMode, shapeMode, pressuredFlow, _brushAngle,
-                        _brushNoiseScale, _brushNoiseAmount, dabSeed, _targetChannel);
+                    ApplyPaintStroke(dabPos, dabPrev, previewUv, prevPreview, dabRadius, blendMode, shapeMode, pressuredFlow, dabSeed, dualPaint: false, strokeColor);
 
                     t += spacingUV;
                     _strokeDistance += spacingStep;
+                    dabCount++;
                 }
             }
             else
             {
-                // First dab of a new stroke
                 float dabRadius = pressuredSize;
                 if (_brushSizeJitter > 0.001f)
                     dabRadius *= (1f - _brushSizeJitter * (float)_rng.NextDouble());
 
-                _renderer.GpuPaintStroke(
-                    uvHit, null, dabRadius, _brushHardness,
-                    new Vector4(_paintColor.X, _paintColor.Y, _paintColor.Z, finalAlpha),
-                    blendMode, shapeMode, pressuredFlow, _brushAngle,
-                    _brushNoiseScale, _brushNoiseAmount, _strokeSeed, _targetChannel);
+                ApplyPaintStroke(paintUv, null, previewUv, null, dabRadius, blendMode, shapeMode, pressuredFlow, _strokeSeed, dualPaint: false, strokeColor);
             }
 
-            _lastUvHit = uvHit;
+            _lastUvHit = paintUv;
+            if (!canvasSpace) _lastPreviewUvHit = previewUv;
             _needsComposite = true;
+        }
+
+        private bool IsDualPaintActive()
+        {
+            return _uvBridgeEnabled
+                && _uvBridge.IsActive
+                && _renderer != null
+                && _renderer.PreviewPaintReady;
+        }
+
+        private void ApplyPaintStroke(
+            Vector2 canvasUv, Vector2? prevCanvasUv,
+            Vector2 previewUv, Vector2? prevPreviewUv,
+            float radius, int blendMode, int shapeMode, float flow, float seed,
+            bool dualPaint, Vector4 strokeColor)
+        {
+            _renderer.GpuPaintStroke(
+                canvasUv, prevCanvasUv, radius, _brushHardness, strokeColor,
+                blendMode, shapeMode, flow, _brushAngle,
+                _brushNoiseScale, _brushNoiseAmount, seed, _targetChannel);
+
+            if (!dualPaint)
+                return;
+
+            _renderer.GpuPaintStroke(
+                previewUv, prevPreviewUv, radius, _brushHardness, strokeColor,
+                blendMode, shapeMode, flow, _brushAngle,
+                _brushNoiseScale, _brushNoiseAmount, seed, _targetChannel,
+                ModelRenderer.PaintLayerTarget.Preview);
+        }
+
+        private string ResolvePreviewMeshKeywordForLoad()
+        {
+            if (_previewMeshMode == PainterPreviewMeshMode.MatchTexture)
+                return _canvasUvKeyword ?? _targetKeyword ?? PainterUvBridge.BodyTypeIndexToKeyword(_cachedActiveBodyType);
+            if (_previewMeshMode == PainterPreviewMeshMode.MatchWornBody)
+                return PainterUvBridge.BodyTypeIndexToKeyword(_cachedActiveBodyType);
+            if (_previewMeshMode == PainterPreviewMeshMode.Manual)
+                return PainterUvBridge.BodyTypeIndexToKeyword(_manualPreviewBodyType);
+            return null;
+        }
+
+        private static string DetectBodyKeywordFromPath(string lowerPath)
+        {
+            if (string.IsNullOrEmpty(lowerPath))
+                return null;
+            if (lowerPath.Contains("bibo") || lowerPath.Contains("b+") || lowerPath.Contains("turali bod") || lowerPath.Contains("lavabod") || lowerPath.Contains("rue") || lowerPath.Contains("yab") || lowerPath.Contains("yet another body") || lowerPath.Contains("lithe"))
+                return "bibo";
+            if (lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia") || lowerPath.Contains("riderthicc"))
+                return "gen3";
+            if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody"))
+                return "tbse";
+            return null;
+        }
+
+        private void RefreshUvBridge()
+        {
+            if (!string.IsNullOrEmpty(_cachedModDirectory))
+                GlobalPathStorage.ResolveResourceBaseDirectory(_cachedModDirectory);
+
+            if (!_uvBridgeEnabled)
+            {
+                _uvBridge.Configure(_canvasUvKeyword, _canvasUvKeyword, _cachedModDirectory);
+                _renderer?.DisposePreviewPaintLayers();
+                return;
+            }
+
+            _uvBridge.Configure(_canvasUvKeyword, _previewMeshKeyword, _cachedModDirectory);
+            EnsurePreviewPaintLayers();
+            InvalidatePreviewDisplay();
+
+            if (!_uvBridge.IsActive
+                && !string.Equals(_canvasUvKeyword, _previewMeshKeyword, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(_canvasUvKeyword)
+                && !string.IsNullOrEmpty(_previewMeshKeyword))
+            {
+                _plugin.PluginLog.Warning(
+                    $"[TexturePainter] UV transfer map not found for {_canvasUvKeyword} -> {_previewMeshKeyword}. " +
+                    $"Looked under: {_uvBridge.LastLookupPath ?? "(unknown)"}");
+            }
+        }
+
+        private bool TryGetCanvasUvForPaint(Vector2 previewUv, out Vector2 canvasUv)
+        {
+            canvasUv = previewUv;
+            if (!_uvBridgeEnabled || !_uvBridge.IsActive)
+                return true;
+            return _uvBridge.TryMapPreviewToCanvas(previewUv, out canvasUv);
+        }
+
+        private Vector2 GetCanvasUvForLayerPlacement(Vector2 previewUv)
+        {
+            return TryGetCanvasUvForPaint(previewUv, out Vector2 canvasUv) ? canvasUv : previewUv;
+        }
+
+        private static System.Drawing.Bitmap BitmapFromBgra(byte[] bgra, int width, int height)
+        {
+            var bitmap = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var rect = new System.Drawing.Rectangle(0, 0, width, height);
+            var data = bitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            System.Runtime.InteropServices.Marshal.Copy(bgra, 0, data.Scan0, bgra.Length);
+            bitmap.UnlockBits(data);
+            return bitmap;
+        }
+
+        private void EnsurePreviewPaintLayers()
+        {
+            if (_renderer == null || !_gpuPaintInitialized || !_uvBridgeEnabled || !_uvBridge.IsActive)
+            {
+                _renderer?.DisposePreviewPaintLayers();
+                return;
+            }
+
+            if (!_renderer.PreviewPaintReady)
+                _renderer.InitPreviewPaintLayers();
+        }
+
+        private void InvalidatePreviewDisplay()
+        {
+            _needsPreviewPaintSync = true;
+            EnsurePreviewPaintLayers();
+            SchedulePreviewLayerSync(paintOnly: false);
+        }
+
+        private void SchedulePreviewLayerSync(bool paintOnly)
+        {
+            if (_renderer == null || !_gpuPaintInitialized || _previewLayerSyncRunning)
+                return;
+
+            if (!_uvBridgeEnabled || !_uvBridge.IsActive || string.IsNullOrEmpty(_uvBridge.ForwardMapPath))
+                return;
+
+            EnsurePreviewPaintLayers();
+            if (!_renderer.PreviewPaintReady)
+                return;
+
+            string mapPath = _uvBridge.ForwardMapPath;
+            int texW = _renderer.PaintTexWidth;
+            int texH = _renderer.PaintTexHeight;
+
+            byte[] baseBgra = null;
+            if (!paintOnly && _cachedBaseBitmap != null)
+            {
+                int w = _cachedBaseBitmap.Width;
+                int h = _cachedBaseBitmap.Height;
+                baseBgra = new byte[w * h * 4];
+                var rect = new System.Drawing.Rectangle(0, 0, w, h);
+                var data = _cachedBaseBitmap.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                System.Runtime.InteropServices.Marshal.Copy(data.Scan0, baseBgra, 0, baseBgra.Length);
+                _cachedBaseBitmap.UnlockBits(data);
+            }
+
+            byte[] paintBgra = _renderer.ReadbackPaintLayer();
+            if (!paintOnly && baseBgra == null && paintBgra == null)
+                return;
+            if (paintOnly && paintBgra == null)
+                return;
+
+            _previewLayerSyncRunning = true;
+            _needsPreviewPaintSync = false;
+
+            Task.Run(() =>
+            {
+                byte[] previewBaseBgra = null;
+                byte[] previewPaintRgba = null;
+                try
+                {
+                    if (!paintOnly && baseBgra != null)
+                    {
+                        using var baseBitmap = BitmapFromBgra(baseBgra, texW, texH);
+                        using var previewBase = UVTransferMap.ApplyTransferMap(baseBitmap, mapPath);
+                        if (previewBase != null)
+                        {
+                            previewBaseBgra = new byte[texW * texH * 4];
+                            var rect = new System.Drawing.Rectangle(0, 0, texW, texH);
+                            var bits = previewBase.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                            System.Runtime.InteropServices.Marshal.Copy(bits.Scan0, previewBaseBgra, 0, previewBaseBgra.Length);
+                            previewBase.UnlockBits(bits);
+                        }
+                    }
+
+                    if (paintBgra != null)
+                    {
+                        using var paintBitmap = BitmapFromBgra(paintBgra, texW, texH);
+                        using var previewPaint = UVTransferMap.ApplyTransferMap(paintBitmap, mapPath);
+                        if (previewPaint != null)
+                        {
+                            previewPaintRgba = new byte[texW * texH * 4];
+                            var rect = new System.Drawing.Rectangle(0, 0, texW, texH);
+                            var bits = previewPaint.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                            var bgra = new byte[texW * texH * 4];
+                            System.Runtime.InteropServices.Marshal.Copy(bits.Scan0, bgra, 0, bgra.Length);
+                            previewPaint.UnlockBits(bits);
+                            for (int i = 0; i < bgra.Length; i += 4)
+                            {
+                                previewPaintRgba[i + 0] = bgra[i + 2];
+                                previewPaintRgba[i + 1] = bgra[i + 1];
+                                previewPaintRgba[i + 2] = bgra[i + 0];
+                                previewPaintRgba[i + 3] = bgra[i + 3];
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    previewBaseBgra = null;
+                    previewPaintRgba = null;
+                }
+
+                return (previewBaseBgra, previewPaintRgba);
+            }).ContinueWith(t =>
+            {
+                _mainThreadActions.Enqueue(() =>
+                {
+                    _previewLayerSyncRunning = false;
+                    if (t.Status != TaskStatus.RanToCompletion)
+                        return;
+
+                    var (previewBaseBgra, previewPaintRgba) = t.Result;
+                    if (previewBaseBgra != null)
+                        _renderer.UploadPreviewBaseBgra(previewBaseBgra, texW, texH);
+                    if (previewPaintRgba != null)
+                        _renderer.LoadPreviewPaintLayerFromRgba(previewPaintRgba, texW, texH);
+                    _needsComposite = true;
+                });
+            });
+        }
+
+        private void CompositeAndAssignToModels()
+        {
+            if (_renderer == null || !_gpuPaintInitialized)
+                return;
+
+            bool activelyPainting = _wasPaintingLastFrame || _paintGraceFrames > 0;
+            bool bridgeDisplay = IsDualPaintActive();
+
+            if (!activelyPainting || (++_compositeFrameCounter % 2) == 0)
+                _renderer.RunCompositePass(_targetChannel);
+
+            if (!bridgeDisplay)
+            {
+                _renderer.AssignCompositeToSlots(_primarySlotArray, _renderer.CompositeSrv);
+                return;
+            }
+
+            _renderer.RunPreviewCompositePass(_targetChannel);
+            _renderer.AssignCompositeToSlots(_primarySlotArray, _renderer.PreviewCompositeSrv);
         }
 
         private void Save16BitTiff(string outputPath)
@@ -2006,6 +2372,7 @@ namespace DragAndDropTexturing.Windows
                 oldBitmap?.Dispose();
                 oldLayer?.Dispose();
                 oldTablet?.Dispose();
+                _uvBridge.Dispose();
             });
         }
 
@@ -2653,44 +3020,47 @@ namespace DragAndDropTexturing.Windows
 
                 if (!string.IsNullOrEmpty(EditSourcePath) && !isGear && !isFaceEditLocal)
                 {
-                    if (_overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
+                    _targetKeyword = DetectBodyKeywordFromPath(EditSourcePath.ToLower());
+                    _canvasUvKeyword = _targetKeyword;
+                }
+
+                if (!isGear && !isFaceEditLocal)
+                {
+                    string previewLookupKeyword = ResolvePreviewMeshKeywordForLoad();
+
+                    if (_previewMeshMode == PainterPreviewMeshMode.MatchWornBody)
                     {
-                        string lowerEditPath = EditSourcePath.ToLower();
-                        _targetKeyword = null;
-                        if (lowerEditPath.Contains("bibo") || lowerEditPath.Contains("b+") || lowerEditPath.Contains("turali bod") || lowerEditPath.Contains("lavabod") || lowerEditPath.Contains("rue") || lowerEditPath.Contains("yab") || lowerEditPath.Contains("yet another body") || lowerEditPath.Contains("lithe"))
-                            _targetKeyword = "bibo";
-                        else if (lowerEditPath.Contains("gen3") || lowerEditPath.Contains("tfgen3") || lowerEditPath.Contains("pythia") || lowerEditPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerEditPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerEditPath.Contains("gaia") || lowerEditPath.Contains("RiderThicc"))
-                            _targetKeyword = "gen3";
-                        else if (lowerEditPath.Contains("tbse") || lowerEditPath.Contains("the body se") || lowerEditPath.Contains("hrbody"))
-                            _targetKeyword = "tbse";
+                        _overrideTopPathList.Clear();
+                        _overrideBotPathList.Clear();
+                        if (!string.IsNullOrEmpty(_cachedResolvedTopPath))
+                            overrideTopPath = _cachedResolvedTopPath;
+                        if (!string.IsNullOrEmpty(_cachedResolvedBotPath))
+                            overrideBotPath = _cachedResolvedBotPath;
+                    }
+                    else if (!string.IsNullOrEmpty(previewLookupKeyword))
+                    {
+                        string checkRaceCode = previewLookupKeyword == "tbse" ? "c0101" : "c0201";
+                        string relativeTop = $"chara/equipment/e0279/model/{checkRaceCode}e0279_top.mdl";
+                        string relativeBot = $"chara/equipment/e0279/model/{checkRaceCode}e0279_dwn.mdl";
 
-                        if (_targetKeyword != null)
+                        _overrideTopPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(previewLookupKeyword, relativeTop);
+                        _overrideBotPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(previewLookupKeyword, relativeBot);
+
+                        bool activeMatchesPreview = false;
+                        int activeBodyType = _cachedActiveBodyType;
+                        if (activeBodyType == 1 && previewLookupKeyword == "bibo") activeMatchesPreview = true;
+                        if (activeBodyType == 2 && previewLookupKeyword == "gen3") activeMatchesPreview = true;
+                        if (activeBodyType == 3 && previewLookupKeyword == "tbse") activeMatchesPreview = true;
+
+                        if (activeMatchesPreview)
                         {
-                            string checkRaceCode = _targetKeyword == "tbse" ? "c0101" : "c0201";
-                            string relativeTop = $"chara/equipment/e0279/model/{checkRaceCode}e0279_top.mdl";
-                            string relativeBot = $"chara/equipment/e0279/model/{checkRaceCode}e0279_dwn.mdl";
-
-                            _overrideTopPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeTop);
-                            _overrideBotPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeBot);
-                            int activeBodyType = _cachedActiveBodyType;
-                            bool activeMatchesLayer = false;
-                            if (activeBodyType == 1 && _targetKeyword == "bibo") activeMatchesLayer = true;
-                            if (activeBodyType == 2 && _targetKeyword == "gen3") activeMatchesLayer = true;
-                            if (activeBodyType == 3 && _targetKeyword == "tbse") activeMatchesLayer = true;
-
-                            if (activeMatchesLayer)
-                            {
-                                string resolvedTopPath = _cachedResolvedTopPath;
-                                string resolvedBotPath = _cachedResolvedBotPath;
-                                
-                                _overrideTopSelectedIndex = Math.Max(0, _overrideTopPathList.FindIndex(x => string.Equals(x.DiskPath, resolvedTopPath, StringComparison.OrdinalIgnoreCase)));
-                                _overrideBotSelectedIndex = Math.Max(0, _overrideBotPathList.FindIndex(x => string.Equals(x.DiskPath, resolvedBotPath, StringComparison.OrdinalIgnoreCase)));
-                            }
-                            else
-                            {
-                                _overrideTopSelectedIndex = 0;
-                                _overrideBotSelectedIndex = 0;
-                            }
+                            _overrideTopSelectedIndex = Math.Max(0, _overrideTopPathList.FindIndex(x => string.Equals(x.DiskPath, _cachedResolvedTopPath, StringComparison.OrdinalIgnoreCase)));
+                            _overrideBotSelectedIndex = Math.Max(0, _overrideBotPathList.FindIndex(x => string.Equals(x.DiskPath, _cachedResolvedBotPath, StringComparison.OrdinalIgnoreCase)));
+                        }
+                        else
+                        {
+                            _overrideTopSelectedIndex = 0;
+                            _overrideBotSelectedIndex = 0;
                         }
                     }
                 }
@@ -2700,21 +3070,17 @@ namespace DragAndDropTexturing.Windows
                 if (_overrideBotPathList.Count > 0 && _overrideBotSelectedIndex >= 0 && _overrideBotSelectedIndex < _overrideBotPathList.Count)
                     overrideBotPath = _overrideBotPathList[_overrideBotSelectedIndex].DiskPath;
 
-                // Resolve glv/sho to match the body type being edited, not the body being worn.
-                // _targetKeyword is set from EditSourcePath (e.g. "bibo" when editing a Bibo texture).
-                // Falls back to _cachedActiveBodyType for new-layer mode where there's no EditSourcePath.
+                // Resolve glv/sho to match the preview mesh body type.
                 if (!isGear && !isFaceEditLocal)
                 {
-                    string glvShoKeyword = _targetKeyword;
+                    string glvShoKeyword = ResolvePreviewMeshKeywordForLoad();
                     if (string.IsNullOrEmpty(glvShoKeyword))
                     {
                         int bodyType = _cachedActiveBodyType;
-                        if (bodyType == 1) glvShoKeyword = "bibo";
-                        else if (bodyType == 2) glvShoKeyword = "gen3";
-                        else if (bodyType == 3) glvShoKeyword = "tbse";
+                        glvShoKeyword = PainterUvBridge.BodyTypeIndexToKeyword(bodyType);
                     }
 
-                    if (!string.IsNullOrEmpty(glvShoKeyword))
+                    if (!string.IsNullOrEmpty(glvShoKeyword) && glvShoKeyword != "gen2")
                     {
                         string glvShoRaceCode = glvShoKeyword == "tbse" ? "c0101" : "c0201";
 
@@ -2808,7 +3174,11 @@ namespace DragAndDropTexturing.Windows
                         }
                     }
                 );
-                _mainThreadActions.Enqueue(() => UpdateMeshVisibility());
+                _mainThreadActions.Enqueue(() =>
+                {
+                    UpdateMeshVisibility();
+                    RefreshUvBridge();
+                });
 
                 string lowerPath = _topModelDiskPath?.ToLower() ?? "";
                 bool isGen3 = false, isBibo = false, isTbse = false;
@@ -2835,12 +3205,23 @@ namespace DragAndDropTexturing.Windows
                 _isBiboPreview = isBibo;
                 _isTbsePreview = isTbse;
 
+                _previewMeshKeyword = isTbse ? "tbse" : isGen3 ? "gen3" : isBibo ? "bibo" : "gen2";
+                if (string.IsNullOrEmpty(_canvasUvKeyword))
+                    _canvasUvKeyword = _targetKeyword ?? _previewMeshKeyword;
+
+                string canvasKeyword = _canvasUvKeyword ?? "gen2";
+                bool canvasIsGen3 = canvasKeyword == "gen3";
+                bool canvasIsBibo = canvasKeyword == "bibo";
+                bool canvasIsTbse = canvasKeyword == "tbse";
+                _plugin.PluginLog.Info($"[PSD Preview] Canvas UV space: {canvasKeyword}, Preview mesh: {_previewMeshKeyword}");
+
                 if (!isFaceEditLocal && string.IsNullOrEmpty(EditSourcePath) && _overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
                 {
                     _targetKeyword = null;
                     if (isBibo) _targetKeyword = "bibo";
                     else if (isGen3) _targetKeyword = "gen3";
                     else if (isTbse) _targetKeyword = "tbse";
+                    _canvasUvKeyword = _targetKeyword ?? _previewMeshKeyword;
 
                     if (_targetKeyword != null)
                     {
@@ -2869,22 +3250,22 @@ namespace DragAndDropTexturing.Windows
 
                 bool isBodySlot = !isGear || (activeSuffix != "hir" && activeSuffix != "til" && activeSuffix != "met");
                 
-                // Do not forcefully override with human skin textures if we are working with a minion or mount!
+                // Backdrop / paint canvas always uses the edited texture's body UV type, not the preview mesh type.
                 if (!isFaceEditLocal && isBodySlot && !_cachedIsMinion && !_cachedIsMount)
                 {
-                    if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
+                    if (canvasIsGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
                         maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
                     }
-                    else if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
+                    else if (canvasIsBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
                         maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
                     }
-                    else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
+                    else if (canvasIsTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
@@ -2892,26 +3273,41 @@ namespace DragAndDropTexturing.Windows
                     }
                     else
                     {
-                        if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
+                        if (canvasIsBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
                         {
                             baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
                             normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
                             maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
-                            isBibo = true;
+                        }
+                        else if (canvasIsGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
+                        {
+                            baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
+                            normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
+                            maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
+                        }
+                        else if (canvasIsTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
+                        {
+                            baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
+                            normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
+                            maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Mask;
+                        }
+                        else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
+                        {
+                            baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
+                            normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
+                            maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
                         }
                         else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override != null)
                         {
                             baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
                             normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
                             maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
-                            isGen3 = true;
                         }
                         else if (FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
                         {
                             baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
                             normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
                             maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Mask;
-                            isTbse = true;
                         }
                     }
                 }
@@ -2961,11 +3357,11 @@ namespace DragAndDropTexturing.Windows
                         string modPath = _cachedModDirectory;
                         string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
                         string dlcBase = null;
-                        if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
+                        if (canvasIsBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
                             dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : (isEditingMask ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Mask.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Base.TrimStart('\\')));
-                        else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
+                        else if (canvasIsGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
                             dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : (isEditingMask ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Mask.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Base.TrimStart('\\')));
-                        else if (isTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes.Count > 0)
+                        else if (canvasIsTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes.Count > 0)
                             dlcBase = Path.Combine(dlcPath, isEditingNormal ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\') : (isEditingMask ? FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Mask.TrimStart('\\') : FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseSkinTypes[0].BackupTextures[0].Base.TrimStart('\\')));
 
                         _activeBaseTexturePng = TexToTempPng(dlcBase, out baseIsBlack, shouldPadToSquare);
@@ -3027,9 +3423,9 @@ namespace DragAndDropTexturing.Windows
                         string modPath = _cachedModDirectory;
                         string dlcPath = Path.Combine(modPath, "LooseTextureCompilerDLC");
                         string dlcNorm = null;
-                        if (isBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
+                        if (canvasIsBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Count > 0)
                             dlcNorm = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes[0].BackupTextures[0].Normal.TrimStart('\\'));
-                        else if (isGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
+                        else if (canvasIsGen3 && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes != null && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes.Count > 0)
                             dlcNorm = Path.Combine(dlcPath, FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3SkinTypes[0].BackupTextures[0].Normal.TrimStart('\\'));
 
                         _activeNormalTexturePng = TexToTempPng(dlcNorm, out normIsBlack, shouldPadToSquare);
@@ -3890,8 +4286,9 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 }
                 
                 // Initial composite
-                _renderer.GpuComposite(_primarySlotArray, _targetChannel);
+                CompositeAndAssignToModels();
                 _needsComposite = false;
+                SchedulePreviewLayerSync(paintOnly: false);
             }
             catch (Exception ex)
             {
