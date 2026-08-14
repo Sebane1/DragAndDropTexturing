@@ -1535,7 +1535,9 @@ public class MainWindow : Window, IDisposable
                             canEdit = Plugin.IsBodyAvailable("bibo");
                         else if (lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia"))
                             canEdit = Plugin.IsBodyAvailable("gen3");
-                        else if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody"))
+                        else if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody") || lowerPath.Contains("swole") || lowerPath.Contains("hunk") || lowerPath.Contains("the body") ||
+                                 (!lowerPath.Contains("obj/face") && !lowerPath.Contains("fac_") && !lowerPath.Contains("/face/") && !lowerPath.Contains("_face") &&
+                                  (lowerPath.Contains("_b_d") || lowerPath.Contains("_b_n") || lowerPath.Contains("_b_s") || lowerPath.Contains("_b_m") || lowerPath.Contains("b_d.tex") || lowerPath.Contains("b_n.tex") || lowerPath.Contains("b_s.tex") || lowerPath.Contains("b_m.tex"))))
                             canEdit = Plugin.IsBodyAvailable("tbse");
 
                         if (!canEdit) ImGui.BeginDisabled();

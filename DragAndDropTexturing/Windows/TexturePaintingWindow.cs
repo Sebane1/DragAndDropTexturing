@@ -2189,8 +2189,18 @@ namespace DragAndDropTexturing.Windows
                 return "bibo";
             if (lowerPath.Contains("gen3") || lowerPath.Contains("tfgen3") || lowerPath.Contains("pythia") || lowerPath.Contains("exqb") || System.Text.RegularExpressions.Regex.IsMatch(lowerPath, @"(^|[^a-z])eve([^a-z]|$)") || lowerPath.Contains("gaia") || lowerPath.Contains("riderthicc"))
                 return "gen3";
-            if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody"))
+            if (lowerPath.Contains("tbse") || lowerPath.Contains("the body se") || lowerPath.Contains("hrbody") || lowerPath.Contains("swole") || lowerPath.Contains("hunk") || lowerPath.Contains("the body"))
                 return "tbse";
+
+            bool isFacePath = lowerPath.Contains("obj/face") || lowerPath.Contains("fac_") || lowerPath.Contains("/face/") || lowerPath.Contains("_face");
+            if (!isFacePath)
+            {
+                if (lowerPath.Contains("_b_d") || lowerPath.Contains("_b_n") || lowerPath.Contains("_b_s") || lowerPath.Contains("_b_m") ||
+                    lowerPath.Contains("b_d.tex") || lowerPath.Contains("b_n.tex") || lowerPath.Contains("b_s.tex") || lowerPath.Contains("b_m.tex"))
+                {
+                    return "tbse";
+                }
+            }
             return null;
         }
 
@@ -3469,12 +3479,22 @@ namespace DragAndDropTexturing.Windows
                     }
                     else if (!string.IsNullOrEmpty(previewLookupKeyword))
                     {
-                        string checkRaceCode = previewLookupKeyword == "tbse" ? "c0101" : "c0201";
+                        string checkRaceCode = previewLookupKeyword == "tbse" ? (!string.IsNullOrEmpty(trueRaceCode) ? trueRaceCode : "c0101") : "c0201";
                         string relativeTop = $"chara/equipment/e0279/model/{checkRaceCode}e0279_top.mdl";
                         string relativeBot = $"chara/equipment/e0279/model/{checkRaceCode}e0279_dwn.mdl";
 
                         _overrideTopPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(previewLookupKeyword, relativeTop);
                         _overrideBotPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(previewLookupKeyword, relativeBot);
+
+                        if (previewLookupKeyword == "tbse" && _overrideTopPathList.Count == 0 && checkRaceCode != "c0101")
+                        {
+                            string fallbackTop = "chara/equipment/e0279/model/c0101e0279_top.mdl";
+                            string fallbackBot = "chara/equipment/e0279/model/c0101e0279_dwn.mdl";
+                            var fbTopList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(previewLookupKeyword, fallbackTop);
+                            var fbBotList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(previewLookupKeyword, fallbackBot);
+                            if (fbTopList.Count > 0) _overrideTopPathList = fbTopList;
+                            if (fbBotList.Count > 0) _overrideBotPathList = fbBotList;
+                        }
 
                         bool activeMatchesPreview = false;
                         int activeBodyType = _cachedActiveBodyType;
@@ -3512,7 +3532,7 @@ namespace DragAndDropTexturing.Windows
 
                     if (!string.IsNullOrEmpty(glvShoKeyword) && glvShoKeyword != "gen2")
                     {
-                        string glvShoRaceCode = glvShoKeyword == "tbse" ? "c0101" : "c0201";
+                        string glvShoRaceCode = glvShoKeyword == "tbse" ? (!string.IsNullOrEmpty(trueRaceCode) ? trueRaceCode : "c0101") : "c0201";
 
                         string resolvedGlv = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindMeshDiskPathInModDirectory(
                             glvShoKeyword, $"chara/equipment/e0279/model/{glvShoRaceCode}e0279_glv.mdl");
@@ -3655,13 +3675,23 @@ namespace DragAndDropTexturing.Windows
 
                     if (_targetKeyword != null)
                     {
-                        string checkRaceCode = _targetKeyword == "tbse" ? "c0101" : "c0201";
+                        string checkRaceCode = _targetKeyword == "tbse" ? (!string.IsNullOrEmpty(trueRaceCode) ? trueRaceCode : "c0101") : "c0201";
                         string relativeTop = $"chara/equipment/e0279/model/{checkRaceCode}e0279_top.mdl";
                         string relativeBot = $"chara/equipment/e0279/model/{checkRaceCode}e0279_dwn.mdl";
 
                         _overrideTopPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeTop);
                         _overrideBotPathList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, relativeBot);
                         
+                        if (_targetKeyword == "tbse" && _overrideTopPathList.Count == 0 && checkRaceCode != "c0101")
+                        {
+                            string fallbackTop = "chara/equipment/e0279/model/c0101e0279_top.mdl";
+                            string fallbackBot = "chara/equipment/e0279/model/c0101e0279_dwn.mdl";
+                            var fbTopList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, fallbackTop);
+                            var fbBotList = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindAllMeshDiskPathsInModDirectory(_targetKeyword, fallbackBot);
+                            if (fbTopList.Count > 0) _overrideTopPathList = fbTopList;
+                            if (fbBotList.Count > 0) _overrideBotPathList = fbBotList;
+                        }
+
                         _overrideTopSelectedIndex = Math.Max(0, _overrideTopPathList.FindIndex(x => string.Equals(x.DiskPath, _topModelDiskPath, StringComparison.OrdinalIgnoreCase)));
                         _overrideBotSelectedIndex = Math.Max(0, _overrideBotPathList.FindIndex(x => string.Equals(x.DiskPath, _botModelDiskPath, StringComparison.OrdinalIgnoreCase)));
                     }
