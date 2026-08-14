@@ -255,7 +255,12 @@ public class MainWindow : Window, IDisposable
                 DrawContextualLayers();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem(Translator.LocalizeUI("Penumbra Found Mods")))
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Onion Mods")))
+            {
+                DrawOnionModsTab();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Proteus Mods")))
             {
                 DrawPenumbraFoundMods();
                 ImGui.EndTabItem();
@@ -1832,6 +1837,7 @@ public class MainWindow : Window, IDisposable
     }
 
     private int _selectedContextualLayerIndex = 0;
+    private int _selectedOnionModIndex = 0;
 
     private string _cachedErrorLog = null;
     private string _cachedBenchmarkLog = null;
@@ -2004,7 +2010,7 @@ public class MainWindow : Window, IDisposable
                         {
                             if (f.EndsWith(".clmp", StringComparison.OrdinalIgnoreCase))
                             {
-                                Plugin.ContextualLayerManager.ImportLayerFromFile(f);
+                                Plugin.ContextualLayerManager.ImportClmpLayersFromFile(f);
                             }
                         }
                         if (Plugin.ContextualLayerManager.ContextualLayers.Count > 0)
@@ -2048,7 +2054,7 @@ public class MainWindow : Window, IDisposable
             {
                 if (f.EndsWith(".clmp", StringComparison.OrdinalIgnoreCase))
                 {
-                    Plugin.ContextualLayerManager.ImportLayerFromFile(f);
+                    Plugin.ContextualLayerManager.ImportClmpLayersFromFile(f);
                 }
             }
             if (Plugin.ContextualLayerManager.ContextualLayers.Count > 0)
@@ -2764,6 +2770,206 @@ public class MainWindow : Window, IDisposable
                 }
             }
         }
+    }
+
+    private void DrawOnionModsTab()
+    {
+        ImGui.Spacing();
+        if (ImGui.Button(Translator.LocalizeUI("Import .omp File")))
+        {
+            _fileDialogManager.OpenFileDialog(
+                Translator.LocalizeUI("Select an Onion Layer Mod package"),
+                "Onion Layer Mod{.omp}",
+                (b, files) =>
+                {
+                    if (b && files != null && files.Count > 0)
+                    {
+                        foreach (var f in files)
+                        {
+                            if (f.EndsWith(".omp", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var imported = Plugin.OnionLayerModManager?.ImportFromFile(f, false);
+                                if (imported != null && Plugin.OnionLayerModManager != null)
+                                {
+                                    _selectedOnionModIndex = Plugin.OnionLayerModManager.OnionLayerMods.Count - 1;
+                                }
+                            }
+                        }
+                    }
+                },
+                0, null, true);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button(Translator.LocalizeUI("Open Mods Folder")))
+        {
+            if (Plugin.OnionLayerModManager != null && Directory.Exists(Plugin.OnionLayerModManager.RootDirectory))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo()
+                {
+                    FileName = Plugin.OnionLayerModManager.RootDirectory,
+                    UseShellExecute = true,
+                    Verb = "open"
+                });
+            }
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button(Translator.LocalizeUI("Refresh Mods")))
+        {
+            Plugin.OnionLayerModManager?.LoadMods();
+            if (Plugin.OnionLayerModManager != null && Plugin.OnionLayerModManager.OnionLayerMods.Count > 0)
+            {
+                _selectedOnionModIndex = Math.Clamp(_selectedOnionModIndex, 0, Plugin.OnionLayerModManager.OnionLayerMods.Count - 1);
+            }
+        }
+
+        ImGui.Spacing();
+
+        var mgr = Plugin.OnionLayerModManager;
+        if (mgr == null || mgr.OnionLayerMods.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("No Onion layer mods (.omp) currently installed."));
+            return;
+        }
+
+        if (_selectedOnionModIndex >= mgr.OnionLayerMods.Count)
+            _selectedOnionModIndex = Math.Max(0, mgr.OnionLayerMods.Count - 1);
+
+        ImGui.BeginChild("OnionModsList", new Vector2(240, 0), true);
+        for (int i = 0; i < mgr.OnionLayerMods.Count; i++)
+        {
+            var mod = mgr.OnionLayerMods[i];
+            bool isSelected = _selectedOnionModIndex == i;
+
+            if (!mod.Enabled) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.5f, 0.5f, 1.0f));
+            string displayName = mod.Enabled ? mod.Name : mod.Name + " " + Translator.LocalizeUI("(Disabled)");
+            if (ImGui.Selectable($"{displayName}##OnionModSelect_{i}_{mod.Meta.Identifier}", isSelected))
+            {
+                _selectedOnionModIndex = i;
+            }
+            if (!mod.Enabled) ImGui.PopStyleColor();
+        }
+        ImGui.EndChild();
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(Translator.LocalizeUI("You can drop .omp files directly here to import them!"));
+        }
+
+        if (Plugin.DragDropManager.CreateImGuiTarget("OnionModImportTarget", out var droppedFiles, out _))
+        {
+            foreach (var f in droppedFiles)
+            {
+                if (f.EndsWith(".omp", StringComparison.OrdinalIgnoreCase))
+                {
+                    Plugin.OnionLayerModManager?.ImportFromFile(f, false);
+                }
+            }
+            if (mgr.OnionLayerMods.Count > 0)
+                _selectedOnionModIndex = mgr.OnionLayerMods.Count - 1;
+        }
+
+        ImGui.SameLine();
+
+        ImGui.BeginChild("OnionModDetails", new Vector2(0, 0), true);
+        if (_selectedOnionModIndex >= 0 && _selectedOnionModIndex < mgr.OnionLayerMods.Count)
+        {
+            var mod = mgr.OnionLayerMods[_selectedOnionModIndex];
+            ImGui.PushID($"onion_mod_details_{mod.Meta.Identifier}");
+
+            string modName = mod.Meta.Name;
+            if (ImGui.InputText(Translator.LocalizeUI("Mod Name") + "##OnionName", ref modName, 255))
+            {
+                mod.Meta.Name = modName;
+                mod.SaveMeta();
+                mod.TryRenameDirectoryToName(mgr.RootDirectory, out _);
+                mgr.TriggerHotswapRebuild();
+            }
+
+            bool enabled = mod.Settings.Enabled;
+            if (ImGui.Checkbox(Translator.LocalizeUI("Enabled") + "##OnionEnabled", ref enabled))
+            {
+                mod.Settings.Enabled = enabled;
+                mod.SaveSettings();
+                mgr.TriggerHotswapRebuild();
+            }
+
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+
+            if (!string.IsNullOrWhiteSpace(mod.Meta.Author))
+                ImGui.TextDisabled(Translator.LocalizeUI($"Author: {mod.Meta.Author}"));
+            if (!string.IsNullOrWhiteSpace(mod.Meta.Version))
+                ImGui.TextDisabled(Translator.LocalizeUI($"Version: {mod.Meta.Version}"));
+            if (!string.IsNullOrWhiteSpace(mod.Meta.Website))
+                ImGui.TextDisabled(Translator.LocalizeUI($"Website: {mod.Meta.Website}"));
+            ImGui.TextDisabled(Translator.LocalizeUI($"Total Layers: {mod.Meta.TotalLayerCount}"));
+
+            if (!string.IsNullOrWhiteSpace(mod.Meta.Description))
+            {
+                ImGui.Spacing();
+                ImGui.TextWrapped(mod.Meta.Description);
+            }
+
+            if (mod.Meta.Groups.Count > 0)
+            {
+                ImGui.Spacing();
+                ImGui.TextUnformatted(Translator.LocalizeUI("Mod Options:"));
+                foreach (var group in mod.Meta.Groups)
+                {
+                    if (group.Options.Count == 0) continue;
+                    int current = mod.Settings.GroupSelections.TryGetValue(group.Name, out var sel) ? sel : group.DefaultSettings;
+                    string currentName = (current >= 0 && current < group.Options.Count) ? group.Options[current].Name : $"Option {current}";
+
+                    if (ImGui.BeginCombo(group.Name, currentName))
+                    {
+                        for (int optIdx = 0; optIdx < group.Options.Count; optIdx++)
+                        {
+                            var opt = group.Options[optIdx];
+                            bool isSelected = optIdx == current;
+                            if (ImGui.Selectable(opt.Name, isSelected))
+                            {
+                                mod.Settings.GroupSelections[group.Name] = optIdx;
+                                mod.SaveSettings();
+                                mgr.TriggerHotswapRebuild();
+                            }
+                        }
+                        ImGui.EndCombo();
+                    }
+                }
+            }
+
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+
+            if (ImGui.Button(Translator.LocalizeUI("Export .omp Package")))
+            {
+                mgr.ExportMod(mod);
+            }
+
+            ImGui.SameLine();
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1f));
+            if (ImGui.Button(Translator.LocalizeUI("Delete Mod")))
+            {
+                mgr.DeleteMod(mod);
+                _selectedOnionModIndex = Math.Max(0, _selectedOnionModIndex - 1);
+                ImGui.PopStyleColor();
+                ImGui.PopID();
+                ImGui.EndChild();
+                return;
+            }
+            ImGui.PopStyleColor();
+
+            ImGui.PopID();
+        }
+        else
+        {
+            ImGui.Text(Translator.LocalizeUI("Select an Onion mod on the left to edit settings."));
+        }
+        ImGui.EndChild();
     }
 
     #endregion

@@ -203,11 +203,36 @@ namespace DragAndDropTexturing
             var files = System.IO.Directory.GetFiles(importFolder, "*.clmp");
             foreach (var file in files)
             {
-                ImportLayerFromFile(file, true);
+                ImportClmpLayersFromFile(file, true);
             }
         }
 
-        public void ImportLayerFromFile(string filePath, bool deleteOriginal = false)
+        public void ImportClmpLayersFromFile(string filePath, bool deleteOriginal = false)
+        {
+            try
+            {
+                string newDir = System.IO.Path.Combine(RootDirectory, Guid.NewGuid().ToString());
+                System.IO.Directory.CreateDirectory(newDir);
+
+                System.IO.Compression.ZipFile.ExtractToDirectory(filePath, newDir);
+
+                if (deleteOriginal)
+                {
+                    System.IO.File.Delete(filePath);
+                }
+
+                var layer = ContextualLayer.Load(newDir);
+                layer.DirectoryPath = newDir;
+                layer.Save();
+                ContextualLayers.Add(layer);
+            }
+            catch (Exception ex)
+            {
+                _plugin.PluginLog.Error($"Failed to import Contextual Layer {filePath}: {ex.Message}");
+            }
+        }
+
+        public void ImportOmpLayersFromFile(string filePath, bool deleteOriginal = false)
         {
             try
             {

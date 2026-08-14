@@ -9,6 +9,7 @@ using DragAndDropTexturing;
 using DragAndDropTexturing.Equipment;
 using DragAndDropTexturing.LanguageHelpers;
 using DragAndDropTexturing.Overlays;
+using DragAndDropTexturing.Onion;
 using FFXIVLooseTextureCompiler;
 using FFXIVLooseTextureCompiler.Export;
 using FFXIVLooseTextureCompiler.ImageProcessing;
@@ -216,6 +217,7 @@ namespace RoleplayingVoice
             UVMapType uvType = UVMapType.Base;
             if (overrideType == "Normal") uvType = UVMapType.Normal;
             else if (overrideType == "Base") uvType = UVMapType.Base;
+            else if (overrideType == "Mask") uvType = UVMapType.Mask;
             else
             {
                 TextureSet temp = new TextureSet();
@@ -280,6 +282,26 @@ namespace RoleplayingVoice
                 if (string.IsNullOrEmpty(item.Glow)) { item.Glow = file; item.GlowUV = sourceUV; item.GlowTint = tint ?? System.Numerics.Vector4.One; item.GlowBlendMode = blendMode; }
                 else if (!item.GlowOverlays.Contains(file)) { item.GlowOverlays.Add(file); item.GlowOverlayUVs.Add(sourceUV); item.GlowOverlayTints.Add(tint ?? System.Numerics.Vector4.One); item.GlowOverlayBlendModes.Add(blendMode); }
             }
+        }
+
+        private bool ApplyOnionLayerMods(TextureSet item, string categoryKey, string overrideType, string playerRaceCode = null)
+        {
+            if (plugin?.OnionLayerModManager == null) return false;
+
+            bool applied = false;
+            foreach (var mod in plugin.OnionLayerModManager.OnionLayerMods.Where(m => m.Enabled))
+            {
+                string partSuffix = "_" + mod.Settings.TargetBodyPart.ToLowerInvariant();
+                if (!categoryKey.EndsWith(partSuffix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                OnionLayerApplicator.ApplyToTextureSet(item, mod, (ts, path, otype, tint, bm) =>
+                {
+                    AddToTextureSet(ts, path, string.IsNullOrEmpty(otype) ? overrideType : otype, tint, bm);
+                    applied = true;
+                }, playerRaceCode);
+            }
+            return applied;
         }
 
         private bool ApplyAdvancedOverlays(TextureSet item, string categoryKey, string collectionId)
@@ -1264,6 +1286,7 @@ namespace RoleplayingVoice
                                     HashSet<string> dragAndDroppedCategories = new HashSet<string>();
                                     var psdFiles = files.Where(f => Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
                                     var clmpFiles = files.Where(f => Path.GetExtension(f).Equals(".clmp", StringComparison.OrdinalIgnoreCase)).ToList();
+                                    var ompFiles = files.Where(f => Path.GetExtension(f).Equals(".omp", StringComparison.OrdinalIgnoreCase)).ToList();
                                     files = files.Where(f => !Path.GetExtension(f).Equals(".psd", StringComparison.OrdinalIgnoreCase)).ToList();
 
                                     if (psdFiles.Count > 0)
@@ -1280,7 +1303,15 @@ namespace RoleplayingVoice
                                     {
                                         foreach (var clmpFile in clmpFiles)
                                         {
-                                            plugin.ContextualLayerManager.ImportLayerFromFile(clmpFile, true);
+                                            plugin.ContextualLayerManager.ImportClmpLayersFromFile(clmpFile, true);
+                                        }
+                                        return;
+                                    }
+                                    if (ompFiles.Count > 0)
+                                    {
+                                        foreach (var ompFile in ompFiles)
+                                        {
+                                            plugin.OnionLayerModManager?.ImportFromFile(ompFile, true);
                                         }
                                         return;
                                     }
@@ -1759,6 +1790,7 @@ namespace RoleplayingVoice
                                                         }
                                                     }
                                                 }
+                                                ApplyOnionLayerMods(item, categoryKey, overrideType);
                                             }
                                             try
                                             {
@@ -2378,7 +2410,7 @@ namespace RoleplayingVoice
                 if (_bulkRebuildInProgress || _lockDuplicateGeneration) return;
                 // Cooldown: ignore Glamourer state changes for 3s after an export finishes,
                 // because the SetItem redraw calls at the end of Export fire asynchronously
-                // and would otherwise trigger a spurious second export.
+                // and would otherwise trigger a second export.
                 if ((DateTime.UtcNow - _lastExportEndTime).TotalMilliseconds < 3000) return;
                 if (plugin?.SafeGameObjectManager?.LocalPlayer == null) return;
                 if (e.GameObjectPtr != plugin.SafeGameObjectManager.LocalPlayer.Address) return;
@@ -2820,7 +2852,8 @@ namespace RoleplayingVoice
           ".bmp",
           ".tex",
           ".psd",
-          ".clmp"
+          ".clmp",
+          ".omp"
         };
         public void RebuildAllCategories()
         {
@@ -3852,22 +3885,28 @@ namespace RoleplayingVoice
 
                         bool hasContextualLayers = false;
                         bool isMinion = categoryKey.Contains("_minion_");
-                        if (!isMinion && plugin.ContextualLayerManager != null && charName == plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue)
+                        if (!isMinion && charName == plugin.SafeGameObjectManager.LocalPlayer?.Name.TextValue)
                         {
-                            foreach (var activeLayer in plugin.ContextualLayerManager.GetActiveLayers())
+                            if (plugin.ContextualLayerManager != null)
                             {
-                                if (categoryKey.EndsWith("_" + activeLayer.LayerDef.TargetBodyPart.ToLower()))
+                                foreach (var activeLayer in plugin.ContextualLayerManager.GetActiveLayers())
                                 {
-                                    for (int layerIdx = 0; layerIdx < activeLayer.CurrentStackCount; layerIdx++)
+                                    if (categoryKey.EndsWith("_" + activeLayer.LayerDef.TargetBodyPart.ToLower()))
                                     {
-                                        if (layerIdx < activeLayer.CachedTexturePaths.Count && File.Exists(activeLayer.CachedTexturePaths[layerIdx]))
+                                        for (int layerIdx = 0; layerIdx < activeLayer.CurrentStackCount; layerIdx++)
                                         {
-                                            hasContextualLayers = true;
-                                            AddToTextureSet(item, activeLayer.CachedTexturePaths[layerIdx], overrideType);
+                                            if (layerIdx < activeLayer.CachedTexturePaths.Count && File.Exists(activeLayer.CachedTexturePaths[layerIdx]))
+                                            {
+                                                hasContextualLayers = true;
+                                                AddToTextureSet(item, activeLayer.CachedTexturePaths[layerIdx], overrideType);
+                                            }
                                         }
                                     }
                                 }
                             }
+
+                            if (ApplyOnionLayerMods(item, categoryKey, overrideType))
+                                hasContextualLayers = true;
 
                             // Advanced Overlays (Proteus/Metadata from Penumbra mods)
                             if (ApplyAdvancedOverlays(item, categoryKey, collectionId))
