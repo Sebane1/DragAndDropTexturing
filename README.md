@@ -1,5 +1,11 @@
 Drag And Drop Texturing allows players to drag and drop transparent overlays or full diffuses or psd files DIRECTLY into the game over top of their existing body or face. Stack Bibo, Gen3, and Gen2 textures on top of eachother indiscriminately. They will automatically be compatible with eachother! Also automatically detects what body you're wearing and auto converts textures as needed, using skin textures from your highest priority skin mod as reference.
 
+Supports dynamically layering texture data from both Proteus and Onion mods.
+
+Allows for dynamic skin overlays that automatically adapt and recompile to any race you switch to!
+
+Easily edit most textures from directly in game!
+
 Drag And Drop Example:
 <img width="1487" height="874" alt="First" src="https://github.com/user-attachments/assets/a62b6c17-2e16-4aea-9dbc-ab6131936778" />
 <img width="1454" height="852" alt="Seconds" src="https://github.com/user-attachments/assets/451c492b-6ac5-4075-b63e-4b5f37bf08a8" />
