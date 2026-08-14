@@ -176,12 +176,27 @@ namespace DragAndDropTexturing.Windows
             _hasGameCameraMatrices = true;
         }
 
+        public void ResetBindPose()
+        {
+            foreach (var kvp in _models)
+            {
+                var model = kvp.Value;
+                if (model != null && model.HasSkinning && model.BindVertices != null && model.VertexBuffer != null)
+                {
+                    model.Vertices = model.BindVertices;
+                    _context?.UpdateSubresource(model.BindVertices, model.VertexBuffer);
+                }
+            }
+            _overlaySkinAppliedThisFrame = false;
+        }
+
         public void ClearCharacterOverlay()
         {
             UseCharacterOverlay = false;
             _hasGameCameraMatrices = false;
             _overlayPoseModel = null;
             CharacterWorldMatrix = Matrix4x4.Identity;
+            ResetBindPose();
         }
 
         /// <summary>Reset per-frame overlay state at the start of DrawCharacterOverlayPass.</summary>
