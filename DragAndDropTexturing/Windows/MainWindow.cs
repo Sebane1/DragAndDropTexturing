@@ -876,16 +876,16 @@ public class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         ImGui.Separator();
-        ImGui.Text($"{overlay.ModName} — {Translator.LocalizeUI("Color Table Rows")}");
+        ImGui.Text($"{overlay.ModName}, {Translator.LocalizeUI("Color Table Rows")}");
         if (string.IsNullOrEmpty(overlay.IndexPath))
         {
             ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.4f, 1f),
-                Translator.LocalizeUI("No index texture — row 16 is the main recolor row."));
+                Translator.LocalizeUI("No index texture, row 16 is the main recolor row."));
         }
         else
         {
             ImGui.TextColored(new Vector4(0.6f, 0.8f, 0.6f, 1f),
-                Translator.LocalizeUI("Index texture active — red selects row (÷17), green blends A/B."));
+                Translator.LocalizeUI("Index texture active, red selects row (÷17), green blends A/B."));
         }
 
         var store = Plugin.Configuration.CollectionSortedPenumbraOverlayColorRows[_collectionId];
@@ -918,8 +918,8 @@ public class MainWindow : Window, IDisposable
             if (ImGui.BeginTable("PenumbraColorRowsTable", 3, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
             {
                 ImGui.TableSetupColumn(Translator.LocalizeUI("Row"), ImGuiTableColumnFlags.WidthFixed, 40);
-                ImGui.TableSetupColumn(Translator.LocalizeUI("Sub A — Diffuse / Emissive / Opacity"), ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn(Translator.LocalizeUI("Sub B — Diffuse / Emissive / Opacity"), ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn(Translator.LocalizeUI("Sub A, Diffuse / Emissive / Opacity"), ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn(Translator.LocalizeUI("Sub B, Diffuse / Emissive / Opacity"), ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableHeadersRow();
 
                 bool hasIndex = !string.IsNullOrEmpty(overlay.IndexPath);
@@ -2471,7 +2471,7 @@ public class MainWindow : Window, IDisposable
             {
                 _uvPreviewCachedPath = texturePath;
 
-                // .ltct files are XOR-encoded — decode to temp PNG first
+                // .ltct files are XOR-encoded, decode to temp PNG first
                 if (texturePath.EndsWith(".ltct", StringComparison.OrdinalIgnoreCase))
                 {
                     string tempPng = Path.Combine(Path.GetTempPath(), "ddt_uv_preview.png");

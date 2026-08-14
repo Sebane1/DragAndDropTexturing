@@ -649,7 +649,7 @@ public static class WornEquipmentResolver
             byte[] mdlBytes = null;
             string actualMdlPath = mdlCandidate;
 
-            // FFXIV sometimes lies about the type — try multiple candidates
+            // FFXIV sometimes lies about the type, try multiple candidates
             var candidatesToTry = new List<(string t, char p)> {
                 (typeStr, prefix),
                 ("monster", 'm'),
@@ -931,7 +931,7 @@ public static class WornEquipmentResolver
                     var piece = new WornEquipmentPiece
                     {
                         SlotKey = slotKey,
-                        DisplayName = $"{Capitalize(slotKey)} — {itemName} ({Capitalize(displayMatName)})",
+                        DisplayName = $"{Capitalize(slotKey)}, {itemName} ({Capitalize(displayMatName)})",
                         ItemId = itemId,
                         EquipSetId = equipSetId,
                         InternalBasePath = internalBase,
@@ -988,7 +988,7 @@ public static class WornEquipmentResolver
                         var piece = new WornEquipmentPiece
                         {
                             SlotKey = slotKey,
-                            DisplayName = $"{Capitalize(slotKey)} — {itemName}",
+                            DisplayName = $"{Capitalize(slotKey)}, {itemName}",
                             ItemId = itemId,
                             EquipSetId = equipSetId,
                             InternalBasePath = internalBase,
@@ -1407,7 +1407,7 @@ public static class WornEquipmentResolver
             if (string.IsNullOrEmpty(maskPath))
                 maskPath = paths.Count > 2 ? paths[2] : EquipmentPathBuilder.GuessMaskPath(basePath);
 
-            DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] Classified textures — base: {basePath}, norm: {normalPath}, mask: {maskPath}");
+            DragAndDropTexturing.Plugin.Log.Information($"[Drag And Drop Debug] Classified textures, base: {basePath}, norm: {normalPath}, mask: {maskPath}");
             return !string.IsNullOrEmpty(basePath);
         }
         catch
@@ -1442,7 +1442,7 @@ public static class WornEquipmentResolver
 
         try
         {
-            // Build a unique output name — modders reuse generic filenames like mask.tex
+            // Build a unique output name, modders reuse generic filenames like mask.tex
             // in different subdirectories, so include a hash of the full path for uniqueness.
             string sourceHash = source.GetHashCode().ToString("X8");
             string slotSuffix = !string.IsNullOrEmpty(slotKey) ? $"_{slotKey}" : "";

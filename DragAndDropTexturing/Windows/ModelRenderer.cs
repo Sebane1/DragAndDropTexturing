@@ -184,6 +184,33 @@ namespace DragAndDropTexturing.Windows
             CharacterWorldMatrix = Matrix4x4.Identity;
         }
 
+        /// <summary>Reset per-frame overlay state at the start of DrawCharacterOverlayPass.</summary>
+        public void BeginOverlayFrame()
+        {
+            _overlaySkinAppliedThisFrame = false;
+        }
+
+        /// <summary>
+        /// Sync skinned mesh + game-camera WVP for raycasting while overlay is drawn on the game viewport.
+        /// </summary>
+        public void PrepareOverlayRaycast(Matrix4x4 worldMatrix, Matrix4x4 viewMatrix, Matrix4x4 projectionMatrix, int width, int height)
+        {
+            if (width <= 0 || height <= 0)
+                return;
+
+            if (width != Width || height != Height)
+                Resize(width, height);
+
+            UseCharacterOverlay = true;
+            CharacterWorldMatrix = worldMatrix;
+            SetGameCameraMatrices(viewMatrix, projectionMatrix);
+
+            if (_overlayPoseModel != null)
+                ApplyLivePoseSkinning();
+
+            _lastWvp = CharacterWorldMatrix * _gameViewMatrix * _gameProjMatrix;
+        }
+
         public unsafe void SetOverlayPoseSource(Ktisis.Structs.Actor.ActorModel* model)
         {
             _overlayPoseModel = model;
@@ -779,6 +806,9 @@ float4 PS(PS_IN input) : SV_TARGET
 
         private unsafe void ApplyLivePoseSkinning()
         {
+            if (UseCharacterOverlay && _overlaySkinAppliedThisFrame)
+                return;
+
             OverlaySkinningDebugLine = "skin: no pose model";
             if (_overlayPoseModel == null)
                 return;
@@ -790,6 +820,9 @@ float4 PS(PS_IN input) : SV_TARGET
             }
 
             var skeleton = _overlayPoseModel->Skeleton;
+            PainterLivePoseSkinner.BindDebugEnabled = OverlayBindDebug;
+            PainterLivePoseSkinner.BindExperiment = OverlayBindExperiment;
+
             int skinnedSlots = 0;
             float maxDelta = 0f;
 
@@ -830,11 +863,105 @@ float4 PS(PS_IN input) : SV_TARGET
                 OverlaySkinningDebugLine = "skin: meshes flagged but none skinned";
             else
                 OverlaySkinningDebugLine = $"skin: p{PainterLivePoseSkinner.LastUsedPartial} {skinnedSlots}/{skinnable} slots, maxΔ={maxDelta:F3}, resolved={PainterLivePoseSkinner.LastResolvedBoneCount}, miss={PainterLivePoseSkinner.LastUnresolvedBoneCount}";
+
+            if (skinnedSlots > 0)
+            {
+                if (OverlayBindDebug)
+                    PainterLivePoseSkinner.UpdateBindDebug(skeleton, PainterLivePoseSkinner.LastUsedPartial);
+                UpdateRaycastCachePositions();
+                _overlaySkinAppliedThisFrame = true;
+            }
+
+            OverlayBindDebugLine = PainterLivePoseSkinner.LastBindDebugLine;
+            OverlayBindDebugLine2 = PainterLivePoseSkinner.LastBindDebugLine2;
+        }
+
+        public RenderModel GetFirstVisibleSkinnedModel()
+        {
+            foreach (var kvp in _models)
+            {
+                if (HiddenSlots.Contains(kvp.Key))
+                    continue;
+                if (kvp.Value.HasSkinning && kvp.Value.VertexBuffer != null)
+                    return kvp.Value;
+            }
+
+            return null;
+        }
+
+        public unsafe void UpdateExtremityProbeDebug(Matrix4x4 worldMatrix, PainterCharacterOverlay.WorldToScreenFn worldToScreen)
+        {
+            OverlayExtremityDebugLine = string.Empty;
+            if (_overlayPoseModel == null || _overlayPoseModel->Skeleton == null)
+                return;
+
+            var model = GetFirstVisibleSkinnedModel();
+            if (model == null)
+                return;
+
+            PainterLivePoseSkinner.UpdateExtremityProbeDebug(
+                _overlayPoseModel->Skeleton,
+                PainterLivePoseSkinner.LastUsedPartial,
+                model,
+                worldMatrix,
+                worldToScreen);
+
+            OverlayExtremityDebugLine = PainterLivePoseSkinner.LastExtremityDebugLine;
+        }
+
+        /// <summary>
+        /// Projects all skinned vertices to screen space for an accurate paint-window rect.
+        /// </summary>
+        public bool TryComputeSkinnedScreenBounds(
+            Matrix4x4 worldMatrix,
+            PainterCharacterOverlay.WorldToScreenFn worldToScreen,
+            HashSet<string> allowedSlots,
+            out Vector2 screenMin,
+            out Vector2 screenMax)
+        {
+            screenMin = new Vector2(float.MaxValue);
+            screenMax = new Vector2(float.MinValue);
+            int hits = 0;
+
+            if (worldToScreen == null)
+                return false;
+
+            foreach (var kvp in _models)
+            {
+                if (allowedSlots != null && !allowedSlots.Contains(kvp.Key))
+                    continue;
+                if (allowedSlots == null && kvp.Key.Contains("_"))
+                    continue;
+                if (HiddenSlots.Contains(kvp.Key))
+                    continue;
+
+                var verts = kvp.Value.Vertices;
+                if (verts == null || verts.Length == 0)
+                    continue;
+
+                for (int i = 0; i < verts.Length; i++)
+                {
+                    Vector3 worldPos = Vector3.Transform(verts[i].Position, worldMatrix);
+                    if (!worldToScreen(worldPos, out Vector2 screen))
+                        continue;
+
+                    screenMin = Vector2.Min(screenMin, screen);
+                    screenMax = Vector2.Max(screenMax, screen);
+                    hits++;
+                }
+            }
+
+            return hits > 0 && screenMin.X < screenMax.X && screenMin.Y < screenMax.Y;
         }
 
         public bool OverlaySkinningActive { get; private set; }
         public float OverlaySkinningMaxDelta { get; private set; }
         public string OverlaySkinningDebugLine { get; private set; } = "";
+        public string OverlayBindDebugLine { get; private set; } = "";
+        public string OverlayBindDebugLine2 { get; private set; } = "";
+        public string OverlayExtremityDebugLine { get; private set; } = "";
+        public bool OverlayBindDebug { get; set; } = true;
+        public OverlayBindExperiment OverlayBindExperiment { get; set; } = OverlayBindExperiment.ReferencePose;
 
         private void UpdateOverlaySkinningStats()
         {
@@ -931,6 +1058,7 @@ float4 PS(PS_IN input) : SV_TARGET
 
         private readonly Dictionary<string, RaycastSlotCache> _raycastCache = new();
         private int _raycastCacheRevision = -1;
+        private bool _overlaySkinAppliedThisFrame;
 
         private void InvalidateMeshDerivedData() {
             _meshRevision++;
@@ -974,6 +1102,61 @@ float4 PS(PS_IN input) : SV_TARGET
             }
 
             _raycastCacheRevision = _meshRevision;
+        }
+
+        /// <summary>Refresh deformed positions/normals in the raycast cache without reallocating triangles.</summary>
+        private void UpdateRaycastCachePositions()
+        {
+            if (_raycastCacheRevision != _meshRevision)
+            {
+                EnsureRaycastCache();
+                return;
+            }
+
+            if (_raycastCache.Count == 0)
+            {
+                EnsureRaycastCache();
+                return;
+            }
+
+            foreach (var kvp in _models)
+            {
+                if (kvp.Key.Contains("_"))
+                    continue;
+                if (!_raycastCache.TryGetValue(kvp.Key, out var cache))
+                    continue;
+
+                var model = kvp.Value;
+                if (model.Vertices == null || model.Indices == null || model.Indices.Length < 3)
+                    continue;
+
+                var tris = cache.Triangles;
+                int triCount = Math.Min(tris.Length, model.Indices.Length / 3);
+                var boundsMin = new Vector3(float.MaxValue);
+                var boundsMax = new Vector3(float.MinValue);
+
+                for (int t = 0; t < triCount; t++)
+                {
+                    int i = t * 3;
+                    var v0 = model.Vertices[model.Indices[i]];
+                    var v1 = model.Vertices[model.Indices[i + 1]];
+                    var v2 = model.Vertices[model.Indices[i + 2]];
+
+                    ref RaycastTriangle tri = ref tris[t];
+                    tri.V0 = v0.Position;
+                    tri.V1 = v1.Position;
+                    tri.V2 = v2.Position;
+                    tri.N0 = v0.Normal;
+                    tri.N1 = v1.Normal;
+                    tri.N2 = v2.Normal;
+
+                    boundsMin = Vector3.Min(boundsMin, Vector3.Min(v0.Position, Vector3.Min(v1.Position, v2.Position)));
+                    boundsMax = Vector3.Max(boundsMax, Vector3.Max(v0.Position, Vector3.Max(v1.Position, v2.Position)));
+                }
+
+                cache.BoundsMin = boundsMin;
+                cache.BoundsMax = boundsMax;
+            }
         }
 
         private static bool RayIntersectsAabb(Vector3 origin, Vector3 dir, Vector3 min, Vector3 max, out float tEnter, out float tExit) {
@@ -1034,6 +1217,13 @@ float4 PS(PS_IN input) : SV_TARGET
             Vector3 rayOrigin = new Vector3(nearPoint.X, nearPoint.Y, nearPoint.Z);
             Vector3 rayDir = Vector3.Normalize(new Vector3(farPoint.X, farPoint.Y, farPoint.Z) - rayOrigin);
 
+            // WVP includes CharacterWorldMatrix; raycast cache triangles stay in model space.
+            if (UseCharacterOverlay && Matrix4x4.Invert(CharacterWorldMatrix, out Matrix4x4 invWorld))
+            {
+                rayOrigin = Vector3.Transform(rayOrigin, invWorld);
+                rayDir = Vector3.Normalize(Vector3.TransformNormal(rayDir, invWorld));
+            }
+
             float closestT = float.MaxValue;
             bool hit = false;
 
@@ -1055,17 +1245,126 @@ float4 PS(PS_IN input) : SV_TARGET
                             float w = 1.0f - u - v;
                             Vector2 rawUv = tri.Uv0 * w + tri.Uv1 * u + tri.Uv2 * v;
                             uvHit = new Vector2((rawUv.X % 1.0f + 1.0f) % 1.0f, (rawUv.Y % 1.0f + 1.0f) % 1.0f);
-                            worldPos = rayOrigin + rayDir * t;
+
+                            Vector3 modelHit = rayOrigin + rayDir * t;
+                            worldPos = UseCharacterOverlay
+                                ? Vector3.Transform(modelHit, CharacterWorldMatrix)
+                                : modelHit;
 
                             Vector3 interpolatedNormal = tri.N0 * w + tri.N1 * u + tri.N2 * v;
                             float nLen = interpolatedNormal.Length();
                             worldNormal = nLen > 0.0001f ? interpolatedNormal / nLen : Vector3.UnitZ;
+                            if (UseCharacterOverlay)
+                                worldNormal = Vector3.Normalize(Vector3.TransformNormal(worldNormal, CharacterWorldMatrix));
                         }
                     }
                 }
             }
 
             return hit;
+        }
+
+        /// <summary>
+        /// Screen-space raycast for character overlay, projects skinned triangles with the same
+        /// WorldToScreen path as the live game camera so hits match what you see on screen.
+        /// </summary>
+        public bool RaycastScreenSpace(
+            Vector2 screenPos,
+            Matrix4x4 worldMatrix,
+            PainterCharacterOverlay.WorldToScreenFn worldToScreen,
+            out Vector2 uvHit,
+            out string hitSlot,
+            out Vector3 worldPos,
+            out Vector3 worldNormal,
+            HashSet<string> allowedSlots = null)
+        {
+            uvHit = Vector2.Zero;
+            hitSlot = null;
+            worldPos = Vector3.Zero;
+            worldNormal = Vector3.Zero;
+            if (_models.Count == 0 || worldToScreen == null)
+                return false;
+
+            EnsureRaycastCache();
+
+            float closestDistSq = float.MaxValue;
+            bool hit = false;
+
+            foreach (var kvp in _raycastCache)
+            {
+                if (allowedSlots != null && !allowedSlots.Contains(kvp.Key))
+                    continue;
+                if (allowedSlots == null && kvp.Key.Contains("_"))
+                    continue;
+
+                foreach (var tri in kvp.Value.Triangles)
+                {
+                    Vector3 w0 = Vector3.Transform(tri.V0, worldMatrix);
+                    Vector3 w1 = Vector3.Transform(tri.V1, worldMatrix);
+                    Vector3 w2 = Vector3.Transform(tri.V2, worldMatrix);
+                    if (!worldToScreen(w0, out Vector2 s0)
+                        || !worldToScreen(w1, out Vector2 s1)
+                        || !worldToScreen(w2, out Vector2 s2))
+                        continue;
+
+                    if (!TryPointInTriangle2D(screenPos, s0, s1, s2, out float u, out float v, 4f))
+                        continue;
+
+                    Vector2 triCenter = (s0 + s1 + s2) / 3f;
+                    float distSq = Vector2.DistanceSquared(screenPos, triCenter);
+                    if (distSq >= closestDistSq)
+                        continue;
+
+                    closestDistSq = distSq;
+                    hit = true;
+                    hitSlot = kvp.Key;
+
+                    float w = 1.0f - u - v;
+                    Vector2 rawUv = tri.Uv0 * w + tri.Uv1 * u + tri.Uv2 * v;
+                    uvHit = new Vector2((rawUv.X % 1.0f + 1.0f) % 1.0f, (rawUv.Y % 1.0f + 1.0f) % 1.0f);
+                    worldPos = w0 * w + w1 * u + w2 * v;
+
+                    Vector3 interpolatedNormal = tri.N0 * w + tri.N1 * u + tri.N2 * v;
+                    float nLen = interpolatedNormal.Length();
+                    worldNormal = nLen > 0.0001f ? interpolatedNormal / nLen : Vector3.UnitZ;
+                }
+            }
+
+            return hit;
+        }
+
+        private static bool TryPointInTriangle2D(Vector2 p, Vector2 a, Vector2 b, Vector2 c, out float u, out float v, float tolerancePx = 0f)
+        {
+            u = 0f;
+            v = 0f;
+            float denom = (b.Y - c.Y) * (a.X - c.X) + (c.X - b.X) * (a.Y - c.Y);
+            if (Math.Abs(denom) < 1e-8f)
+                return false;
+
+            u = ((b.Y - c.Y) * (p.X - c.X) + (c.X - b.X) * (p.Y - c.Y)) / denom;
+            v = ((c.Y - a.Y) * (p.X - c.X) + (a.X - c.X) * (p.Y - c.Y)) / denom;
+
+            float tol = Math.Max(0f, tolerancePx);
+            if (tol <= 0f)
+                return u >= 0f && v >= 0f && u + v <= 1f;
+
+            if (u >= -tol && v >= -tol && u + v <= 1f + tol)
+                return true;
+
+            return DistancePointToSegment2D(p, a, b) <= tol
+                || DistancePointToSegment2D(p, b, c) <= tol
+                || DistancePointToSegment2D(p, c, a) <= tol;
+        }
+
+        private static float DistancePointToSegment2D(Vector2 p, Vector2 a, Vector2 b)
+        {
+            Vector2 ab = b - a;
+            float lenSq = ab.LengthSquared();
+            if (lenSq < 1e-8f)
+                return Vector2.Distance(p, a);
+
+            float t = Math.Clamp(Vector2.Dot(p - a, ab) / lenSq, 0f, 1f);
+            return Vector2.Distance(p, a + ab * t);
         }
 
         private bool RayIntersectsTriangle(Vector3 rayOrigin, Vector3 rayDir, Vector3 v0, Vector3 v1, Vector3 v2, out float t, out float u, out float v)
@@ -1201,6 +1500,8 @@ float4 PS(PS_IN input) : SV_TARGET
                 _renderError = "Render error: " + ex.Message;
             }
         }
+
+        public void FlushGpu() => _context?.Flush();
 
         private static Vector3 ExtractCameraPosition(Matrix4x4 view)
         {
@@ -2570,7 +2871,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
 
         public void UploadPreviewDisplayTexture(IntPtr bgraPixels, int width, int height)
         {
-            // Legacy entry point — routes to preview base upload when dual-paint layers exist.
+            // Legacy entry point, routes to preview base upload when dual-paint layers exist.
             if (bgraPixels == IntPtr.Zero || width <= 0 || height <= 0) return;
             byte[] bgra = new byte[width * height * 4];
             System.Runtime.InteropServices.Marshal.Copy(bgraPixels, bgra, 0, bgra.Length);
@@ -2663,7 +2964,7 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
         {
             // Track which pixels are "real" (painted by the user) vs "padded" (added by dilation).
             // Padded pixels have RGB but alpha=0. We need a separate mask because alpha=0
-            // in the original data also means "empty" — we use this to distinguish the two.
+            // in the original data also means "empty", we use this to distinguish the two.
             bool[] hasPadding = new bool[width * height];
 
             // Work buffer
@@ -2998,6 +3299,10 @@ void CSStamp(uint3 id : SV_DispatchThreadID)
             _renderTargetView?.Dispose();
             _shaderResourceView?.Dispose();
             _renderTargetTexture?.Dispose();
+            _positionMapTex?.Dispose();
+            PositionMapSRV?.Dispose();
+            _normalMapTex?.Dispose();
+            NormalMapSRV?.Dispose();
             // We do NOT dispose _device or _context because FFXIV owns them!
         }
     }

@@ -87,7 +87,7 @@ namespace DragAndDropTexturing
                     _headlessRenderer.GpuClearPaint();
                 });
 
-                // Reuse cached mesh if available — skip all Penumbra IPC on subsequent kills
+                // Reuse cached mesh if available, skip all Penumbra IPC on subsequent kills
                 List<ExtractedMesh> extracted;
                 if (_lastMeshPath != null && _lastExtracted != null)
                 {

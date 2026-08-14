@@ -49,7 +49,7 @@ namespace DragAndDropTexturing.Windows
 
                 if (fromDisk)
                 {
-                    // Bypass Lumina entirely for disk files — read raw bytes ourselves
+                    // Bypass Lumina entirely for disk files, read raw bytes ourselves
                     if (!System.IO.File.Exists(slot.ModelPath))
                     {
                         slot.LoadStatus = "File not found on disk.";

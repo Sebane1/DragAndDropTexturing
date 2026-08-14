@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
@@ -16,6 +17,8 @@ using FFXIVLooseTextureCompiler.ImageProcessing;
 using LooseTextureCompilerCore;
 using SixLabors.ImageSharp.Formats.Tiff;
 using Dalamud.Game.ClientState.Objects.Types;
+using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using FFXIVClientStructs.FFXIV.Client.UI;
 
 namespace DragAndDropTexturing.Windows
 {
@@ -56,7 +59,13 @@ namespace DragAndDropTexturing.Windows
         private bool _uvBridgeEnabled = true;
         private bool _transparentSkinPreview = false;
         private bool _overlayOnCharacter = false;
+        private float _overlayScaleFineTune = 0f;
+        private float _overlayWidthFineTune = 0f;
+        private int _overlayBindExperiment = 0;
         private PainterCharacterOverlay.OverlayState _characterOverlayState;
+        private PainterCharacterOverlay.OverlayState _overlayLastValidState;
+        private int _overlayCachedViewportW;
+        private int _overlayCachedViewportH;
         private readonly PainterUvBridge _uvBridge = new PainterUvBridge();
         private string _canvasUvKeyword = null;
         private string _previewMeshKeyword = null;
@@ -66,7 +75,6 @@ namespace DragAndDropTexturing.Windows
         private Vector2? _lastUvHit = null;
         private Vector2? _lastPreviewUvHit = null;
         private bool _gpuPaintInitialized = false;
-        private int _compositeFrameCounter = 0;
         private bool _needsComposite = true;
         private bool _needsPreviewPaintSync = false;
         private volatile bool _previewLayerSyncRunning = false;
@@ -270,6 +278,13 @@ namespace DragAndDropTexturing.Windows
         private string _cachedRaycastSlot;
         private Vector3 _cachedRaycastWorldPos;
         private Vector3 _cachedRaycastWorldNormal;
+        internal bool OverlayCaptureActive { get; private set; }
+        private Vector2 _overlayPaintRectPos;
+        private Vector2 _overlayPaintRectSize;
+        private bool _overlayPaintRectValid;
+        private Vector2 _painterUiPos;
+        private Vector2 _painterUiSize;
+        private bool _painterUiRectValid;
 
         private bool _isHeadlessMode = false;
         public bool IsHeadlessMode
@@ -353,6 +368,9 @@ namespace DragAndDropTexturing.Windows
             _uvBridgeEnabled = _plugin.Configuration.PainterUvBridgeEnabled;
             _transparentSkinPreview = _plugin.Configuration.PainterTransparentSkinPreview;
             _overlayOnCharacter = _plugin.Configuration.PainterOverlayOnCharacter;
+            _overlayScaleFineTune = _plugin.Configuration.PainterOverlayScaleFineTune;
+            _overlayWidthFineTune = _plugin.Configuration.PainterOverlayWidthFineTune;
+            _overlayBindExperiment = _plugin.Configuration.PainterOverlayBindExperiment;
             if (string.IsNullOrEmpty(EditSourcePath))
                 _previewMeshMode = PainterPreviewMeshMode.MatchWornBody;
             _editLayerLoaded = EditSourcePath != null ? false : true; // Need to load if editing
@@ -382,6 +400,10 @@ namespace DragAndDropTexturing.Windows
 
         public override void Draw()
         {
+            _painterUiPos = ImGui.GetWindowPos();
+            _painterUiSize = ImGui.GetWindowSize();
+            _painterUiRectValid = true;
+
             _fileDialogManager.Draw();
             
             while (_mainThreadActions.TryDequeue(out var action))
@@ -741,7 +763,7 @@ namespace DragAndDropTexturing.Windows
                         _needsComposite = true;
                     }
                     if (_transparentSkinPreview)
-                        ImGui.TextDisabled("Shows paint layer only; skin and companion body meshes hidden.");
+                        ImGui.TextDisabled("Shows paint layer only, skin and companion body meshes hidden.");
 
                     if (ImGui.Checkbox(Translator.LocalizeUI("Overlay preview on character"), ref _overlayOnCharacter))
                     {
@@ -749,7 +771,43 @@ namespace DragAndDropTexturing.Windows
                         _plugin.Configuration.Save();
                     }
                     if (_overlayOnCharacter)
+                    {
                         ImGui.TextDisabled("Syncs game camera and draws paint preview over the target character.");
+                        ImGui.SetNextItemWidth(200f);
+                        if (ImGui.DragFloat(Translator.LocalizeUI("Overlay height fine-tune"), ref _overlayScaleFineTune, 0.0005f, -0.05f, 0.05f, "%+.4f"))
+                        {
+                            _plugin.Configuration.PainterOverlayScaleFineTune = _overlayScaleFineTune;
+                            _plugin.Configuration.Save();
+                        }
+                        if (ImGui.IsItemHovered())
+                            ImGui.SetTooltip("Vertical nudge on skeleton->Transform scale (Ktisis root). Height/customize is already in skeleton transform.");
+                        ImGui.SetNextItemWidth(200f);
+                        if (ImGui.DragFloat(Translator.LocalizeUI("Overlay width fine-tune"), ref _overlayWidthFineTune, 0.0005f, -0.20f, 0.05f, "%+.4f"))
+                        {
+                            _plugin.Configuration.PainterOverlayWidthFineTune = _overlayWidthFineTune;
+                            _plugin.Configuration.Save();
+                        }
+                        if (ImGui.IsItemHovered())
+                            ImGui.SetTooltip("Shoulder span (X/Z on skeleton->Transform scale). Negative narrows, positive widens.");
+                        if (ImGui.Button(Translator.LocalizeUI("Reset##overlayScale")))
+                        {
+                            _overlayScaleFineTune = 0f;
+                            _overlayWidthFineTune = 0f;
+                            _plugin.Configuration.PainterOverlayScaleFineTune = _overlayScaleFineTune;
+                            _plugin.Configuration.PainterOverlayWidthFineTune = _overlayWidthFineTune;
+                            _plugin.Configuration.Save();
+                        }
+
+                        ImGui.SetNextItemWidth(260f);
+                        if (ImGui.Combo(Translator.LocalizeUI("Bind experiment (live)"), ref _overlayBindExperiment,
+                                "ReferencePose (safe)\0sklb inv×current\0sklb current×inv\0sklb transpose inv×current\0sklb current×transpose inv\0"))
+                        {
+                            _plugin.Configuration.PainterOverlayBindExperiment = _overlayBindExperiment;
+                            _plugin.Configuration.Save();
+                        }
+                        if (_overlayBindExperiment != 0)
+                            ImGui.TextColored(new Vector4(1f, 0.6f, 0.2f, 1f), "Experiment active, revert to ReferencePose if mesh crumples or misaligns.");
+                    }
 
                     string canvasLabel = _canvasUvKeyword ?? _targetKeyword ?? "?";
                     string previewLabel = _previewMeshKeyword ?? "?";
@@ -765,7 +823,7 @@ namespace DragAndDropTexturing.Windows
                         if (!string.IsNullOrEmpty(lookupHint))
                             ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), $"No transfer map: {canvasLabel} -> {previewLabel}");
                         else
-                            ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), $"Canvas ({canvasLabel}) and preview ({previewLabel}) differ — no transfer map found");
+                            ImGui.TextColored(new Vector4(1f, 0.7f, 0.3f, 1f), $"Canvas ({canvasLabel}) and preview ({previewLabel}) differ, no transfer map found");
                         if (!string.IsNullOrEmpty(lookupHint))
                             ImGui.TextWrapped($"Expected: {lookupHint}");
                     }
@@ -1003,10 +1061,10 @@ namespace DragAndDropTexturing.Windows
                     }
                 }
 
-                if (_renderer.ShaderResourceViewHandle != IntPtr.Zero || _overlayOnCharacter)
+                if (!_overlayOnCharacter && _renderer.ShaderResourceViewHandle != IntPtr.Zero)
                 {
                     ImGui.InvisibleButton("##viewport3d", region);
-                    
+
                     if (Plugin.DragDropManager.CreateImGuiTarget("TextureDragDrop", out var files, out _))
                     {
                         var file = System.Linq.Enumerable.FirstOrDefault(files, f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
@@ -1014,39 +1072,14 @@ namespace DragAndDropTexturing.Windows
                         {
                             _plugin.PluginLog.Information($"[TexturePainter] Dropped file in 3D: {file}");
                             LoadFloatingImage(file);
-                            
-                            // Try to project immediately at mouse position
+
                             var mousePos = ImGui.GetMousePos();
                             Vector2 localMousePos = mousePos - cursorPos;
                             if (TryRaycastCached(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal))
-                            {
-                                if (_floatingLayer != null)
-                                {
-                                    if (ImGui.IsKeyDown(ImGuiKey.ModShift))
-                                    {
-                                        worldHit.X = 0f;
-                                        hitNormal.X = 0f;
-                                        if (hitNormal.LengthSquared() > 0.001f) hitNormal = Vector3.Normalize(hitNormal);
-                                        else hitNormal = Vector3.UnitZ;
-                                    }
-
-                                    _floatingLayer.Position = GetCanvasUvForLayerPlacement(uvHit) - (_floatingLayer.Scale / 2.0f);
-                                    if (_floatingLayer.ProjectionMode == 0)
-                                        _floatingLayer.ProjectionMode = _default3DProjectionMode;
-                                    _floatingLayer.DecalCenter = worldHit;
-                                    _floatingLayer.DecalNormal = hitNormal;
-                                    
-                                    Vector3 up = Vector3.UnitY;
-                                    if (Math.Abs(Vector3.Dot(hitNormal, up)) > 0.99f) up = Vector3.UnitZ;
-                                    _floatingLayer.DecalTangent = Vector3.Normalize(Vector3.Cross(up, hitNormal));
-                                    _floatingLayer.DecalBitangent = Vector3.Cross(hitNormal, _floatingLayer.DecalTangent);
-                                    
-                                    _needsComposite = true;
-                                }
-                            }
+                                ApplyViewportPaintHit(uvHit, worldHit, hitNormal);
                         }
                     }
-                    
+
                     bool isHovered = ImGui.IsItemHovered();
                     bool isActive = ImGui.IsItemActive();
 
@@ -1057,95 +1090,11 @@ namespace DragAndDropTexturing.Windows
                     }
                     _vKeyPressedLastFrame = vKeyPressed;
 
-                    // Poll tablet state each frame
-                    _tabletInput?.Poll();
+                    ProcessViewport3DPaintInput(cursorPos, isHovered, isActive, ViewportPaintRaycastMode.PanelLocal);
 
                     if (isHovered || isActive)
                     {
-                        // Always use ImGui mouse pos — tablet driver moves the system cursor
-                        var rawMousePos = ImGui.GetMousePos();
-
-                        if (isActive && ImGui.IsMouseDown(ImGuiMouseButton.Left) && _floatingLayer == null)
-                        {
-                            if (!_wasPaintingLastFrame && _paintGraceFrames <= 0) 
-                            {
-                                _smoothedMousePos = rawMousePos;
-                                _renderer.PushUndoSnapshot();
-                                if (_activeTool == PaintTool.Warp) _renderer.BeginWarpStroke();
-                            }
-                            else 
-                            {
-                                // Reduce smoothing for pen input — tablets already provide high-res coordinates
-                                bool penDrawing = _tabletInput != null && _tabletInput.IsPenActive && _tabletInput.IsPenDown;
-                                float effectiveSmoothing = penDrawing
-                                    ? _brushSmoothing * 0.3f
-                                    : _brushSmoothing;
-                                _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - effectiveSmoothing);
-                            }
-                            _wasPaintingLastFrame = true;
-                            _paintGraceFrames = 10; // Reset grace period
-                        }
-                        else
-                        {
-                            if (_paintGraceFrames > 0)
-                            {
-                                // Grace period — don't reset stroke yet (handles pen input flickers)
-                                _paintGraceFrames--;
-                                _smoothedMousePos = rawMousePos;
-                            }
-                            else
-                            {
-                                _wasPaintingLastFrame = false;
-                            }
-                            _smoothedMousePos = rawMousePos;
-                        }
-                        var mousePos = _smoothedMousePos;
-                        if (isActive)
-                        {
-                            Vector2 localMousePos = mousePos - cursorPos;
-                            if (TryRaycastCached(localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal))
-                            {
-                                if (_floatingLayer != null)
-                                {
-                                    if (ImGui.IsKeyDown(ImGuiKey.ModShift))
-                                    {
-                                        worldHit.X = 0f;
-                                        hitNormal.X = 0f;
-                                        if (hitNormal.LengthSquared() > 0.001f) hitNormal = Vector3.Normalize(hitNormal);
-                                        else hitNormal = Vector3.UnitZ;
-                                    }
-
-                                    _floatingLayer.Position = GetCanvasUvForLayerPlacement(uvHit) - (_floatingLayer.Scale / 2.0f);
-                                    if (_floatingLayer.ProjectionMode == 0)
-                                        _floatingLayer.ProjectionMode = _default3DProjectionMode;
-                                    _floatingLayer.DecalCenter = worldHit;
-                                    _floatingLayer.DecalNormal = hitNormal;
-                                    
-                                    Vector3 up = Vector3.UnitY;
-                                    if (Math.Abs(Vector3.Dot(hitNormal, up)) > 0.99f) up = Vector3.UnitZ;
-                                    _floatingLayer.DecalTangent = Vector3.Normalize(Vector3.Cross(up, hitNormal));
-                                    _floatingLayer.DecalBitangent = Vector3.Cross(hitNormal, _floatingLayer.DecalTangent);
-                                    
-                                    _needsComposite = true;
-                                }
-                                else
-                                {
-                                    PaintAtUV(uvHit);
-                                }
-                            }
-                        }
-                        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
-                        {
-                            _lastUvHit = null;
-                            _lastPreviewUvHit = null;
-                            _hasCachedRaycast = false;
-                            if (_needsPreviewPaintSync)
-                                SchedulePreviewLayerSync(paintOnly: true);
-                        }
-                        else
-                        {
-                            _lastUvHit = null;
-                        }
+                        var mousePos = ImGui.GetMousePos();
 
                         if (ImGui.IsMouseDragging(ImGuiMouseButton.Middle) || ImGui.IsMouseDragging(ImGuiMouseButton.Right))
                         {
@@ -1156,13 +1105,9 @@ namespace DragAndDropTexturing.Windows
                             }
                             var delta = mousePos - _lastMousePos;
                             if (ImGui.IsKeyDown(ImGuiKey.ModShift))
-                            {
                                 _renderer.PanCamera(delta.X, delta.Y);
-                            }
                             else
-                            {
                                 _renderer.RotateCamera(delta.X * 0.01f, delta.Y * 0.01f);
-                            }
                             _lastMousePos = mousePos;
                         }
                         else _isDragging = false;
@@ -1618,6 +1563,8 @@ namespace DragAndDropTexturing.Windows
             {
                 _renderer.ClearCharacterOverlay();
                 _characterOverlayState = default;
+                _overlayLastValidState = default;
+                _overlayPaintRectValid = false;
                 return;
             }
 
@@ -1635,30 +1582,238 @@ namespace DragAndDropTexturing.Windows
                 }
             }
 
-            _characterOverlayState = PainterCharacterOverlay.TryBuild(
+            var built = PainterCharacterOverlay.TryBuild(
                 character,
                 _renderer.BoundsMin,
                 _renderer.BoundsMax,
                 WorldToScreenForOverlay,
-                _renderer.OverlaySkinningActive);
+                _renderer.OverlaySkinningActive,
+                _overlayScaleFineTune,
+                _overlayWidthFineTune);
 
-            if (!_characterOverlayState.IsValid)
+            if (built.IsValid)
             {
+                _characterOverlayState = built;
+                _overlayLastValidState = built;
+            }
+            else if (_overlayLastValidState.IsValid)
+            {
+                _characterOverlayState = _overlayLastValidState;
+            }
+            else
+            {
+                _characterOverlayState = default;
                 _renderer.ClearCharacterOverlay();
                 return;
             }
 
             _renderer.UseCharacterOverlay = true;
             _renderer.CharacterWorldMatrix = _characterOverlayState.WorldMatrix;
+            _renderer.OverlayBindDebug = false;
+            _renderer.OverlayBindExperiment = (OverlayBindExperiment)_overlayBindExperiment;
             _renderer.SetGameCameraMatrices(_characterOverlayState.ViewMatrix, _characterOverlayState.ProjectionMatrix);
         }
 
+        private bool IsMouseOverPainterUi()
+        {
+            if (!_painterUiRectValid || _painterUiSize.X <= 0 || _painterUiSize.Y <= 0)
+                return false;
+
+            return IsScreenPointOverPainterUi(ImGui.GetIO().MousePos);
+        }
+
+        private bool IsScreenPointOverPainterUi(Vector2 screenPos)
+        {
+            if (!_painterUiRectValid || _painterUiSize.X <= 0 || _painterUiSize.Y <= 0)
+                return false;
+
+            return screenPos.X >= _painterUiPos.X && screenPos.X < _painterUiPos.X + _painterUiSize.X
+                && screenPos.Y >= _painterUiPos.Y && screenPos.Y < _painterUiPos.Y + _painterUiSize.Y;
+        }
+
+        private bool IsCursorOverPainterUiScreen()
+        {
+            if (!GetCursorPos(out POINT pt))
+                return false;
+            return IsScreenPointOverPainterUi(new Vector2(pt.X, pt.Y));
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool GetCursorPos(out POINT lpPoint);
+
         /// <summary>
-        /// Renders and composites the character overlay after all UI windows, covering the full game viewport.
-        /// Must be called from Plugin.DrawUI after WindowSystem.Draw().
+        /// Clears game mouse-drag state so LMB paint on the overlay does not rotate the camera.
+        /// Called from Framework.Update before the game reads input.
+        /// </summary>
+        internal unsafe bool TrySuppressOverlayGameInput()
+        {
+            if (!IsOpen || !_overlayOnCharacter || IsCursorOverPainterUiScreen())
+                return false;
+
+            if (!OverlayCaptureActive && !_wasPaintingLastFrame && _paintGraceFrames <= 0)
+                return false;
+
+            SuppressOverlayCameraInput();
+            return true;
+        }
+
+        private static unsafe void SuppressOverlayCameraInput()
+        {
+            *InputManager.GetMouseButtonHoldState() = InputManager.MouseButtonHoldState.None;
+
+            var im = InputManager.Instance();
+            if (im != null)
+            {
+                im->HeldMouseButtons = InputManager.MouseButtonHoldState.None;
+                im->MouseDragActive = false;
+                im->MouseDragDeltaX = 0;
+                im->MouseDragDeltaY = 0;
+            }
+
+            // FilterDragInputs stops viewport camera rotation. Do NOT call FilterUICursorInputs —
+            // that strips cursor position and hides the system cursor while LMB is held.
+            var uiInput = UIInputData.Instance();
+            if (uiInput != null)
+                uiInput->FilterDragInputs();
+        }
+
+        private enum ViewportPaintRaycastMode
+        {
+            PanelLocal,
+            OverlayScreen
+        }
+
+        private void ProcessViewport3DPaintInput(
+            Vector2 surfaceScreenOrigin,
+            bool isHovered,
+            bool isActive,
+            ViewportPaintRaycastMode raycastMode)
+        {
+            if (_renderer == null || !_gpuPaintInitialized)
+                return;
+
+            if (raycastMode == ViewportPaintRaycastMode.OverlayScreen && _characterOverlayState.IsValid)
+            {
+                _renderer.PrepareOverlayRaycast(
+                    _characterOverlayState.WorldMatrix,
+                    _characterOverlayState.ViewMatrix,
+                    _characterOverlayState.ProjectionMatrix,
+                    _overlayCachedViewportW,
+                    _overlayCachedViewportH);
+            }
+
+            _tabletInput?.Poll();
+            var rawMousePos = ImGui.GetMousePos();
+
+            if (isHovered || isActive)
+            {
+                if (isActive && ImGui.IsMouseDown(ImGuiMouseButton.Left) && _floatingLayer == null)
+                {
+                    if (!_wasPaintingLastFrame && _paintGraceFrames <= 0)
+                    {
+                        _smoothedMousePos = rawMousePos;
+                        _renderer.PushUndoSnapshot();
+                        if (_activeTool == PaintTool.Warp) _renderer.BeginWarpStroke();
+                    }
+                    else
+                    {
+                        bool penDrawing = _tabletInput != null && _tabletInput.IsPenActive && _tabletInput.IsPenDown;
+                        float effectiveSmoothing = penDrawing ? _brushSmoothing * 0.3f : _brushSmoothing;
+                        _smoothedMousePos = Vector2.Lerp(_smoothedMousePos, rawMousePos, 1.0f - effectiveSmoothing);
+                    }
+                    _wasPaintingLastFrame = true;
+                    _paintGraceFrames = 10;
+                }
+                else
+                {
+                    if (_paintGraceFrames > 0)
+                    {
+                        _paintGraceFrames--;
+                        _smoothedMousePos = rawMousePos;
+                    }
+                    else
+                    {
+                        _wasPaintingLastFrame = false;
+                    }
+                    _smoothedMousePos = rawMousePos;
+                }
+
+                var mousePos = _smoothedMousePos;
+                Vector2 localMousePos = raycastMode == ViewportPaintRaycastMode.OverlayScreen
+                    ? mousePos - ImGui.GetMainViewport().Pos
+                    : mousePos - surfaceScreenOrigin;
+
+                if (isActive)
+                {
+                    bool hit = raycastMode == ViewportPaintRaycastMode.OverlayScreen
+                        ? TryOverlayRaycastCached(mousePos, localMousePos, out Vector2 uvHit, out string hitSlot, out Vector3 worldHit, out Vector3 hitNormal)
+                        : TryRaycastCached(localMousePos, out uvHit, out hitSlot, out worldHit, out hitNormal);
+
+                    if (hit)
+                    {
+                        ApplyViewportPaintHit(uvHit, worldHit, hitNormal);
+                    }
+                }
+                else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+                {
+                    _lastUvHit = null;
+                    _lastPreviewUvHit = null;
+                    _hasCachedRaycast = false;
+                    if (_needsPreviewPaintSync)
+                        SchedulePreviewLayerSync(paintOnly: true);
+                }
+                else
+                {
+                    _lastUvHit = null;
+                }
+            }
+        }
+
+        private void ApplyViewportPaintHit(Vector2 uvHit, Vector3 worldHit, Vector3 hitNormal)
+        {
+            if (_floatingLayer != null)
+            {
+                if (ImGui.IsKeyDown(ImGuiKey.ModShift))
+                {
+                    worldHit.X = 0f;
+                    hitNormal.X = 0f;
+                    if (hitNormal.LengthSquared() > 0.001f) hitNormal = Vector3.Normalize(hitNormal);
+                    else hitNormal = Vector3.UnitZ;
+                }
+
+                _floatingLayer.Position = GetCanvasUvForLayerPlacement(uvHit) - (_floatingLayer.Scale / 2.0f);
+                if (_floatingLayer.ProjectionMode == 0)
+                    _floatingLayer.ProjectionMode = _default3DProjectionMode;
+                _floatingLayer.DecalCenter = worldHit;
+                _floatingLayer.DecalNormal = hitNormal;
+
+                Vector3 up = Vector3.UnitY;
+                if (Math.Abs(Vector3.Dot(hitNormal, up)) > 0.99f) up = Vector3.UnitZ;
+                _floatingLayer.DecalTangent = Vector3.Normalize(Vector3.Cross(up, hitNormal));
+                _floatingLayer.DecalBitangent = Vector3.Cross(hitNormal, _floatingLayer.DecalTangent);
+
+                _needsComposite = true;
+            }
+            else if (TryGetCanvasUvForPaint(uvHit, out _))
+            {
+                PaintAtUV(uvHit);
+            }
+        }
+
+        /// <summary>
+        /// Character-sized ImGui paint surface (drawn before the painter window).
+        /// GPU render stays full-viewport; only the projected character bounds capture input/display.
         /// </summary>
         public void DrawCharacterOverlayPass()
         {
+            OverlayCaptureActive = false;
             if (!IsOpen || !_overlayOnCharacter || !_modelsLoaded || _renderer == null)
                 return;
 
@@ -1666,44 +1821,139 @@ namespace DragAndDropTexturing.Windows
             if (viewport.Size.X <= 0 || viewport.Size.Y <= 0)
                 return;
 
-            int vw = (int)viewport.Size.X;
-            int vh = (int)viewport.Size.Y;
-            if (vw != _renderer.Width || vh != _renderer.Height)
+            int vw = Math.Max(1, (int)MathF.Round(viewport.Size.X));
+            int vh = Math.Max(1, (int)MathF.Round(viewport.Size.Y));
+            if (vw != _overlayCachedViewportW || vh != _overlayCachedViewportH)
+            {
+                _overlayCachedViewportW = vw;
+                _overlayCachedViewportH = vh;
                 _renderer.Resize(vw, vh);
+            }
 
             UpdateCharacterOverlayTransform();
+            _renderer.BeginOverlayFrame();
+
+            if (_gpuPaintInitialized && _needsComposite)
+            {
+                CompositeAndAssignToModels();
+                _needsComposite = false;
+            }
+
             if (!_characterOverlayState.IsValid)
                 return;
 
             _renderer.TransparentSkinPreview = _transparentSkinPreview;
             _renderer.Render();
+            _renderer.FlushGpu();
 
             if (_renderer.ShaderResourceViewHandle == IntPtr.Zero)
                 return;
 
-            ImGui.SetNextWindowPos(viewport.Pos);
-            ImGui.SetNextWindowSize(viewport.Size);
+            if (!TryGetCharacterPaintRect(viewport, out Vector2 paintPos, out Vector2 paintSize))
+            {
+                if (!_overlayPaintRectValid)
+                    return;
+                paintPos = _overlayPaintRectPos;
+                paintSize = _overlayPaintRectSize;
+            }
+
+            ImGui.SetNextWindowPos(paintPos);
+            ImGui.SetNextWindowSize(paintSize);
             ImGui.SetNextWindowViewport(viewport.ID);
             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
             ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
-            if (ImGui.Begin("##PainterCharacterOverlay", ImGuiWindowFlags.NoInputs | ImGuiWindowFlags.NoDecoration
-                    | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoMove
-                    | ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoFocusOnAppearing
-                    | ImGuiWindowFlags.NoSavedSettings))
+
+            var windowFlags =
+                ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove
+                | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoBackground
+                | ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoFocusOnAppearing
+                | ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoSavedSettings;
+
+            if (ImGui.Begin($"##DDTOverlayPaint_{GetHashCode()}", windowFlags))
             {
-                ImGui.Image(new ImTextureID(_renderer.ShaderResourceViewHandle), viewport.Size);
-
+                var winPos = ImGui.GetWindowPos();
+                var winSize = ImGui.GetWindowSize();
                 var drawList = ImGui.GetWindowDrawList();
-                string debugLine = _renderer.OverlaySkinningDebugLine;
-                if (string.IsNullOrEmpty(debugLine))
-                    debugLine = _renderer.OverlaySkinningActive
-                        ? $"skin active, maxΔ={_renderer.OverlaySkinningMaxDelta:F3}"
-                        : "skin inactive";
-                drawList.AddText(viewport.Pos + new Vector2(8, 8), 0xFF00FF00, $"[Overlay] {debugLine}");
 
-                ImGui.End();
+                Vector2 uvMin = (winPos - viewport.Pos) / viewport.Size;
+                Vector2 uvMax = (winPos + winSize - viewport.Pos) / viewport.Size;
+                drawList.AddImage(new ImTextureID(_renderer.ShaderResourceViewHandle), winPos, winPos + winSize, uvMin, uvMax);
+
+                ImGui.InvisibleButton("##overlayPaint", winSize);
+                bool isHovered = ImGui.IsItemHovered();
+                bool isActive = ImGui.IsItemActive();
+                OverlayCaptureActive = isHovered || isActive || _wasPaintingLastFrame || _paintGraceFrames > 0;
+
+                ProcessViewport3DPaintInput(winPos, isHovered, isActive, ViewportPaintRaycastMode.OverlayScreen);
             }
+            ImGui.End();
             ImGui.PopStyleVar(2);
+
+            if (_gpuPaintInitialized && _needsComposite)
+            {
+                CompositeAndAssignToModels();
+                _needsComposite = false;
+                _renderer.Render();
+                _renderer.FlushGpu();
+            }
+        }
+
+        private bool TryGetCharacterPaintRect(ImGuiViewportPtr viewport, out Vector2 pos, out Vector2 size)
+        {
+            pos = Vector2.Zero;
+            size = Vector2.Zero;
+
+            Vector2 min = new Vector2(float.MaxValue);
+            Vector2 max = new Vector2(float.MinValue);
+            bool haveBounds = false;
+
+            if (_renderer.TryComputeSkinnedScreenBounds(
+                    _characterOverlayState.WorldMatrix,
+                    WorldToScreenForOverlay,
+                    _primarySlots,
+                    out Vector2 meshMin,
+                    out Vector2 meshMax))
+            {
+                min = meshMin;
+                max = meshMax;
+                haveBounds = true;
+            }
+
+            Vector2 stateMin = _characterOverlayState.ScreenMin;
+            Vector2 stateMax = _characterOverlayState.ScreenMax;
+            if (stateMin.X < stateMax.X && stateMin.Y < stateMax.Y
+                && stateMin.X != float.MaxValue && stateMax.X != float.MinValue)
+            {
+                min = haveBounds ? Vector2.Min(min, stateMin) : stateMin;
+                max = haveBounds ? Vector2.Max(max, stateMax) : stateMax;
+                haveBounds = true;
+            }
+
+            if (!haveBounds)
+                return false;
+
+            float padX = MathF.Max(48f, (max.X - min.X) * 0.18f);
+            float padY = MathF.Max(48f, (max.Y - min.Y) * 0.18f);
+            min -= new Vector2(padX, padY);
+            max += new Vector2(padX, padY);
+
+            Vector2 vpMin = viewport.Pos;
+            Vector2 vpMax = viewport.Pos + viewport.Size;
+            min = Vector2.Max(min, vpMin);
+            max = Vector2.Min(max, vpMax);
+
+            if (min.X >= max.X - 1f || min.Y >= max.Y - 1f)
+                return false;
+
+            pos = min;
+            size = max - min;
+            if (size.X < 16f || size.Y < 16f)
+                return false;
+
+            _overlayPaintRectPos = pos;
+            _overlayPaintRectSize = size;
+            _overlayPaintRectValid = true;
+            return true;
         }
 
         private bool WorldToScreenForOverlay(Vector3 worldPos, out Vector2 screen)
@@ -2122,11 +2372,9 @@ namespace DragAndDropTexturing.Windows
             if (_renderer == null || !_gpuPaintInitialized)
                 return;
 
-            bool activelyPainting = _wasPaintingLastFrame || _paintGraceFrames > 0;
             bool bridgeDisplay = IsDualPaintActive();
 
-            if (!activelyPainting || (++_compositeFrameCounter % 2) == 0)
-                _renderer.RunCompositePass(_targetChannel);
+            _renderer.RunCompositePass(_targetChannel);
 
             if (bridgeDisplay)
                 _renderer.RunPreviewCompositePass(_targetChannel);
@@ -2220,7 +2468,7 @@ namespace DragAndDropTexturing.Windows
             string contextKey = ContextCategoryKey;
             if (string.IsNullOrEmpty(contextKey))
             {
-                _plugin.PluginLog.Warning("[Texture Painter] No ContextCategoryKey set — cannot add underlay to layers.");
+                _plugin.PluginLog.Warning("[Texture Painter] No ContextCategoryKey set, cannot add underlay to layers.");
                 return;
             }
 
@@ -2686,7 +2934,7 @@ namespace DragAndDropTexturing.Windows
 
                 if (owner != null)
                 {
-                    // Mounts are not separate game objects — they're embedded in the character
+                    // Mounts are not separate game objects, they're embedded in the character
                     try
                     {
                         var currentMount = owner.CurrentMount;
@@ -3796,7 +4044,7 @@ namespace DragAndDropTexturing.Windows
                     if (_meshCache.TryGetValue(cacheKey, out var cachedMeshes))
                     {
                         int cachedSkin = cachedMeshes.Sum(m => m.BoneWeights.Count(w => w.X + w.Y + w.Z + w.W > 0.001f));
-                        _plugin.PluginLog.Warning($"[OverlaySkin] Cache hit: {diskPath} — {cachedSkin}/{cachedMeshes.Sum(m => m.Positions.Count)} weighted verts, hasSkinning={cachedMeshes.Any(m => m.HasSkinning)}");
+                        _plugin.PluginLog.Warning($"[OverlaySkin] Cache hit: {diskPath}, {cachedSkin}/{cachedMeshes.Sum(m => m.Positions.Count)} weighted verts, hasSkinning={cachedMeshes.Any(m => m.HasSkinning)}");
                         meshes = cachedMeshes;
                     }
                     else
@@ -4043,7 +4291,7 @@ namespace DragAndDropTexturing.Windows
                             
                             if (DragAndDropTexturing.Equipment.WornEquipmentResolver.TryReadMtrlTexturePaths(resolvedMtrlDisk, out string baseP, out string normP, out string maskP))
                             {
-                                _plugin.PluginLog.Info($"[Texture Painter] Mtrl textures — base: {baseP}, norm: {normP}, mask: {maskP}");
+                                _plugin.PluginLog.Info($"[Texture Painter] Mtrl textures, base: {baseP}, norm: {normP}, mask: {maskP}");
                                 
                                 // Resolve the correct texture map based on edit context
                                 isEditingNormal = (!string.IsNullOrEmpty(EditSourcePath) && 
@@ -4468,7 +4716,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 _plugin.PluginLog.Info($"[GPU Upload] Cached path: {_cachedBaseBitmapPath ?? "NULL"}, same={_cachedBaseBitmapPath == _activeBaseTexturePng}");
                 if (_cachedBaseBitmapPath != _activeBaseTexturePng || _cachedBaseBitmap == null)
                 {
-                    _plugin.PluginLog.Info($"[GPU Upload] Cache miss — loading new bitmap from: {_activeBaseTexturePng}");
+                    _plugin.PluginLog.Info($"[GPU Upload] Cache miss, loading new bitmap from: {_activeBaseTexturePng}");
                     _cachedBaseBitmap?.Dispose();
                     _cachedBaseBitmap = new System.Drawing.Bitmap(_activeBaseTexturePng);
                     _cachedBaseBitmapPath = _activeBaseTexturePng;
@@ -4476,7 +4724,7 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
                 }
                 else
                 {
-                    _plugin.PluginLog.Info($"[GPU Upload] Cache hit — reusing existing bitmap");
+                    _plugin.PluginLog.Info($"[GPU Upload] Cache hit, reusing existing bitmap");
                 }
                 int w = _cachedBaseBitmap.Width;
                 int h = _cachedBaseBitmap.Height;
@@ -4668,6 +4916,63 @@ private string ExtractVanillaTexViaLumina(string internalGamePath, bool padToSqu
 
             _hasCachedRaycast = false;
             return false;
+        }
+
+        private bool TryOverlayRaycastCached(
+            Vector2 screenMousePos,
+            Vector2 localMousePos,
+            out Vector2 uvHit,
+            out string hitSlot,
+            out Vector3 worldHit,
+            out Vector3 worldNormal)
+        {
+            if (_hasCachedRaycast && Vector2.DistanceSquared(localMousePos, _cachedRaycastScreenPos) < 1.0f)
+            {
+                uvHit = _cachedRaycastUv;
+                hitSlot = _cachedRaycastSlot;
+                worldHit = _cachedRaycastWorldPos;
+                worldNormal = _cachedRaycastWorldNormal;
+                return true;
+            }
+
+            if (_renderer.RaycastScreenSpace(
+                    screenMousePos,
+                    _characterOverlayState.WorldMatrix,
+                    WorldToScreenForOverlay,
+                    out uvHit,
+                    out hitSlot,
+                    out worldHit,
+                    out worldNormal,
+                    _primarySlots))
+            {
+                CacheOverlayRaycastHit(localMousePos, uvHit, hitSlot, worldHit, worldNormal);
+                return true;
+            }
+
+            // Fallback: game-camera WVP raycast (uses skinned mesh from PrepareOverlayRaycast).
+            if (_renderer.Raycast(localMousePos, out uvHit, out hitSlot, out worldHit, out worldNormal, _primarySlots))
+            {
+                CacheOverlayRaycastHit(localMousePos, uvHit, hitSlot, worldHit, worldNormal);
+                return true;
+            }
+
+            _hasCachedRaycast = false;
+            return false;
+        }
+
+        private void CacheOverlayRaycastHit(
+            Vector2 localMousePos,
+            Vector2 uvHit,
+            string hitSlot,
+            Vector3 worldHit,
+            Vector3 worldNormal)
+        {
+            _hasCachedRaycast = true;
+            _cachedRaycastScreenPos = localMousePos;
+            _cachedRaycastUv = uvHit;
+            _cachedRaycastSlot = hitSlot;
+            _cachedRaycastWorldPos = worldHit;
+            _cachedRaycastWorldNormal = worldNormal;
         }
 
         private static void DisposeStampSrvs(List<Vortice.Direct3D11.ID3D11ShaderResourceView> srvs) {

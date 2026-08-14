@@ -103,11 +103,12 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Opens the config window. Subcommands: /ddt export — re-export all textures, /ddt clear — clear virtual cache."
+            HelpMessage = "Opens the config window. Subcommands: /ddt export, re-export all textures, /ddt clear, clear virtual cache."
         });
 
         PluginInterface.UiBuilder.Draw += DrawUI;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUI;
+        Framework.Update += OnFrameworkUpdate;
         if (DragAndDropTextures is not null)
         {
             WindowSystem.AddWindow(DragAndDropTextures);
@@ -311,6 +312,9 @@ public sealed class Plugin : IDalamudPlugin
         }
         TexturePaintingWindows.Clear();
         CommandManager.RemoveHandler(CommandName);
+        Framework.Update -= OnFrameworkUpdate;
+        PluginInterface.UiBuilder.Draw -= DrawUI;
+        PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUI;
 
         try
         {
@@ -420,15 +424,24 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
+    private void OnFrameworkUpdate(IFramework _)
+    {
+        foreach (var window in TexturePaintingWindows)
+        {
+            if (window.IsOpen && window.TrySuppressOverlayGameInput())
+                break;
+        }
+    }
+
     private void DrawUI()
     {
-        WindowSystem.Draw();
-
         foreach (var window in TexturePaintingWindows)
         {
             if (window.IsOpen)
                 window.DrawCharacterOverlayPass();
         }
+
+        WindowSystem.Draw();
 
         for (int i = TexturePaintingWindows.Count - 1; i >= 0; i--)
         {

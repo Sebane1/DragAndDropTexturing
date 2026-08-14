@@ -64,6 +64,14 @@ public class Configuration : IPluginConfiguration
     public bool PainterTransparentSkinPreview { get; set; } = false;
     /// <summary>Project painter preview onto the live target character using game camera + bones.</summary>
     public bool PainterOverlayOnCharacter { get; set; } = false;
+    /// <summary>Fractional overlay root-scale offset on Y (cosmetic; game height is in bones).</summary>
+    public float PainterOverlayScaleFineTune { get; set; } = 0f;
+    /// <summary>Extra fractional scale on X/Z only (negative narrows shoulder span).</summary>
+    public float PainterOverlayWidthFineTune { get; set; } = 0f;
+    /// <summary>Show ReferencePose vs .sklb bind comparison in overlay HUD.</summary>
+    public bool PainterOverlayBindDebug { get; set; } = false;
+    /// <summary>Live bind experiment; 0 = ReferencePose (safe default).</summary>
+    public int PainterOverlayBindExperiment { get; set; } = 0;
 
     // the below exist just to make saving less cumbersome
     public void Save()

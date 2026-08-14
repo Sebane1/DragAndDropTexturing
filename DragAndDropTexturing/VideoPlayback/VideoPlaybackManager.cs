@@ -365,7 +365,7 @@ namespace DragAndDropTexturing.VideoPlayback
             var def = state.Definition;
             state.FrameReady[ringSlot] = false;
 
-            // Generate a unique filename — never collides with Penumbra's file lock
+            // Generate a unique filename, never collides with Penumbra's file lock
             string newTexPath = Path.Combine(state.FramesDir,
                 $"{Guid.NewGuid():N}.tex");
 
@@ -453,7 +453,7 @@ namespace DragAndDropTexturing.VideoPlayback
                 if (!string.IsNullOrEmpty(oldTexPath) && oldTexPath != newTexPath)
                 {
                     try { File.Delete(oldTexPath); }
-                    catch { } // Still locked — will be cleaned up on shutdown
+                    catch { } // Still locked, will be cleaned up on shutdown
                 }
             }
             catch (Exception ex)
@@ -491,7 +491,7 @@ namespace DragAndDropTexturing.VideoPlayback
 
                     if (nextToProduce >= state.FrameCount)
                     {
-                        // All frames rendered — idle until loop wraps or cancellation
+                        // All frames rendered, idle until loop wraps or cancellation
                         Thread.Sleep(50);
                         continue;
                     }

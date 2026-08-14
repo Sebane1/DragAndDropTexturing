@@ -1189,7 +1189,7 @@ namespace RoleplayingVoice
                         // which has built-in wait logic for _lockDuplicateGeneration.
                         if (_lockDuplicateGeneration && selectedPlayer.Value != null)
                         {
-                            plugin.PluginLog.Information("[Drag And Drop Debug] Export in progress — queuing drop for processing after current export completes.");
+                            plugin.PluginLog.Information("[Drag And Drop Debug] Export in progress, queuing drop for processing after current export completes.");
                             var queuedFiles = files.ToList();
                             var queuedPlayer = selectedPlayer;
                             var queuedPart = bodyDragPart;
@@ -1197,7 +1197,7 @@ namespace RoleplayingVoice
                             {
                                 Plugin.Framework.RunOnFrameworkThread(() =>
                                 {
-                                    plugin.Chat.Print("[Drag And Drop Texturing] Export in progress — your drop has been queued and will process automatically.");
+                                    plugin.Chat.Print("[Drag And Drop Texturing] Export in progress, your drop has been queued and will process automatically.");
                                 });
                             }
                             catch { }
@@ -1947,8 +1947,8 @@ namespace RoleplayingVoice
                             if (category == "_minion")
                             {
                                 // Minions: extract directly from Lumina using the minion's own game paths
-                                // Do NOT use ExtractActiveTextureFromPenumbra — it would pull human body textures
-                                plugin.PluginLog.Information($"[Drag And Drop Debug] Minion category — extracting underlay from Lumina directly.");
+                                // Do NOT use ExtractActiveTextureFromPenumbra, it would pull human body textures
+                                plugin.PluginLog.Information($"[Drag And Drop Debug] Minion category, extracting underlay from Lumina directly.");
                                 baseTex = ExtractVanillaTexViaLumina(i.InternalBasePath, i);
                                 normTex = !string.IsNullOrEmpty(i.InternalNormalPath) ? ExtractVanillaTexViaLumina(i.InternalNormalPath, i) : "";
                                 maskTex = !string.IsNullOrEmpty(i.InternalMaskPath) ? ExtractVanillaTexViaLumina(i.InternalMaskPath, i) : "";
@@ -1968,11 +1968,11 @@ namespace RoleplayingVoice
                             }
 
                             // Non-playable items (minions): base is already set directly in item.Base
-                            // Do NOT set BackupTexturePaths — it would interfere with the compiler
+                            // Do NOT set BackupTexturePaths, it would interfere with the compiler
                             if (category == "_minion")
                             {
                                 i.BackupTexturePaths = null;
-                                plugin.PluginLog.Information($"[Drag And Drop Debug] Minion — skipping BackupTexturePaths.");
+                                plugin.PluginLog.Information($"[Drag And Drop Debug] Minion, skipping BackupTexturePaths.");
                             }
                             else
                             {
@@ -2551,7 +2551,7 @@ namespace RoleplayingVoice
 
                     // Give Penumbra time to process the character model change
                     // before we try to extract textures for the new race
-                    // (skip for contextual layers — race hasn't changed)
+                    // (skip for contextual layers, race hasn't changed)
                     if (categories.Count == 0)
                     {
                         _isRegenerationPending = false;
@@ -3038,7 +3038,7 @@ namespace RoleplayingVoice
                     // Flag as non-playable so the LooseTextureCompiler skips UV conversion
                     // and other humanoid-specific processing
                     item.NotAPlayableItem = true;
-                    // Skip normal/mask generation — just pass-through the Lumina textures directly
+                    // Skip normal/mask generation, just pass-through the Lumina textures directly
                     // The MergeNormal path would otherwise stretch the 256x256 minion normal
                     item.IgnoreNormalGeneration = true;
                     item.IgnoreMaskGeneration = true;
@@ -3191,7 +3191,7 @@ namespace RoleplayingVoice
                                 Directory.CreateDirectory(tempDir);
                                 string compositedPath = Path.Combine(tempDir, $"minion_composited_{categoryKey.GetHashCode():X8}.png");
                                 canvas.Save(compositedPath, System.Drawing.Imaging.ImageFormat.Png);
-                                // Set this as the sole base — no overlays for the compiler
+                                // Set this as the sole base, no overlays for the compiler
                                 item.Base = compositedPath;
                                 plugin.PluginLog.Info($"[MINION REBUILD] Pre-composited {overlayPaths.Count} overlays → {compositedPath} ({w}x{h})");
                             }
@@ -3219,7 +3219,7 @@ namespace RoleplayingVoice
                         }
                     }
 
-                    // Export — pass character info for collection binding, but the TextureSet uses minion paths
+                    // Export, pass character info for collection binding, but the TextureSet uses minion paths
                     var localCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
                     await Export(true, textureSets, fullModPath, localModName,
                         new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
@@ -3521,7 +3521,7 @@ namespace RoleplayingVoice
                         }
                     }
 
-                    // Export — pass character info for collection binding, but the TextureSet uses mount paths
+                    // Export, pass character info for collection binding, but the TextureSet uses mount paths
                     var localCustomization = PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
                     await Export(true, textureSets, fullModPath, localModName,
                         new KeyValuePair<string, ICharacter>(character.Name.TextValue, character),
@@ -3554,7 +3554,7 @@ namespace RoleplayingVoice
 
         public void RebuildCategory(string categoryKey, bool hideProgressUI = true)
         {
-            // Route minion keys to the dedicated minion pipeline — completely separate from body/face/gear
+            // Route minion keys to the dedicated minion pipeline, completely separate from body/face/gear
             if (categoryKey.Contains("_minion_"))
             {
                 RebuildMinionCategory(categoryKey, hideProgressUI);
@@ -3916,7 +3916,7 @@ namespace RoleplayingVoice
                             }
                             else if (categoryKey.EndsWith("_eyes") || categoryKey.EndsWith("_eyebrows"))
                             {
-                                // No layers assigned — skip export entirely so the vanilla eye/eyebrow
+                                // No layers assigned, skip export entirely so the vanilla eye/eyebrow
                                 // textures aren't replaced with a transparent image.
                                 localModName = localModName.Replace("Mod", categoryModName);
                                 string disableModPath = Path.Combine(PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke(), localModName);
@@ -3935,7 +3935,7 @@ namespace RoleplayingVoice
                                 try { PenumbraAndGlamourerIpcWrapper.Instance.DeleteMod.Invoke(localModName, localModName); }
                                 catch { try { PenumbraAndGlamourerIpcWrapper.Instance.ReloadMod.Invoke(localModName, ""); } catch { } }
 
-                                plugin.PluginLog.Info($"[Drag And Drop Texturing] No layers for {categoryModName} — skipped export to preserve vanilla textures.");
+                                plugin.PluginLog.Info($"[Drag And Drop Texturing] No layers for {categoryModName}, skipped export to preserve vanilla textures.");
                                 _isRegenerationPending = false;
                                 return;
                             }
@@ -3991,7 +3991,7 @@ namespace RoleplayingVoice
             targetCharacter ??= plugin.SafeGameObjectManager.LocalPlayer as ICharacter;
             if (targetCharacter == null)
             {
-                plugin.Chat.PrintError("[Drag And Drop Texturing] No target character — cannot import worn gear.");
+                plugin.Chat.PrintError("[Drag And Drop Texturing] No target character, cannot import worn gear.");
                 return;
             }
 

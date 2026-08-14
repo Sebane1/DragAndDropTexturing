@@ -303,7 +303,7 @@ namespace DragAndDropTexturing.Windows
                 reader.ReadByte(); // EnableEdgeGeometry
                 reader.ReadByte(); // Padding
 
-                // Now at 0x44 (68) — start of vertex declarations
+                // Now at 0x44 (68), start of vertex declarations
 
                 //VertexDeclarations (136 bytes each)
                 const int VERTEX_ELEMENT_SIZE = 8;
@@ -352,7 +352,7 @@ namespace DragAndDropTexturing.Windows
                     }
                 }
 
-                //MdlModelData (56 bytes — exact TexTools MdlModelData.Read)
+                //MdlModelData (56 bytes, exact TexTools MdlModelData.Read)
                 float radius = reader.ReadSingle();         // 4
                 short meshCount = reader.ReadInt16();         // 2
                 short attributeCount = reader.ReadInt16();    // 2
@@ -1083,7 +1083,7 @@ namespace DragAndDropTexturing.Windows
             }
             if ((type == 6 || type == 8 || type == 12) && ms.Position + 4 <= ms.Length)
             {
-                // Type 8 at usage 1 = UByte4N blend weights (not Dec3N — that is usage 3).
+                // Type 8 at usage 1 = UByte4N blend weights (not Dec3N, that is usage 3).
                 boneWeights = new Vector4(
                     reader.ReadByte() / 255f,
                     reader.ReadByte() / 255f,

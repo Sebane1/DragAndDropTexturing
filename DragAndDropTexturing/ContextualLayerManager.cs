@@ -359,7 +359,7 @@ namespace DragAndDropTexturing
             {
                 weaponDrawn = player.StatusFlags.HasFlag(Dalamud.Game.ClientState.Objects.Enums.StatusFlags.WeaponOut);
             }
-            catch { return; } // Native character struct invalidated — skip this frame
+            catch { return; } // Native character struct invalidated, skip this frame
 
             if (isSwimming)
             {
@@ -672,7 +672,7 @@ namespace DragAndDropTexturing
                 else if (firstFile.Contains("otopop")) uvType = "otopop";
             }
 
-            // Queue stamps — they'll be processed during the next Draw() on the ImGui/D3D11 thread
+            // Queue stamps, they'll be processed during the next Draw() on the ImGui/D3D11 thread
             paintWindow.QueueProceduralStamps(files, stampCount, active.LayerDef.TargetBodyPart, uvType, (tempFile) =>
             {
                 if (tempFile != null)
