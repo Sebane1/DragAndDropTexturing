@@ -19,6 +19,7 @@ namespace DragAndDropTexturing.Windows
         private ID3D11Texture2D _depthStencilTexture;
         private ID3D11DepthStencilView _depthStencilView;
         private ID3D11DepthStencilState _depthStencilState;
+        private ID3D11DepthStencilState _reverseZDepthStencilState;
         private ID3D11BlendState _alphaBlendState;
         private ID3D11RasterizerState _rasterizerState;
         public bool TransparentSkinPreview { get; set; }
@@ -264,6 +265,7 @@ namespace DragAndDropTexturing.Windows
             _depthStencilTexture?.Dispose();
             _depthStencilView?.Dispose();
             _depthStencilState?.Dispose();
+            _reverseZDepthStencilState?.Dispose();
 
             var depthDesc = new Texture2DDescription
             {
@@ -287,6 +289,15 @@ namespace DragAndDropTexturing.Windows
                 DepthFunc = ComparisonFunction.Less
             };
             _depthStencilState = _device.CreateDepthStencilState(dsStateDesc);
+
+            _reverseZDepthStencilState?.Dispose();
+            var revZStateDesc = new DepthStencilDescription
+            {
+                DepthEnable = true,
+                DepthWriteMask = DepthWriteMask.All,
+                DepthFunc = ComparisonFunction.GreaterEqual
+            };
+            _reverseZDepthStencilState = _device.CreateDepthStencilState(revZStateDesc);
 
             _alphaBlendState?.Dispose();
             var blendDesc = new BlendDescription
@@ -969,6 +980,7 @@ float4 PS(PS_IN input) : SV_TARGET
             return hits > 0 && screenMin.X < screenMax.X && screenMin.Y < screenMax.Y;
         }
 
+        public bool HasSkinning => _models.Values.Any(m => m.HasSkinning);
         public bool OverlaySkinningActive { get; private set; }
         public float OverlaySkinningMaxDelta { get; private set; }
         public string OverlaySkinningDebugLine { get; private set; } = "";
@@ -1415,16 +1427,21 @@ float4 PS(PS_IN input) : SV_TARGET
 
             try
             {
-                // Bind our RTV + depth buffer
+                // Bind RTV + depth buffer state according to camera projection type
                 _context.OMSetRenderTargets(_renderTargetView, _depthStencilView);
-                _context.OMSetDepthStencilState(_depthStencilState);
                 
-                // Character overlay uses a transparent background so we can composite over the game.
                 if (UseCharacterOverlay && _hasGameCameraMatrices)
+                {
+                    _context.OMSetDepthStencilState(_reverseZDepthStencilState);
                     _context.ClearRenderTargetView(_renderTargetView, new Vortice.Mathematics.Color4(0f, 0f, 0f, 0f));
+                    _context.ClearDepthStencilView(_depthStencilView, DepthStencilClearFlags.Depth, 0.0f, 0);
+                }
                 else
+                {
+                    _context.OMSetDepthStencilState(_depthStencilState);
                     _context.ClearRenderTargetView(_renderTargetView, new Vortice.Mathematics.Color4(0.15f, 0.15f, 0.15f, 1.0f));
-                _context.ClearDepthStencilView(_depthStencilView, DepthStencilClearFlags.Depth, 1.0f, 0);
+                    _context.ClearDepthStencilView(_depthStencilView, DepthStencilClearFlags.Depth, 1.0f, 0);
+                }
 
                 // Set Viewport and Rasterizer
                 _context.RSSetViewport(new Vortice.Mathematics.Viewport(0, 0, Width, Height));

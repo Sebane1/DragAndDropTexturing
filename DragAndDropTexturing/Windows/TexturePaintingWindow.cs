@@ -1578,12 +1578,13 @@ namespace DragAndDropTexturing.Windows
                 }
             }
 
+            bool hasSkinning = _renderer.HasSkinning;
             var built = PainterCharacterOverlay.TryBuild(
                 character,
                 _renderer.BoundsMin,
                 _renderer.BoundsMax,
                 WorldToScreenForOverlay,
-                _renderer.OverlaySkinningActive,
+                hasSkinning,
                 _overlayScaleFineTune,
                 _overlayWidthFineTune);
 
@@ -1968,7 +1969,7 @@ namespace DragAndDropTexturing.Windows
                 }
             }
 
-            if (_transparentSkinPreview)
+            if (_transparentSkinPreview && !_overlayOnCharacter)
             {
                 _renderer.HiddenSlots.Add("PreviewTop");
                 _renderer.HiddenSlots.Add("PreviewBottom");
@@ -2385,7 +2386,7 @@ namespace DragAndDropTexturing.Windows
             if (bridgeDisplay)
                 _renderer.RunPreviewCompositePass(_targetChannel);
 
-            if (_transparentSkinPreview && TryGetPaintOverlaySrv(bridgeDisplay, out var overlaySrv))
+            if (_transparentSkinPreview && !_overlayOnCharacter && TryGetPaintOverlaySrv(bridgeDisplay, out var overlaySrv))
             {
                 _renderer.ClearTransparentOverlayFromAllSlots();
                 _renderer.AssignPaintOverlayToSlots(_primarySlotArray, overlaySrv);
