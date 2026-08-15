@@ -171,6 +171,8 @@ namespace DragAndDropTexturing.Windows
         private byte[] _cachedCharacterCustomize = Array.Empty<byte>();
         private string _cachedResolvedTopPath = "";
         private string _cachedResolvedBotPath = "";
+        private string _cachedResolvedGlvPath = "";
+        private string _cachedResolvedShoPath = "";
         private string _cachedModDirectory = "";
         private int _cachedActiveBodyType = 0;
         private List<DragAndDropTexturing.Equipment.WornEquipmentPiece> _cachedWornGear = null;
@@ -3051,6 +3053,8 @@ namespace DragAndDropTexturing.Windows
                 string trueRaceCode = GetFfxivModelRaceCode(ffxivRace, ffxivClan, ffxivGender);
                 string relativeTop = $"chara/equipment/e0279/model/{trueRaceCode}e0279_top.mdl";
                 string relativeBot = $"chara/equipment/e0279/model/{trueRaceCode}e0279_dwn.mdl";
+                string relativeGlv = $"chara/equipment/e0279/model/{trueRaceCode}e0279_glv.mdl";
+                string relativeSho = $"chara/equipment/e0279/model/{trueRaceCode}e0279_sho.mdl";
 
                 try
                 {
@@ -3063,6 +3067,18 @@ namespace DragAndDropTexturing.Windows
                     PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(_cachedCollectionId, relativeBot, out _cachedResolvedBotPath);
                 }
                 catch { _cachedResolvedBotPath = ""; }
+
+                try
+                {
+                    PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(_cachedCollectionId, relativeGlv, out _cachedResolvedGlvPath);
+                }
+                catch { _cachedResolvedGlvPath = ""; }
+
+                try
+                {
+                    PenumbraAndGlamourerIpcWrapper.Instance.ResolvePath.Invoke(_cachedCollectionId, relativeSho, out _cachedResolvedShoPath);
+                }
+                catch { _cachedResolvedShoPath = ""; }
 
                 // Detect base body type and populate omni overrides on main thread to be fully safe
                 try
@@ -3518,6 +3534,15 @@ namespace DragAndDropTexturing.Windows
                 // Resolve glv/sho to match the preview mesh body type.
                 if (!isGear && !isFaceEditLocal)
                 {
+                    if (_previewMeshMode == PainterPreviewMeshMode.MatchWornBody)
+                    {
+                        if (!string.IsNullOrEmpty(_cachedResolvedGlvPath))
+                            glvPath = _cachedResolvedGlvPath;
+                        if (!string.IsNullOrEmpty(_cachedResolvedShoPath))
+                            shoPath = _cachedResolvedShoPath;
+                        _plugin.PluginLog.Info($"[PSD Preview] Match Worn Body resolved gloves: '{glvPath}', shoes: '{shoPath}'");
+                    }
+
                     string glvShoKeyword = ResolvePreviewMeshKeywordForLoad();
                     if (string.IsNullOrEmpty(glvShoKeyword))
                     {
@@ -3534,12 +3559,12 @@ namespace DragAndDropTexturing.Windows
                         string resolvedSho = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.FindMeshDiskPathInModDirectory(
                             glvShoKeyword, $"chara/equipment/e0279/model/{glvShoRaceCode}e0279_sho.mdl");
 
-                        if (!string.IsNullOrEmpty(resolvedGlv))
+                        if (!string.IsNullOrEmpty(resolvedGlv) && glvPath == null)
                         {
                             glvPath = resolvedGlv;
                             _plugin.PluginLog.Info($"[PSD Preview] Resolved gloves to {glvShoKeyword} body type: {glvPath}");
                         }
-                        if (!string.IsNullOrEmpty(resolvedSho))
+                        if (!string.IsNullOrEmpty(resolvedSho) && shoPath == null)
                         {
                             shoPath = resolvedSho;
                             _plugin.PluginLog.Info($"[PSD Preview] Resolved shoes to {glvShoKeyword} body type: {shoPath}");
@@ -3608,14 +3633,14 @@ namespace DragAndDropTexturing.Windows
                 string matchedMatPath = matchedPiece?.InternalMaterialPath;
                 
                 System.Threading.Tasks.Parallel.Invoke(
-                    () => { if (topSlotPath != null) LoadModelIntoSlot(topSlotName, topSlotPath, collectionId, matchedMatPath); },
-                    () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId, matchedMatPath); },
-                    () => { if (!isGear && glvPath != null) LoadModelIntoSlot(glvSlotName, glvPath, collectionId); },
-                    () => { if (!isGear && shoPath != null) LoadModelIntoSlot(shoSlotName, shoPath, collectionId); },
+                    () => { if (topSlotPath != null) LoadModelIntoSlot(topSlotName, topSlotPath, collectionId, matchedMatPath, isGear); },
+                    () => { if (botSlotPath != null) LoadModelIntoSlot(botSlotName, botSlotPath, collectionId, matchedMatPath, isGear); },
+                    () => { if (!isGear && glvPath != null) LoadModelIntoSlot(glvSlotName, glvPath, collectionId, null, isGear); },
+                    () => { if (!isGear && shoPath != null) LoadModelIntoSlot(shoSlotName, shoPath, collectionId, null, isGear); },
                     () => { 
                         if (!isGear && facePath != null && isFaceEditLocal) 
                         {
-                            LoadModelIntoSlot("Face", facePath, collectionId); 
+                            LoadModelIntoSlot("Face", facePath, collectionId, null, isGear); 
                         }
                     }
                 );
@@ -3642,7 +3667,7 @@ namespace DragAndDropTexturing.Windows
                         if (bodyIndex == 3) isTbse = true;
                         if (bodyIndex == 2) isGen3 = true;
                         if (bodyIndex == 1) isBibo = true;
-                        _plugin.PluginLog.Info($"[PSD Preview] Path didn't contain 'gen3', 'bibo', or 'tbse'. Fallback detection returned: {bodyIndex} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : isTbse ? "TBSE" : "Unknown")})");
+                        _plugin.PluginLog.Warning($"[PSD Preview] Path didn't contain 'gen3', 'bibo', or 'tbse'. Fallback detection returned: {bodyIndex} ({(isGen3 ? "Gen3" : isBibo ? "Bibo+" : isTbse ? "TBSE" : "Unknown")})");
                     }
                 }
 
@@ -3658,7 +3683,7 @@ namespace DragAndDropTexturing.Windows
                 bool canvasIsGen3 = canvasKeyword == "gen3";
                 bool canvasIsBibo = canvasKeyword == "bibo";
                 bool canvasIsTbse = canvasKeyword == "tbse";
-                _plugin.PluginLog.Info($"[PSD Preview] Canvas UV space: {canvasKeyword}, Preview mesh: {_previewMeshKeyword}");
+                _plugin.PluginLog.Warning($"[TexturePainter TRACE] UV_EVAL: canvasKeyword='{canvasKeyword}', previewMeshKeyword='{_previewMeshKeyword}', targetKeyword='{_targetKeyword ?? "<null>"}', canvasIsGen3={canvasIsGen3}, canvasIsBibo={canvasIsBibo}, canvasIsTbse={canvasIsTbse}");
 
                 if (!isFaceEditLocal && string.IsNullOrEmpty(EditSourcePath) && _overrideTopPathList.Count == 0 && _overrideBotPathList.Count == 0)
                 {
@@ -3667,6 +3692,7 @@ namespace DragAndDropTexturing.Windows
                     else if (isGen3) _targetKeyword = "gen3";
                     else if (isTbse) _targetKeyword = "tbse";
                     _canvasUvKeyword = _targetKeyword ?? _previewMeshKeyword;
+                    _plugin.PluginLog.Warning($"[TexturePainter TRACE] EMPTY_SOURCE_RENAME: targetKeyword='{_targetKeyword ?? "<null>"}', canvasUvKeyword='{_canvasUvKeyword}'");
 
                     if (_targetKeyword != null)
                     {
@@ -3702,6 +3728,7 @@ namespace DragAndDropTexturing.Windows
                     normTexPath = matchedPiece.InternalNormalPath;
                     maskTexPath = matchedPiece.InternalMaskPath;
                 }
+                _plugin.PluginLog.Warning($"[TexturePainter TRACE] MATCHED_PIECE_PATHS: baseTexPath='{baseTexPath ?? "<null>"}'");
 
                 bool isBodySlot = !isGear || (activeSuffix != "hir" && activeSuffix != "til" && activeSuffix != "met");
                 
@@ -3713,21 +3740,25 @@ namespace DragAndDropTexturing.Windows
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Normal;
                         maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.Gen3Override.Mask;
+                        _plugin.PluginLog.Warning($"[TexturePainter TRACE] OVERRIDE_SELECTED Gen3Override='{baseTexPath}'");
                     }
                     else if (canvasIsBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Normal;
                         maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Mask;
+                        _plugin.PluginLog.Warning($"[TexturePainter TRACE] OVERRIDE_SELECTED BiboOverride='{baseTexPath}'");
                     }
                     else if (canvasIsTbse && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride != null)
                     {
                         baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Base;
                         normTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Normal;
                         maskTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.TbseOverride.Mask;
+                        _plugin.PluginLog.Warning($"[TexturePainter TRACE] OVERRIDE_SELECTED TbseOverride='{baseTexPath}'");
                     }
                     else
                     {
+                        _plugin.PluginLog.Warning($"[TexturePainter TRACE] OVERRIDE_FALLTHROUGH: canvasKeyword='{canvasKeyword}', currentBase='{baseTexPath ?? "<null>"}'");
                         if (canvasIsBibo && FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride != null)
                         {
                             baseTexPath = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboOverride.Base;
@@ -3788,7 +3819,7 @@ namespace DragAndDropTexturing.Windows
                     }
                 }
 
-                _plugin.PluginLog.Info($"[PSD Preview] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
+                _plugin.PluginLog.Warning($"[TexturePainter TRACE] Resolved BaseTexture: {baseTexPath ?? "NULL"}");
 
                 // Load both textures in parallel
                 bool baseIsBlack = false;
@@ -4031,7 +4062,7 @@ namespace DragAndDropTexturing.Windows
             };
         }
 
-        private void LoadModelIntoSlot(string slot, string path, Guid collectionId, string internalMaterialPath = null)
+        private void LoadModelIntoSlot(string slot, string path, Guid collectionId, string internalMaterialPath = null, bool isGear = false)
         {
             try
             {
@@ -4373,7 +4404,7 @@ namespace DragAndDropTexturing.Windows
                                     if (!string.IsNullOrEmpty(pngPath))
                                     {
                                         _plugin.PluginLog.Info($"[Texture Painter] Clothing texture resolved for override: {pngPath}");
-                                        if (slot == "Top" || slot == "Bottom" || slot == "Shoes" || slot == "Gloves" || slot == "Head" || slot == "Hair" || slot == "Tail")
+                                        if (isGear && (slot == "Top" || slot == "Bottom" || slot == "Shoes" || slot == "Gloves" || slot == "Head" || slot == "Hair" || slot == "Tail"))
                                         {
                                             _clothingTexturePngOverride = pngPath;
                                             _editLayerLoaded = false;
