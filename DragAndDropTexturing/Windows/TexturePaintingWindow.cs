@@ -1969,7 +1969,7 @@ namespace DragAndDropTexturing.Windows
                 }
             }
 
-            if (_transparentSkinPreview && !_overlayOnCharacter)
+            if (_transparentSkinPreview)
             {
                 _renderer.HiddenSlots.Add("PreviewTop");
                 _renderer.HiddenSlots.Add("PreviewBottom");
@@ -2386,7 +2386,7 @@ namespace DragAndDropTexturing.Windows
             if (bridgeDisplay)
                 _renderer.RunPreviewCompositePass(_targetChannel);
 
-            if (_transparentSkinPreview && !_overlayOnCharacter && TryGetPaintOverlaySrv(bridgeDisplay, out var overlaySrv))
+            if (_transparentSkinPreview && TryGetPaintOverlaySrv(bridgeDisplay, out var overlaySrv))
             {
                 _renderer.ClearTransparentOverlayFromAllSlots();
                 _renderer.AssignPaintOverlayToSlots(_primarySlotArray, overlaySrv);
