@@ -41,12 +41,16 @@ namespace DragAndDropTexturing.Windows
 
     public class MdlParser
     {
+        /// <summary>Stores the last parse error for diagnostic purposes. Cleared on each parse attempt.</summary>
+        public static string LastParseError { get; private set; } = "";
+
         /// <summary>
         /// Parses an FFXIV MdlFile and extracts the LOD0 meshes into a format ready for D3D11 rendering.
         /// Unpacks Half2 UVs and Dec3N4 Normals into standard floating point Vectors.
         /// </summary>
         public static List<ExtractedMesh> Parse(MdlFile mdlFile)
         {
+            LastParseError = "";
             var extractedMeshes = new List<ExtractedMesh>();
 
             try
@@ -208,9 +212,10 @@ namespace DragAndDropTexturing.Windows
 
                 return extractedMeshes.Count > 0 ? extractedMeshes : GetDummyCube();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // If Lumina's parsing throws due to Dawntrail changes, return a fallback cube
+                LastParseError = $"Lumina MDL parse exception: {ex.GetType().Name}: {ex.Message} | Stack: {ex.StackTrace}";
                 return GetDummyCube();
             }
         }
@@ -243,6 +248,16 @@ namespace DragAndDropTexturing.Windows
             mesh.Indices.AddRange(indices);
             return new List<ExtractedMesh> { mesh };
         }
+
+        /// <summary>
+        /// Returns true if the mesh list is the dummy cube fallback (8 verts, 1 mesh, no material).
+        /// </summary>
+        public static bool IsDummyCube(List<ExtractedMesh> meshes)
+        {
+            if (meshes == null || meshes.Count != 1) return false;
+            var m = meshes[0];
+            return m.Positions.Count == 8 && m.Indices.Count == 36 && string.IsNullOrEmpty(m.MaterialPath);
+        }
         /// <summary>
         /// Parses an FFXIV .mdl file directly from raw bytes on disk, bypassing Lumina entirely.
         /// Based on the TexTools xivModdingFramework implementation (MdlModelData.Read, Mdl.cs).
@@ -264,17 +279,24 @@ namespace DragAndDropTexturing.Windows
         {
             try
             {
-                return ParseFromBytes(File.ReadAllBytes(filePath), out statusMessage);
+                var result = ParseFromBytes(File.ReadAllBytes(filePath), out statusMessage);
+                if (IsDummyCube(result))
+                {
+                    LastParseError = $"ParseFromDisk returned dummy cube for '{filePath}': {statusMessage}";
+                }
+                return result;
             }
             catch (Exception ex)
             {
-                statusMessage = "File read error: " + ex.Message;
+                statusMessage = $"File read error: {ex.GetType().Name}: {ex.Message} | Stack: {ex.StackTrace}";
+                LastParseError = statusMessage;
                 return GetDummyCube();
             }
         }
 
         public static List<ExtractedMesh> ParseFromBytes(byte[] fileData, out string statusMessage)
         {
+            LastParseError = "";
             statusMessage = "";
             try
             {
@@ -697,7 +719,8 @@ namespace DragAndDropTexturing.Windows
             }
             catch (Exception ex)
             {
-                statusMessage = "Raw MDL parse error: " + ex.Message;
+                statusMessage = $"Raw MDL parse error: {ex.GetType().Name}: {ex.Message} | FileSize={fileData?.Length ?? 0} | Stack: {ex.StackTrace}";
+                LastParseError = statusMessage;
                 return GetDummyCube();
             }
         }

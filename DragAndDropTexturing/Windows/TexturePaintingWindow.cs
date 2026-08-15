@@ -4146,7 +4146,16 @@ namespace DragAndDropTexturing.Windows
 
                 if (meshes != null && meshes.Count > 0)
                 {
-                    _plugin.PluginLog.Info($"[PSD Preview] Successfully loaded {meshes.Count} meshes into slot '{slot}'. Slicing base to '{slot}', extras to '{slot}_N'.");
+                    // Detect dummy cube fallback and log the real parse error
+                    if (MdlParser.IsDummyCube(meshes))
+                    {
+                        _plugin.PluginLog.Error($"[PSD Preview] *** MDL PARSE FAILED for slot '{slot}' (path='{path}', disk='{diskPath}'). " +
+                            $"Got dummy cube fallback. LastParseError: {MdlParser.LastParseError}");
+                    }
+                    else
+                    {
+                        _plugin.PluginLog.Info($"[PSD Preview] Successfully loaded {meshes.Count} meshes into slot '{slot}'. Slicing base to '{slot}', extras to '{slot}_N'.");
+                    }
                     var meshesCopy = new System.Collections.Generic.List<ExtractedMesh>(meshes);
                     // Store CPU mesh data for procedural stamp triangle selection
                     lock (_loadedMeshes) { _loadedMeshes.AddRange(meshesCopy); }
