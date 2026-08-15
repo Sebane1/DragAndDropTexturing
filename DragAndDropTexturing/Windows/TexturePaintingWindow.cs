@@ -748,13 +748,6 @@ namespace DragAndDropTexturing.Windows
                         }
                     }
 
-                    if (ImGui.Checkbox(Translator.LocalizeUI("UV Bridge (cross-body paint)"), ref _uvBridgeEnabled))
-                    {
-                        _plugin.Configuration.PainterUvBridgeEnabled = _uvBridgeEnabled;
-                        _plugin.Configuration.Save();
-                        RefreshUvBridge();
-                    }
-
                     if (ImGui.Checkbox(Translator.LocalizeUI("Hide skin in 3D preview"), ref _transparentSkinPreview))
                     {
                         _plugin.Configuration.PainterTransparentSkinPreview = _transparentSkinPreview;
@@ -762,6 +755,7 @@ namespace DragAndDropTexturing.Windows
                         UpdateMeshVisibility();
                         _needsComposite = true;
                     }
+
                     if (_transparentSkinPreview)
                         ImGui.TextDisabled("Shows paint layer only, skin and companion body meshes hidden.");
 
@@ -3477,6 +3471,7 @@ namespace DragAndDropTexturing.Windows
                         if (!string.IsNullOrEmpty(_cachedResolvedBotPath))
                             overrideBotPath = _cachedResolvedBotPath;
                     }
+
                     else if (!string.IsNullOrEmpty(previewLookupKeyword))
                     {
                         string checkRaceCode = previewLookupKeyword == "tbse" ? (!string.IsNullOrEmpty(trueRaceCode) ? trueRaceCode : "c0101") : "c0201";

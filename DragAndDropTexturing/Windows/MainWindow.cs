@@ -7,9 +7,14 @@ using DragAndDropTexturing.Equipment;
 using DragAndDropTexturing.LanguageHelpers;
 using DragAndDropTexturing.Overlays;
 using DragAndDropTexturing.VideoPlayback;
+using FFXIVLooseTextureCompiler.Racial;
+using LooseTextureCompilerCore.ProjectCreation;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Numerics;
 using static Penumbra.GameData.Files.ShpkFile;
@@ -255,11 +260,6 @@ public class MainWindow : Window, IDisposable
                 DrawContextualLayers();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem(Translator.LocalizeUI("Onion Mods")))
-            {
-                DrawOnionModsTab();
-                ImGui.EndTabItem();
-            }
             if (ImGui.BeginTabItem(Translator.LocalizeUI("Proteus Mods")))
             {
                 DrawPenumbraFoundMods();
@@ -268,6 +268,11 @@ public class MainWindow : Window, IDisposable
             if (ImGui.BeginTabItem(Translator.LocalizeUI("Animated Layers")))
             {
                 DrawAnimatedLayers();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Onion Mods")))
+            {
+                DrawOnionModsTab();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem(Translator.LocalizeUI("Settings")))
@@ -721,7 +726,7 @@ public class MainWindow : Window, IDisposable
             ImGui.TableSetupColumn(Translator.LocalizeUI("Mod Name"), ImGuiTableColumnFlags.WidthFixed, 200);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Part"), ImGuiTableColumnFlags.WidthFixed, 70);
             ImGui.TableSetupColumn(Translator.LocalizeUI("UV Type"), ImGuiTableColumnFlags.WidthFixed, 60);
-            ImGui.TableSetupColumn(Translator.LocalizeUI("Texture Path / Option Name"), ImGuiTableColumnFlags.WidthFixed, 180);
+            ImGui.TableSetupColumn(Translator.LocalizeUI("UV Preview"), ImGuiTableColumnFlags.WidthFixed, 180);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Colors"), ImGuiTableColumnFlags.WidthFixed, 70);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Tint"), ImGuiTableColumnFlags.WidthFixed, 60);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Emissive"), ImGuiTableColumnFlags.WidthFixed, 60);
@@ -754,11 +759,11 @@ public class MainWindow : Window, IDisposable
                     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 5);
                 }
 
-                ImGui.Text(fileName);
-                if (!string.IsNullOrEmpty(overlay.DiffusePath) && ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip(overlay.DiffusePath);
-                }
+                //ImGui.Text(fileName);
+                //if (!string.IsNullOrEmpty(overlay.DiffusePath) && ImGui.IsItemHovered())
+                //{
+                //    ImGui.SetTooltip(overlay.DiffusePath);
+                //}
 
                 ImGui.TableNextColumn();
                 string overlayKey = ProteusColorTableHelper.GetOverlayKey(overlay);
@@ -1375,6 +1380,14 @@ public class MainWindow : Window, IDisposable
                     ExportCategoryToPsd(key, list);
                 }
 
+                ImGui.SameLine();
+                if (ImGui.Button(Translator.LocalizeUI("Export to Proteus") + "##proteus_" + key))
+                {
+                    ExportCategoryToProteus(key, list);
+                }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(Translator.LocalizeUI("Creates a Proteus-ready Penumbra .pmp overlay mod for this body or equipped gear material."));
+
                 if (_selectedPresetIndex == -1)
                 {
                     ImGui.SameLine();
@@ -1753,6 +1766,275 @@ public class MainWindow : Window, IDisposable
                 Plugin.PluginLog.Error(ex, $"Failed to export category {key} to PSD");
             }
         });
+    }
+
+    private void ExportCategoryToProteus(string key, System.Collections.Generic.List<string> files)
+    {
+        Plugin.Chat?.Print("[DragAndDrop] Exporting Proteus mod... Please wait.");
+
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                if (!TryGetProteusMaterialPath(key, out var materialGamePath, out var currentBodyType))
+                {
+                    Plugin.Chat?.Print("[DragAndDrop] Proteus export needs a resolved body or equipped gear material target.");
+                    return;
+                }
+
+                string exportFolder = Path.Combine(Plugin.PluginInterface.ConfigDirectory.FullName, "Exports");
+                Directory.CreateDirectory(exportFolder);
+                string safeName = string.Join("_", key.Split(Path.GetInvalidFileNameChars()));
+                string modName = $"Drag And Drop - {safeName}";
+                string pmpPath = Path.Combine(exportFolder, $"{safeName}_proteus.pmp");
+
+                if (currentBodyType >= 0 && global::PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory != null)
+                {
+                    string modDirectory = global::PenumbraAndGlamourerIpcWrapper.Instance.GetModDirectory.Invoke();
+                    LooseTextureCompilerCore.GlobalPathStorage.OriginalBaseDirectory = Path.Combine(modDirectory, "LooseTextureCompilerDLC");
+                }
+
+                string tempDirectory = Path.Combine(Path.GetTempPath(), "DragAndDropTexturing", Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDirectory);
+                var sourceOverlays = CreateProteusOverlays(files, currentBodyType, tempDirectory);
+                if (sourceOverlays.Count == 0)
+                {
+                    Plugin.Chat?.Print("[DragAndDrop] Error: No valid image files found to export.");
+                    return;
+                }
+
+                try
+                {
+                    if (File.Exists(pmpPath)) File.Delete(pmpPath);
+                    using (var zip = ZipFile.Open(pmpPath, ZipArchiveMode.Create))
+                    {
+                        var identifier = Guid.NewGuid().ToString();
+                        var penumbraMeta = new JObject
+                        {
+                            ["FileVersion"] = 4,
+                            ["Identifier"] = identifier,
+                            ["Name"] = modName,
+                            ["Author"] = "Drag And Drop Texturing",
+                            ["Description"] = "Overlay exported by Drag And Drop Texturing.",
+                            ["Version"] = "1.0",
+                            ["Website"] = "",
+                            ["ModTags"] = new JArray("Proteus"),
+                            ["DefaultData"] = new JObject { ["Files"] = new JObject(), ["FileSwaps"] = new JObject(), ["Manipulations"] = new JArray() },
+                            ["Groups"] = new JArray(),
+                        };
+                        WriteZipJson(zip, "meta.json", penumbraMeta);
+
+                        var overlays = new JArray();
+                        if (currentBodyType >= 0)
+                        {
+                            foreach (var target in GetProteusBodyTargets(currentBodyType, materialGamePath))
+                            {
+                                overlays.Add(WriteProteusOverlay(zip, sourceOverlays, currentBodyType, target.BodyType, target.MaterialGamePath, tempDirectory, target.Name));
+                            }
+                        }
+                        else
+                        {
+                            overlays.Add(WriteProteusOverlay(zip, sourceOverlays, -1, -1, materialGamePath, tempDirectory, "overlay"));
+                        }
+
+                        var proteusMeta = new JObject
+                        {
+                            ["FormatVersion"] = 1,
+                            ["Name"] = modName,
+                            ["Author"] = "Drag And Drop Texturing",
+                            ["Overlays"] = overlays,
+                            ["ColorTableRows"] = new JArray
+                            {
+                                new JObject
+                                {
+                                    ["Row"] = 16,
+                                    ["SubRowA"] = new JObject { ["Diffuse"] = "#FFFFFF", ["Emissive"] = 0.0 },
+                                },
+                            },
+                        };
+                        WriteZipJson(zip, "Proteus/metadata.json", proteusMeta);
+                    }
+                }
+                finally
+                {
+                    foreach (var image in sourceOverlays.Values) image.Dispose();
+                    try { Directory.Delete(tempDirectory, true); } catch { }
+                }
+
+                Plugin.Chat?.Print($"[DragAndDrop] Successfully exported Proteus mod to: {pmpPath}");
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exportFolder,
+                    UseShellExecute = true,
+                    Verb = "open",
+                });
+            }
+            catch (Exception ex)
+            {
+                Plugin.Chat?.Print("[DragAndDrop] Failed to export Proteus mod! Check the plugin log for details.");
+                Plugin.PluginLog.Error(ex, $"Failed to export category {key} to a Proteus mod");
+            }
+        });
+    }
+
+    private ImageMagick.MagickImage? CreateProteusOverlay(IReadOnlyList<string> files, int targetBodyType, string tempDirectory)
+    {
+        ImageMagick.MagickImage? overlay = null;
+        for (int i = 0; i < files.Count; i++)
+        {
+            var file = files[i];
+            if (string.IsNullOrWhiteSpace(file) || !File.Exists(file)) continue;
+
+            string layerPath = ConvertLayerToBodyUv(file, targetBodyType, tempDirectory, i);
+            using var layer = new ImageMagick.MagickImage(layerPath);
+            overlay ??= new ImageMagick.MagickImage(ImageMagick.MagickColors.Transparent, layer.Width, layer.Height);
+            overlay.Composite(layer, ImageMagick.CompositeOperator.Over);
+        }
+        return overlay;
+    }
+
+    private Dictionary<string, ImageMagick.MagickImage> CreateProteusOverlays(IReadOnlyList<string> files, int targetBodyType, string tempDirectory)
+    {
+        var result = new Dictionary<string, ImageMagick.MagickImage>();
+        foreach (var group in files.Where(File.Exists).GroupBy(GetProteusMapType))
+        {
+            var image = CreateProteusOverlay(group.ToList(), targetBodyType, tempDirectory);
+            if (image != null) result[group.Key] = image;
+        }
+        return result;
+    }
+
+    private static string GetProteusMapType(string file)
+    {
+        var textureSet = new FFXIVLooseTextureCompiler.PathOrganization.TextureSet();
+        return ProjectHelper.SortUVTexture(textureSet, file) switch
+        {
+            FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.UVMapType.Normal => "Normal",
+            FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.UVMapType.Mask => "Mask",
+            _ => "Diffuse",
+        };
+    }
+
+    private static JObject WriteProteusOverlay(ZipArchive zip, IReadOnlyDictionary<string, ImageMagick.MagickImage> sourceOverlays,
+        int sourceBodyType, int targetBodyType, string materialGamePath, string tempDirectory, string prefix)
+    {
+        var descriptor = new JObject { ["MaterialGamePath"] = materialGamePath };
+        foreach (var (mapType, sourceOverlay) in sourceOverlays)
+        {
+            string filename = $"{prefix}_{mapType.ToLowerInvariant()}.png";
+            using var converted = sourceBodyType >= 0
+                ? ConvertProteusOverlay(sourceOverlay, sourceBodyType, targetBodyType, tempDirectory, $"{prefix}_{mapType.ToLowerInvariant()}")
+                : new ImageMagick.MagickImage(sourceOverlay.ToByteArray(ImageMagick.MagickFormat.Png));
+            using var stream = zip.CreateEntry($"Proteus/{filename}", CompressionLevel.NoCompression).Open();
+            converted.Write(stream, ImageMagick.MagickFormat.Png);
+            descriptor[mapType] = filename;
+        }
+        return descriptor;
+    }
+
+    private bool TryGetProteusMaterialPath(string key, out string materialGamePath, out int bodyType)
+    {
+        materialGamePath = "";
+        bodyType = -1;
+        if (Plugin.DragAndDropTextures?.GearCategoryMeta.TryGetValue(key, out var gear) == true
+            && !string.IsNullOrWhiteSpace(gear.InternalMaterialPath))
+        {
+            materialGamePath = gear.InternalMaterialPath;
+            return true;
+        }
+
+        if (!key.EndsWith("_body", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var character = Plugin.SafeGameObjectManager.LocalPlayer;
+        if (character == null || global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64 == null) return false;
+
+        var state = global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
+        var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(state.Item2);
+        var collectionId = global::PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(character.ObjectIndex).Item3.Id;
+        bodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(
+            collectionId, customization.Customize.Gender.Value, out _, Plugin);
+        if (bodyType < 0) return false;
+
+        int race = RaceInfo.SubRaceToMainRace(customization.Customize.Clan.Value - 1);
+        var textureSet = ProjectHelper.CreateBodyTextureSet(customization.Customize.Gender.Value, bodyType, race,
+            customization.Customize.TailShape.Value - 1, false);
+        materialGamePath = textureSet.InternalMaterialPath;
+        return !string.IsNullOrWhiteSpace(materialGamePath);
+    }
+
+    private IEnumerable<(string Name, string MaterialGamePath, int BodyType)> GetProteusBodyTargets(int currentBodyType, string currentMaterial)
+    {
+        var character = Plugin.SafeGameObjectManager.LocalPlayer;
+        var state = global::PenumbraAndGlamourerIpcWrapper.Instance.GetStateBase64.Invoke(character.ObjectIndex);
+        var customization = PenumbraAndGlamourerHelpers.IPC.ThirdParty.Glamourer.CharacterCustomization.ReadCustomization(state.Item2);
+        int gender = customization.Customize.Gender.Value;
+        int race = RaceInfo.SubRaceToMainRace(customization.Customize.Clan.Value - 1);
+        int tail = customization.Customize.TailShape.Value - 1;
+        int[] bodyTypes = gender == 1 ? new[] { 1, 2, 0 } : new[] { 3, 0 };
+
+        foreach (int targetBodyType in bodyTypes)
+        {
+            string name = targetBodyType switch { 0 => "vanilla", 1 => "bibo", 2 => "gen3", 3 => "tbse", _ => "overlay" };
+            string material = targetBodyType == currentBodyType
+                ? currentMaterial
+                : ProjectHelper.CreateBodyTextureSet(gender, targetBodyType, race, tail, false).InternalMaterialPath;
+            yield return (name, material, targetBodyType);
+        }
+    }
+
+    private string ConvertLayerToBodyUv(string sourcePath, int targetBodyType, string tempDirectory, int index)
+    {
+        if (targetBodyType < 0 || targetBodyType == 3) return sourcePath;
+
+        int sourceBodyType = DetectFemaleBodyUv(sourcePath);
+        if (sourceBodyType == targetBodyType || sourceBodyType < 0) return sourcePath;
+        string outputPath = Path.Combine(tempDirectory, $"layer_{index}_{targetBodyType}.png");
+        ConvertBodyUv(sourcePath, outputPath, sourceBodyType, targetBodyType);
+        return outputPath;
+    }
+
+    private static ImageMagick.MagickImage ConvertProteusOverlay(ImageMagick.MagickImage overlay, int sourceBodyType, int targetBodyType, string tempDirectory, string name)
+    {
+        if (sourceBodyType == targetBodyType || sourceBodyType == 3 || targetBodyType == 3)
+            return new ImageMagick.MagickImage(overlay.ToByteArray(ImageMagick.MagickFormat.Png));
+
+        string sourcePath = Path.Combine(tempDirectory, $"source_{name}.png");
+        string outputPath = Path.Combine(tempDirectory, $"{name}.png");
+        overlay.Write(sourcePath, ImageMagick.MagickFormat.Png);
+        ConvertBodyUv(sourcePath, outputPath, sourceBodyType, targetBodyType);
+        return new ImageMagick.MagickImage(outputPath);
+    }
+
+    private static int DetectFemaleBodyUv(string path)
+    {
+        string fileName = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
+        if (fileName.Contains("bibo") || fileName.Contains("b+")) return 1;
+        if (fileName.Contains("gen3") || System.Text.RegularExpressions.Regex.IsMatch(fileName, @"(^|[^a-z])eve([^a-z]|$)")
+            || fileName.Contains("exqb") || fileName.Contains("pythia") || fileName.Contains("gaia")) return 2;
+
+        return FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.FemaleBodyUVClassifier(path) switch
+        {
+            FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.BodyUVType.Bibo => 1,
+            FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.BodyUVType.Gen3 => 2,
+            FFXIVLooseTextureCompiler.ImageProcessing.ImageManipulation.BodyUVType.Gen2 => 0,
+            _ => -1,
+        };
+    }
+
+    private static void ConvertBodyUv(string sourcePath, string outputPath, int sourceBodyType, int targetBodyType)
+    {
+        if (sourceBodyType == 1 && targetBodyType == 2) FFXIVLooseTextureCompiler.FastUVTransfer.BiboToGen3(sourcePath, outputPath);
+        else if (sourceBodyType == 1 && targetBodyType == 0) FFXIVLooseTextureCompiler.FastUVTransfer.BiboToGen2(sourcePath, outputPath);
+        else if (sourceBodyType == 2 && targetBodyType == 1) FFXIVLooseTextureCompiler.FastUVTransfer.Gen3ToBibo(sourcePath, outputPath);
+        else if (sourceBodyType == 2 && targetBodyType == 0) FFXIVLooseTextureCompiler.FastUVTransfer.Gen3ToGen2(sourcePath, outputPath);
+        else if (sourceBodyType == 0 && targetBodyType == 1) FFXIVLooseTextureCompiler.FastUVTransfer.Gen2ToBibo(sourcePath, outputPath);
+        else if (sourceBodyType == 0 && targetBodyType == 2) FFXIVLooseTextureCompiler.FastUVTransfer.Gen2ToGen3(sourcePath, outputPath);
+    }
+
+    private static void WriteZipJson(ZipArchive zip, string entryName, JObject value)
+    {
+        using var writer = new StreamWriter(zip.CreateEntry(entryName, CompressionLevel.Optimal).Open());
+        writer.Write(value.ToString(Formatting.Indented));
     }
 
     private void DrawLayerHistory()
