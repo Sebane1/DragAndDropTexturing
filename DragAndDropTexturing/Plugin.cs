@@ -109,6 +109,8 @@ public sealed class Plugin : IDalamudPlugin
         });
 
         PluginInterface.UiBuilder.Draw += DrawUI;
+        PluginInterface.UiBuilder.DisableCutsceneUiHide = true;
+        PluginInterface.UiBuilder.DisableGposeUiHide = true;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUI;
         Framework.Update += OnFrameworkUpdate;
         if (DragAndDropTextures is not null)

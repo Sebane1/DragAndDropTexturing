@@ -308,6 +308,7 @@ namespace DragAndDropTexturing.Windows
         public TexturePaintingWindow(Plugin plugin) : base("Texture Painter", ImGuiWindowFlags.NoScrollbar)
         {
             _plugin = plugin;
+            RespectCloseHotkey = false;
             Size = new Vector2(1000, 600);
             SizeCondition = ImGuiCond.FirstUseEver;
         }
@@ -2819,7 +2820,12 @@ namespace DragAndDropTexturing.Windows
 
             var localPlayer = _plugin.SafeGameObjectManager.LocalPlayer;
             if (localPlayer != null && localPlayer.Name.TextValue == charName)
+            {
+                var gposeChar = _plugin.SafeGameObjectManager[201] as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                if (gposeChar != null && gposeChar.IsValid())
+                    return gposeChar;
                 return localPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+            }
 
             foreach (var obj in _plugin.GetNearestObjects())
             {
@@ -2838,6 +2844,10 @@ namespace DragAndDropTexturing.Windows
 
         private Dalamud.Game.ClientState.Objects.Types.ICharacter ResolvePaintingTargetCharacter()
         {
+            var gposePlayer = _plugin.SafeGameObjectManager[201] as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+            if (gposePlayer != null && gposePlayer.IsValid())
+                return gposePlayer;
+
             if (TargetCharacter != null && TargetCharacter.IsValid())
                 return TargetCharacter;
 

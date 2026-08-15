@@ -41,6 +41,7 @@ public class MainWindow : Window, IDisposable
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
         };
         Plugin = plugin;
+        RespectCloseHotkey = false;
 
         var sheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Emote>();
         if (sheet != null)
