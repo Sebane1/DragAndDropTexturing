@@ -1124,7 +1124,7 @@ namespace RoleplayingVoice
                                 {
                                     if (selectedPlayerCollection != mainPlayerCollection ||
                                         selectedPlayer.Value == plugin.SafeGameObjectManager.LocalPlayer ||
-                                        selectedPlayer.Value.ObjectKind == ObjectKind.Companion)
+                                        selectedPlayer.Value.ObjectKind == ObjectKind.Companion || selectedPlayer.Value.ObjectIndex == 201)
                                     {
                                         ImGui.SetWindowFontScale(1.5f);
                                         string partName = bodyDragPart.ToString();
