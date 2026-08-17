@@ -263,7 +263,7 @@ public class MainWindow : Window, IDisposable
             }
             if (ImGui.BeginTabItem(Translator.LocalizeUI("Proteus Mods")))
             {
-                DrawPenumbraFoundMods();
+                DrawProteusFoundMods();
                 ImGui.EndTabItem();
             }
             if (ImGui.BeginTabItem(Translator.LocalizeUI("Animated Layers")))
@@ -303,8 +303,6 @@ public class MainWindow : Window, IDisposable
 
     private void DrawSettings()
     {
-        ImGui.Spacing();
-
         if (ImGui.Button(Translator.LocalizeUI("Re-Export All Textures")))
         {
             Plugin.DragAndDropTextures?.RebuildAllCategories();
@@ -352,202 +350,210 @@ public class MainWindow : Window, IDisposable
 
         ImGui.Spacing();
         ImGui.Separator();
-        ImGui.Text(Translator.LocalizeUI("Current Body Type Detection:"));
-        if ((DateTime.Now - _lastBodyTypeCheck).TotalSeconds > 5)
+        if (ImGui.BeginTabBar("Other Settings"))
         {
-            var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
-            if (localPlayer != null)
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Body Types And Detection")))
             {
-                var character = localPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
-                if (character != null)
+                ImGui.Text(Translator.LocalizeUI("Current Body Type Detection:"));
+                if ((DateTime.Now - _lastBodyTypeCheck).TotalSeconds > 5)
                 {
-                    var customization = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
-                    Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
-                    int gender = customization.Customize.Gender.Value;
-                    _cachedBodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, gender, out _cachedBodyModName, Plugin);
+                    var localPlayer = Plugin.SafeGameObjectManager.LocalPlayer;
+                    if (localPlayer != null)
+                    {
+                        var character = localPlayer as Dalamud.Game.ClientState.Objects.Types.ICharacter;
+                        if (character != null)
+                        {
+                            var customization = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.GetCustomization(character);
+                            Guid collectionId = PenumbraAndGlamourerIpcWrapper.Instance.GetCollectionForObject.Invoke(localPlayer.ObjectIndex).Item3.Id;
+                            int gender = customization.Customize.Gender.Value;
+                            _cachedBodyType = PenumbraAndGlamourerHelpers.PenumbraAndGlamourerHelperFunctions.DetectBaseBodyFromPenumbra(collectionId, gender, out _cachedBodyModName, Plugin);
+                        }
+                    }
+                    else
+                    {
+                        _cachedBodyType = -2;
+                    }
+                    _lastBodyTypeCheck = DateTime.Now;
                 }
-            }
-            else
-            {
-                _cachedBodyType = -2;
-            }
-            _lastBodyTypeCheck = DateTime.Now;
-        }
 
-        if (_cachedBodyType != -2)
-        {
-            string bodyString = "Vanilla / Unknown";
-            if (_cachedBodyType == 1) bodyString = "Bibo+";
-            else if (_cachedBodyType == 2) bodyString = "Gen3 / Eve / Pythia";
-            else if (_cachedBodyType == 3) bodyString = "TBSE";
-            else if (_cachedBodyType == 5) bodyString = "Otopop";
-
-            if (_cachedBodyType != -1)
-                ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected:") + $" {bodyString}");
-            else
-                ImGui.TextColored(new Vector4(1.0f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected: Vanilla (No body mod found)"));
-
-            if (!string.IsNullOrEmpty(_cachedBodyModName))
-            {
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), Translator.LocalizeUI("Detected From Mod:") + $" {_cachedBodyModName}");
-            }
-        }
-        else if (_cachedBodyType == -2)
-        {
-            ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), Translator.LocalizeUI("Player not loaded."));
-        }
-
-        ImGui.Spacing();
-        int fallbackBodyType = Plugin.Configuration.FallbackBodyType;
-        string[] fallbackOptions = { Translator.LocalizeUI("Auto-Detect (Default)"), Translator.LocalizeUI("Vanilla"), "Bibo+", "Gen3 / Eve / Pythia", "TBSE", "Otopop" };
-        if (ImGui.Combo(Translator.LocalizeUI("Manual Body Type Fallback"), ref fallbackBodyType, fallbackOptions, fallbackOptions.Length))
-        {
-            Plugin.Configuration.FallbackBodyType = fallbackBodyType;
-            Plugin.Configuration.Save();
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("Forces a specific body type to be used when automatic detection via Penumbra fails (e.g., if Penumbra connection issues occur)."));
-
-        ImGui.Separator();
-
-        ImGui.Spacing();
-
-        if (ImGui.Button(Translator.LocalizeUI("Open 3D Model Preview (Experimental)")))
-        {
-            Plugin.MdlPreviewWindow.IsOpen = !Plugin.MdlPreviewWindow.IsOpen;
-        }
-
-
-
-        ImGui.Spacing();
-        bool enableStacking = Plugin.Configuration.EnableTextureStacking;
-        if (ImGui.Checkbox(Translator.LocalizeUI("Enable Texture Stacking"), ref enableStacking))
-        {
-            Plugin.Configuration.EnableTextureStacking = enableStacking;
-            Plugin.Configuration.Save();
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("When enabled, dragging multiple textures over time will stack them (layering). When disabled, dragging a new texture replaces the previous one."));
-
-        ImGui.Spacing();
-        bool autoConvert = Plugin.Configuration.AutoUniversalConvert;
-        if (ImGui.Checkbox(Translator.LocalizeUI("Auto Universal Convert"), ref autoConvert))
-        {
-            Plugin.Configuration.AutoUniversalConvert = autoConvert;
-            Plugin.Configuration.Save();
-
-            var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null)
-            {
-                ddtForRebuild.RebuildAllCategories();
-            }
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("When enabled, textures are generated for all possible body types at once (Potentially slower generation)"));
-
-        ImGui.Spacing();
-        bool generateNormals = Plugin.Configuration.GenerateNormals;
-        if (ImGui.Checkbox(Translator.LocalizeUI("Generate Normals"), ref generateNormals))
-        {
-            Plugin.Configuration.GenerateNormals = generateNormals;
-            Plugin.Configuration.Save();
-
-            var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null)
-            {
-                ddtForRebuild.RebuildAllCategories();
-            }
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("When enabled, normal maps will be automatically generated from base textures if they are missing."));
-
-        ImGui.Spacing();
-        int exportQuality = Plugin.Configuration.ExportCompression;
-        string[] qualityOptions = { Translator.LocalizeUI("Speed (Uncompressed)"), Translator.LocalizeUI("High Quality (BC7 / Sync Friendly)") };
-        if (ImGui.Combo(Translator.LocalizeUI("Export Quality"), ref exportQuality, qualityOptions, qualityOptions.Length))
-        {
-            Plugin.Configuration.ExportCompression = exportQuality;
-            Plugin.Configuration.Save();
-
-            var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null)
-            {
-                ddtForRebuild.RebuildAllCategories();
-            }
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("Selects the texture quality used for exports. Speed is faster to generate but results in larger file sizes. High Quality (BC7) offers the lowest file sizes for Dawntrail, but is performance heavy."));
-
-        ImGui.Spacing();
-        float exportScale = Plugin.Configuration.ExportScale;
-        int scaleIndex = exportScale == 1.0f ? 0 : exportScale == 0.5f ? 1 : 2;
-        string[] scaleOptions = { Translator.LocalizeUI("100% (Native)"), Translator.LocalizeUI("50% (Half Resolution)"), Translator.LocalizeUI("25% (Quarter Resolution)") };
-        if (ImGui.Combo(Translator.LocalizeUI("Export Resolution"), ref scaleIndex, scaleOptions, scaleOptions.Length))
-        {
-            Plugin.Configuration.ExportScale = scaleIndex == 0 ? 1.0f : scaleIndex == 1 ? 0.5f : 0.25f;
-            Plugin.Configuration.Save();
-
-            var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null)
-            {
-                ddtForRebuild.RebuildAllCategories();
-            }
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("Downscales exported textures to save memory and file size at the cost of visual quality."));
-
-        ImGui.Spacing();
-        bool autoDistanceExportQuality = Plugin.Configuration.AutoDistanceExportQuality;
-        if (ImGui.Checkbox(Translator.LocalizeUI("Auto Distance Export Quality (Experimental)"), ref autoDistanceExportQuality))
-        {
-            Plugin.Configuration.AutoDistanceExportQuality = autoDistanceExportQuality;
-            Plugin.Configuration.Save();
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("Automatically scales the export resolution based on how close the camera is to your character during the drop."));
-
-        ImGui.Spacing();
-        var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
-        var locOptions = Translator.LocalizeTextArray(options);
-        int selectedIndex = Math.Max(0, Array.IndexOf(options, Plugin.Configuration.DefaultUnderlaySkinType));
-        if (ImGui.Combo(Translator.LocalizeUI("Default Underlay Skin Type"), ref selectedIndex, locOptions, locOptions.Length))
-        {
-            Plugin.Configuration.DefaultUnderlaySkinType = options[selectedIndex];
-            Plugin.Configuration.Save();
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("Selects the base skin underlay type when a custom transparent tattoo is dropped. If the character's base body doesn't support the specific skin variant, it will fall back to its own default."));
-
-        ImGui.Spacing();
-        bool usePriorityMod = Plugin.Configuration.UsePriorityBodyMod;
-        if (ImGui.Checkbox(Translator.LocalizeUI("Use Textures From Priority Body Mod"), ref usePriorityMod))
-        {
-            Plugin.Configuration.UsePriorityBodyMod = usePriorityMod;
-            FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = usePriorityMod;
-            Plugin.Configuration.Save();
-
-            var ddtForRebuild = Plugin.DragAndDropTextures;
-            if (ddtForRebuild != null)
-            {
-                ddtForRebuild.RebuildAllCategories();
-            }
-        }
-        ImGui.TextWrapped(Translator.LocalizeUI("When enabled, the compiler will scan your Penumbra modlist and automatically inherit the body texture of your highest priority active skin mod as the underlay for transparent overlays."));
-
-        if (usePriorityMod)
-        {
-            ImGui.Spacing();
-            ImGui.Text(Translator.LocalizeUI("Active Body Overrides:"));
-            ImGui.Indent();
-            var ddtForUI = Plugin.DragAndDropTextures;
-            if (ddtForUI != null && ddtForUI.ActiveBodyOverrides.Count > 0)
-            {
-                foreach (var kvp in ddtForUI.ActiveBodyOverrides)
+                if (_cachedBodyType != -2)
                 {
-                    ImGui.TextColored(new Vector4(0.5f, 0.8f, 1f, 1f), $"{kvp.Key}: {kvp.Value}");
+                    string bodyString = "Vanilla / Unknown";
+                    if (_cachedBodyType == 1) bodyString = "Bibo+";
+                    else if (_cachedBodyType == 2) bodyString = "Gen3 / Eve / Pythia";
+                    else if (_cachedBodyType == 3) bodyString = "TBSE";
+                    else if (_cachedBodyType == 5) bodyString = "Otopop";
+
+                    if (_cachedBodyType != -1)
+                        ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected:") + $" {bodyString}");
+                    else
+                        ImGui.TextColored(new Vector4(1.0f, 1.0f, 0.2f, 1.0f), Translator.LocalizeUI("Detected: Vanilla (No body mod found)"));
+
+                    if (!string.IsNullOrEmpty(_cachedBodyModName))
+                    {
+                        ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), Translator.LocalizeUI("Detected From Mod:") + $" {_cachedBodyModName}");
+                    }
                 }
+                else if (_cachedBodyType == -2)
+                {
+                    ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.0f, 1.0f), Translator.LocalizeUI("Player not loaded."));
+                }
+
+                ImGui.Spacing();
+                int fallbackBodyType = Plugin.Configuration.FallbackBodyType;
+                string[] fallbackOptions = { Translator.LocalizeUI("Auto-Detect (Default)"), Translator.LocalizeUI("Vanilla"), "Bibo+", "Gen3 / Eve / Pythia", "TBSE", "Otopop" };
+                if (ImGui.Combo(Translator.LocalizeUI("Manual Body Type Fallback"), ref fallbackBodyType, fallbackOptions, fallbackOptions.Length))
+                {
+                    Plugin.Configuration.FallbackBodyType = fallbackBodyType;
+                    Plugin.Configuration.Save();
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("Forces a specific body type to be used when automatic detection via Penumbra fails (e.g., if Penumbra connection issues occur)."));
+                ImGui.Spacing();
+                var options = FFXIVLooseTextureCompiler.Export.BackupTexturePaths.BiboSkinTypes.Select(x => x.Name).ToArray();
+                var locOptions = Translator.LocalizeTextArray(options);
+                int selectedIndex = Math.Max(0, Array.IndexOf(options, Plugin.Configuration.DefaultUnderlaySkinType));
+                if (ImGui.Combo(Translator.LocalizeUI("Default Underlay Skin Type"), ref selectedIndex, locOptions, locOptions.Length))
+                {
+                    Plugin.Configuration.DefaultUnderlaySkinType = options[selectedIndex];
+                    Plugin.Configuration.Save();
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("Selects the base skin underlay type when a custom transparent tattoo is dropped. If the character's base body doesn't support the specific skin variant, it will fall back to its own default."));
+                ImGui.EndTabItem();
             }
-            else
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Behaviour")))
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("None detected (or scan pending)"));
+                bool enableStacking = Plugin.Configuration.EnableTextureStacking;
+                if (ImGui.Checkbox(Translator.LocalizeUI("Enable Texture Stacking"), ref enableStacking))
+                {
+                    Plugin.Configuration.EnableTextureStacking = enableStacking;
+                    Plugin.Configuration.Save();
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("When enabled, dragging multiple textures over time will stack them (layering). When disabled, dragging a new texture replaces the previous one."));
+
+                ImGui.Spacing();
+                bool autoConvert = Plugin.Configuration.AutoUniversalConvert;
+                if (ImGui.Checkbox(Translator.LocalizeUI("Auto Universal Convert"), ref autoConvert))
+                {
+                    Plugin.Configuration.AutoUniversalConvert = autoConvert;
+                    Plugin.Configuration.Save();
+
+                    var ddtForRebuild = Plugin.DragAndDropTextures;
+                    if (ddtForRebuild != null)
+                    {
+                        ddtForRebuild.RebuildAllCategories();
+                    }
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("When enabled, textures are generated for all possible body types at once (Potentially slower generation)"));
+
+                ImGui.Spacing();
+                bool generateNormals = Plugin.Configuration.GenerateNormals;
+                if (ImGui.Checkbox(Translator.LocalizeUI("Generate Normals"), ref generateNormals))
+                {
+                    Plugin.Configuration.GenerateNormals = generateNormals;
+                    Plugin.Configuration.Save();
+
+                    var ddtForRebuild = Plugin.DragAndDropTextures;
+                    if (ddtForRebuild != null)
+                    {
+                        ddtForRebuild.RebuildAllCategories();
+                    }
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("When enabled, normal maps will be automatically generated from base textures if they are missing."));
+
+                bool usePriorityMod = Plugin.Configuration.UsePriorityBodyMod;
+                if (ImGui.Checkbox(Translator.LocalizeUI("Use Textures From Priority Body Mod"), ref usePriorityMod))
+                {
+                    Plugin.Configuration.UsePriorityBodyMod = usePriorityMod;
+                    FFXIVLooseTextureCompiler.Export.BackupTexturePaths.OverrideMode = usePriorityMod;
+                    Plugin.Configuration.Save();
+
+                    var ddtForRebuild = Plugin.DragAndDropTextures;
+                    if (ddtForRebuild != null)
+                    {
+                        ddtForRebuild.RebuildAllCategories();
+                    }
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("When enabled, the compiler will scan your Penumbra modlist and automatically inherit the body texture of your highest priority active skin mod as the underlay for transparent overlays."));
+
+                if (usePriorityMod)
+                {
+                    ImGui.Spacing();
+                    ImGui.Text(Translator.LocalizeUI("Active Body Overrides:"));
+                    ImGui.Indent();
+                    var ddtForUI = Plugin.DragAndDropTextures;
+                    if (ddtForUI != null && ddtForUI.ActiveBodyOverrides.Count > 0)
+                    {
+                        foreach (var kvp in ddtForUI.ActiveBodyOverrides)
+                        {
+                            ImGui.TextColored(new Vector4(0.5f, 0.8f, 1f, 1f), $"{kvp.Key}: {kvp.Value}");
+                        }
+                    }
+                    else
+                    {
+                        ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), Translator.LocalizeUI("None detected (or scan pending)"));
+                    }
+                    if (ImGui.Button(Translator.LocalizeUI("Scan For Overrides")))
+                    {
+                        ddtForUI?.RefreshActiveOverrides();
+                    }
+                    ImGui.Unindent();
+                }
+                ImGui.EndTabItem();
             }
-            if (ImGui.Button(Translator.LocalizeUI("Scan For Overrides")))
+
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Export")))
             {
-                ddtForUI?.RefreshActiveOverrides();
+                int exportQuality = Plugin.Configuration.ExportCompression;
+                string[] qualityOptions = { Translator.LocalizeUI("Speed (Uncompressed)"), Translator.LocalizeUI("High Quality (BC7 / Sync Friendly)") };
+                if (ImGui.Combo(Translator.LocalizeUI("Export Quality"), ref exportQuality, qualityOptions, qualityOptions.Length))
+                {
+                    Plugin.Configuration.ExportCompression = exportQuality;
+                    Plugin.Configuration.Save();
+
+                    var ddtForRebuild = Plugin.DragAndDropTextures;
+                    if (ddtForRebuild != null)
+                    {
+                        ddtForRebuild.RebuildAllCategories();
+                    }
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("Selects the texture quality used for exports. Speed is faster to generate but results in larger file sizes. High Quality (BC7) offers the lowest file sizes for Dawntrail, but is performance heavy."));
+
+                ImGui.Spacing();
+                float exportScale = Plugin.Configuration.ExportScale;
+                int scaleIndex = exportScale == 1.0f ? 0 : exportScale == 0.5f ? 1 : 2;
+                string[] scaleOptions = { Translator.LocalizeUI("100% (Native)"), Translator.LocalizeUI("50% (Half Resolution)"), Translator.LocalizeUI("25% (Quarter Resolution)") };
+                if (ImGui.Combo(Translator.LocalizeUI("Export Resolution"), ref scaleIndex, scaleOptions, scaleOptions.Length))
+                {
+                    Plugin.Configuration.ExportScale = scaleIndex == 0 ? 1.0f : scaleIndex == 1 ? 0.5f : 0.25f;
+                    Plugin.Configuration.Save();
+
+                    var ddtForRebuild = Plugin.DragAndDropTextures;
+                    if (ddtForRebuild != null)
+                    {
+                        ddtForRebuild.RebuildAllCategories();
+                    }
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("Downscales exported textures to save memory and file size at the cost of visual quality."));
+
+                ImGui.Spacing();
+                bool autoDistanceExportQuality = Plugin.Configuration.AutoDistanceExportQuality;
+                if (ImGui.Checkbox(Translator.LocalizeUI("Auto Distance Export Quality (Experimental)"), ref autoDistanceExportQuality))
+                {
+                    Plugin.Configuration.AutoDistanceExportQuality = autoDistanceExportQuality;
+                    Plugin.Configuration.Save();
+                }
+                ImGui.TextWrapped(Translator.LocalizeUI("Automatically scales the export resolution based on how close the camera is to your character during the drop."));
+                ImGui.EndTabItem();
             }
-            ImGui.Unindent();
+            if (ImGui.BeginTabItem(Translator.LocalizeUI("Debug")))
+            {
+                if (ImGui.Button(Translator.LocalizeUI("Open 3D Model Preview (Experimental)")))
+                {
+                    Plugin.MdlPreviewWindow.IsOpen = !Plugin.MdlPreviewWindow.IsOpen;
+                }
+                ImGui.EndTabItem();
+            }
+            ImGui.EndTabBar();
         }
     }
 
@@ -689,7 +695,7 @@ public class MainWindow : Window, IDisposable
         }
     }
 
-    private void DrawPenumbraFoundMods()
+    private void DrawProteusFoundMods()
     {
         ImGui.Spacing();
         ImGui.TextWrapped(Translator.LocalizeUI("Proteus overlay mods discovered from Penumbra. Use Colors to edit the full 1–16 color table (index maps use multiple rows; overlays without an index mainly use row 16). Simple Tint/Emissive are optional extras on top of baked rows."));
@@ -722,7 +728,7 @@ public class MainWindow : Window, IDisposable
         bool changed = false;
         string rebuildCategory = null;
 
-        if (ImGui.BeginTable("PenumbraFoundModsTable", 7, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        if (ImGui.BeginTable("ProteusFoundModsTable", 7, ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {
             ImGui.TableSetupColumn(Translator.LocalizeUI("Mod Name"), ImGuiTableColumnFlags.WidthFixed, 200);
             ImGui.TableSetupColumn(Translator.LocalizeUI("Part"), ImGuiTableColumnFlags.WidthFixed, 70);
@@ -759,12 +765,6 @@ public class MainWindow : Window, IDisposable
                     ImGui.SameLine();
                     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 5);
                 }
-
-                //ImGui.Text(fileName);
-                //if (!string.IsNullOrEmpty(overlay.DiffusePath) && ImGui.IsItemHovered())
-                //{
-                //    ImGui.SetTooltip(overlay.DiffusePath);
-                //}
 
                 ImGui.TableNextColumn();
                 string overlayKey = ProteusColorTableHelper.GetOverlayKey(overlay);
@@ -1392,7 +1392,7 @@ public class MainWindow : Window, IDisposable
                 if (_selectedPresetIndex == -1)
                 {
                     ImGui.SameLine();
-                    if (ImGui.Button(Translator.LocalizeUI("Re-Export") + "##reexport_" + key))
+                    if (ImGui.Button(Translator.LocalizeUI("Export to Penumbra") + "##reexport_" + key))
                     {
                         ddt.RebuildCategory(key, false);
                         Plugin.Chat?.Print($"[Drag And Drop Texturing] Re-exporting: {key}");
